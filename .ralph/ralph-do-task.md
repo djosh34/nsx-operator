@@ -48,6 +48,7 @@ EOF_APPEND_PROGRESS_LOG
         - [ ] include summary of what was done in commit message (evidence for tests completing, challenges faced during
           implementation)
         - [ ] You must add all files. Make sure to properly gitignore where it makes sense. You MUST also add/commit all files (also in .ralph) even if you didn't create/update them
+    - [ ] git push
     - [ ] QUIT IMMEDIATELY
 
 
