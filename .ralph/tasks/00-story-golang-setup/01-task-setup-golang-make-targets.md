@@ -1,4 +1,4 @@
-## Task: Setup Golang Make Targets <status>not_started</status> <passes>false</passes>
+## Task: Setup Golang Make Targets <status>done</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
@@ -18,12 +18,88 @@ Out of scope: implementing operator business logic, CRDs, controllers, NSX clien
 </description>
 
 <acceptance_criteria>
-- [ ] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
-- [ ] The verification evidence is recorded in the task or linked artifact.
-- [ ] Completion is not based only on a shallow checkbox, assumption, or code inspection.
-- [ ] `make lint` exists, runs `gofumpt`, runs `golangci-lint`, and exits successfully in this repository.
-- [ ] The golangci-lint installation or bootstrap method follows the official golangci-lint documentation, and the exact method used is recorded in the verification evidence.
-- [ ] `make test` exists, runs the repository Go tests, and exits successfully.
-- [ ] `make test-coverage` exists, runs tests with coverage, exits successfully, prints the coverage result to stdout only, and does not write any coverage file anywhere.
-- [ ] The verification evidence records the stdout coverage summary and shows that the target did not create a coverage profile, coverage report, temporary coverage artifact, or any other coverage output file.
+- [x] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
+- [x] The verification evidence is recorded in the task or linked artifact.
+- [x] Completion is not based only on a shallow checkbox, assumption, or code inspection.
+- [x] `make lint` exists, runs `gofumpt`, runs `golangci-lint`, and exits successfully in this repository.
+- [x] The golangci-lint installation or bootstrap method follows the official golangci-lint documentation, and the exact method used is recorded in the verification evidence.
+- [x] `make test` exists, runs the repository Go tests, and exits successfully.
+- [x] `make test-coverage` exists, runs tests with coverage, exits successfully, prints the coverage result to stdout only, and does not write any coverage file anywhere.
+- [x] The verification evidence records the stdout coverage summary and shows that the target did not create a coverage profile, coverage report, temporary coverage artifact, or any other coverage output file.
 </acceptance_criteria>
+
+<plan>
+.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets_plans/plan-20260518-golang-make-targets.md
+</plan>
+
+NOW EXECUTE
+
+<verification_evidence>
+Date: 2026-05-18
+
+Official golangci-lint documentation consulted:
+- `https://golangci-lint.run/docs/welcome/install/local/`
+- Documentation last updated 2026-05-15.
+- The local installation page recommends binary installation and shows `curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2`.
+
+Bootstrap method used by `make lint`:
+
+```bash
+curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin v2.12.2
+```
+
+Installed tool versions:
+
+```text
+golangci-lint has version 2.12.2 built with go1.26.2 from c0d3ddc9 on 2026-05-06T11:07:58Z
+gofumpt v0.10.0 (go1.26.3)
+```
+
+`make lint` evidence:
+
+```text
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/gofumpt -w .
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/golangci-lint run ./...
+0 issues.
+```
+
+`make test` evidence:
+
+```text
+go test ./...
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)
+```
+
+`make test-coverage` evidence:
+
+```text
+go test -cover ./...
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)	coverage: 100.0% of statements
+```
+
+Coverage artifact check:
+
+```bash
+find . -path ./.git -prune -o -path ./.bin -prune -o -type f \( -name '*coverage*' -o -name '*.cover' -o -name '*.cov' -o -name '*.prof' -o -name '*.out' \) -print | sort
+```
+
+Output before `make test-coverage`: empty.
+Output after `make test-coverage`: empty.
+
+`make check` evidence:
+
+```text
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/gofumpt -w .
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/golangci-lint run ./...
+0 issues.
+go test ./...
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	0.002s
+go test -cover ./...
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	0.002s	coverage: 100.0% of statements
+```
+
+Final boundary review:
+- The setup boundary is flat: `Makefile` owns developer commands, `.bin/` owns ignored local tool binaries, and `internal/buildinfo` owns only project identity.
+- No controller, NSX, Kubernetes, DTO, logging, or generated scaffolding was introduced before the later stories need it.
+- The only Go package is coverage-bearing and behavior-tested through its public interface.
+</verification_evidence>
