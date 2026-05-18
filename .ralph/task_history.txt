@@ -4,3 +4,4 @@
 .ralph/tasks/03-story-http-rate-limiter/01-task-implement-generic-http-rate-limiter.md
 .ralph/tasks/04-story-nsx-client/01-task-implement-nsx-manager-client.md
 .ralph/tasks/06-story-api-types-crds/01-task-add-api-types-and-crd-manifests.md
+.ralph/tasks/05-story-kubeapi-client/01-task-implement-typed-kubeapi-client.md
