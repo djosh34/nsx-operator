@@ -1,17 +1,6 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 12:35:26 AM CEST 2026
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/04-story-nsx-client/01-task-implement-nsx-manager-client.md`
-
-```
-## Task: Implement Typed NSX Manager API Client <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
+Generated: Tue May 19 01:00:52 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/05-story-kubeapi-client/01-task-implement-typed-kubeapi-client.md`
 
