@@ -1,22 +1,11 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 01:00:52 CEST 2026
+Generated: Tue May 19 01:17:37 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/05-story-kubeapi-client/01-task-implement-typed-kubeapi-client.md`
 
 ```
 ## Task: Implement Typed Kubernetes CRD Client <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/06-story-api-types-crds/01-task-add-api-types-and-crd-manifests.md`
-
-```
-## Task: Add API Go Types And CRD Manifests <status>not_started</status> <passes>false</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

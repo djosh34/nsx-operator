@@ -1,0 +1,108 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nsxnetworkclouds.nsx.ing.com
+spec:
+  group: nsx.ing.com
+  scope: Cluster
+  names:
+    plural: nsxnetworkclouds
+    singular: nsxnetworkcloud
+    kind: NSXNetworkCloud
+    listKind: NSXNetworkCloudList
+    shortNames:
+      - nsxnc
+  versions:
+    - name: v1alpha
+      served: true
+      storage: true
+      selectableFields:
+        - jsonPath: .spec.networkCloudFQDN
+        - jsonPath: .spec.networkCloudId
+      additionalPrinterColumns:
+        - name: FQDN
+          type: string
+          jsonPath: .spec.networkCloudFQDN
+        - name: CloudID
+          type: string
+          jsonPath: .spec.networkCloudId
+        - name: DisplayName
+          type: string
+          jsonPath: .spec.name
+        - name: Reachable
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Reachable")].status
+        - name: Swept
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Swept")].status
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: NSXNetworkCloud represents one NSX manager/network cloud swept by the operator.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - networkCloudFQDN
+                - networkCloudId
+                - name
+              properties:
+                networkCloudFQDN:
+                  type: string
+                  description: DNS name or DNS name with port of the NSX manager/network cloud endpoint. Used for identity and HTTPS base URL.
+                networkCloudId:
+                  type: string
+                  description: Stable network-cloud identifier from the surrounding platform.
+                name:
+                  type: string
+                  description: Human-readable display name.
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  description: Kubernetes-style conditions. No status fields other than conditions are used.
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - type
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                        enum:
+                          - Reachable
+                          - Swept
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

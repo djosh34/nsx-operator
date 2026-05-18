@@ -1,0 +1,135 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nsxgroups.nsx.ing.com
+spec:
+  group: nsx.ing.com
+  scope: Cluster
+  names:
+    plural: nsxgroups
+    singular: nsxgroup
+    kind: NSXGroup
+    listKind: NSXGroupList
+    shortNames:
+      - nsxg
+  versions:
+    - name: v1alpha
+      served: true
+      storage: true
+      selectableFields:
+        - jsonPath: .spec.networkCloudFQDN
+        - jsonPath: .spec.groupID
+        - jsonPath: .spec.mode
+      additionalPrinterColumns:
+        - name: FQDN
+          type: string
+          jsonPath: .spec.networkCloudFQDN
+        - name: GroupID
+          type: string
+          jsonPath: .spec.groupID
+        - name: Mode
+          type: string
+          jsonPath: .spec.mode
+        - name: Synced
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Synced")].status
+        - name: Realized
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Realized")].status
+        - name: Unsupported
+          type: string
+          jsonPath: .status.conditions[?(@.type=="UnsupportedExpression")].status
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: NSXGroup represents one NSX Policy Group in NSX domain default.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - networkCloudFQDN
+                - groupID
+                - display_name
+                - mode
+                - cidrs
+              properties:
+                networkCloudFQDN:
+                  type: string
+                  description: NSXNetworkCloud FQDN. This plus groupID is the NSXGroup logical identity.
+                groupID:
+                  type: string
+                  description: NSX Policy Group id under domain default.
+                display_name:
+                  type: string
+                  description: NSX Group display_name. This is not derived from groupID.
+                mode:
+                  type: string
+                  enum:
+                    - Observe
+                    - Manage
+                  description: Observe mirrors NSX into Kubernetes. Manage makes NSX match Kubernetes spec.
+                cidrs:
+                  type: array
+                  description: Array of static IP membership strings. Each item maps one-to-one and unchanged to NSX IPAddressExpression.ip_addresses.
+                  x-kubernetes-list-type: set
+                  items:
+                    type: string
+                segment_path:
+                  type: string
+                  nullable: true
+                  description: Nullable NSX segment policy path. When set, it maps to one NSX PathExpression with one segment path. Valid only together with non-empty cidrs.
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  description: Kubernetes-style conditions. Status is conditions only; no remote objects, fingerprints, revisions, or duplicate synced fields.
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - type
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                        enum:
+                          - RemotePresent
+                          - SpecMatchesRemote
+                          - UnsupportedExpression
+                          - Realized
+                          - Synced
+                          - Applying
+                          - Deleting
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

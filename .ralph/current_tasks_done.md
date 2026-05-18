@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 01:00:52 CEST 2026
+Generated: Tue May 19 01:17:37 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -50,6 +50,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Implement Typed NSX Manager API Client <status>completed</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/06-story-api-types-crds/01-task-add-api-types-and-crd-manifests.md`
+
+```
+## Task: Add API Go Types And CRD Manifests <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
