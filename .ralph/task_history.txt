@@ -1,1 +1,2 @@
 .ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md
+.ralph/tasks/01-story-config-module/01-task-implement-config-module.md
