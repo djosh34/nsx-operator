@@ -3,68 +3,89 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/djosh34/nsx-operator/internal/config"
+	"github.com/djosh34/nsx-operator/internal/logging"
 	"github.com/djosh34/nsx-operator/internal/startup"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
+var newStderrLogger = logging.NewStderr
+
 func run(args []string) int {
+	bootstrapLogger, err := newStderrLogger("info")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "construct bootstrap logger: %v\n", err)
+		return 1
+	}
+
 	flagSet := flag.NewFlagSet("nsx-operator", flag.ContinueOnError)
-	flagSet.SetOutput(os.Stderr)
+	flagSet.SetOutput(io.Discard)
 	configPath := flagSet.String("config", "", "path to operator config YAML")
 	if err := flagSet.Parse(args); err != nil {
-		fmt.Fprintf(os.Stderr, "parse flags: %v\n", err)
+		bootstrapLogger.Info("startup failed", logging.Component("cmd"), zap.Error(fmt.Errorf("parse flags: %w", err)))
+		if syncErr := bootstrapLogger.Sync(); syncErr != nil {
+			fmt.Fprintf(os.Stderr, "sync logger: %v\n", syncErr)
+		}
 		return 2
 	}
 
-	logger := newStderrJSONLogger()
 	if *configPath == "" {
-		logger.Info("startup failed", zap.Error(fmt.Errorf("config path is required")))
-		if err := logger.Sync(); err != nil {
+		bootstrapLogger.Info("startup failed", logging.Component("cmd"), zap.Error(fmt.Errorf("config path is required")))
+		if err := bootstrapLogger.Sync(); err != nil {
 			fmt.Fprintf(os.Stderr, "sync logger: %v\n", err)
 		}
 		return 2
 	}
 
-	err := startup.Run(startup.Options{
+	runtimeLogger := bootstrapLogger
+	err = startup.Run(startup.Options{
 		Config: config.Options{
 			Path:    *configPath,
 			Environ: environMap(os.Environ()),
 		},
-		Logger: logger,
+		BootstrapLogger: bootstrapLogger,
+		LoggerFactory: func(loggingConfig config.LoggingConfig) (*zap.Logger, error) {
+			logger, err := newStderrLogger(loggingConfig.Level)
+			if err != nil {
+				return nil, err
+			}
+			runtimeLogger = logger
+			return logger, nil
+		},
 	})
 	if err != nil {
-		logger.Info("startup failed", zap.Error(err))
-		if syncErr := logger.Sync(); syncErr != nil {
+		bootstrapLogger.Info("startup failed", logging.Component("cmd"), zap.Error(err))
+		if runtimeLogger != bootstrapLogger {
+			if syncErr := runtimeLogger.Sync(); syncErr != nil {
+				fmt.Fprintf(os.Stderr, "sync logger: %v\n", syncErr)
+			}
+		}
+		if syncErr := bootstrapLogger.Sync(); syncErr != nil {
 			fmt.Fprintf(os.Stderr, "sync logger: %v\n", syncErr)
 		}
 		return 1
 	}
 
-	logger.Info("operator process exiting")
-	if err := logger.Sync(); err != nil {
+	runtimeLogger.Info("operator process exiting", logging.Component("cmd"))
+	if err := runtimeLogger.Sync(); err != nil {
 		fmt.Fprintf(os.Stderr, "sync logger: %v\n", err)
 		return 1
 	}
+	if runtimeLogger != bootstrapLogger {
+		if err := bootstrapLogger.Sync(); err != nil {
+			fmt.Fprintf(os.Stderr, "sync logger: %v\n", err)
+			return 1
+		}
+	}
 	return 0
-}
-
-func newStderrJSONLogger() *zap.Logger {
-	encoderConfig := zap.NewProductionEncoderConfig()
-	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(encoderConfig),
-		stderrWriteSyncer{},
-		zap.DebugLevel,
-	)
-	return zap.New(core)
 }
 
 func environMap(values []string) map[string]string {
@@ -77,18 +98,4 @@ func environMap(values []string) map[string]string {
 		environ[name] = environmentValue
 	}
 	return environ
-}
-
-type stderrWriteSyncer struct{}
-
-func (stderrWriteSyncer) Write(p []byte) (int, error) {
-	written, err := os.Stderr.Write(p)
-	if err != nil {
-		return written, fmt.Errorf("write stderr log: %w", err)
-	}
-	return written, nil
-}
-
-func (stderrWriteSyncer) Sync() error {
-	return nil
 }
