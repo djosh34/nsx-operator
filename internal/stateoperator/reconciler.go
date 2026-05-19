@@ -585,7 +585,25 @@ func writeDisabledConfigName(reason nsxclient.WriteDisabledReason) string {
 }
 
 func (r GroupReconciler) updateGroupStatus(ctx context.Context, group *nsxv1alpha.NSXGroup, status nsxv1alpha.NSXGroupStatus) error {
+	logger := r.Logger
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	decision := statuscondition.CompareGroupStatus(group.Status, status)
+	statusDecision := statusWriteLogDecision{
+		ResourceKind:     "NSXGroup",
+		ResourceName:     group.Name,
+		NetworkCloudFQDN: group.Spec.NetworkCloudFQDN,
+		GroupID:          group.Spec.GroupID,
+		Decision:         decision,
+	}
+	fields := appendStatusWriteDecisionFields(nil, statusDecision)
+	logger.Debug("group status write decision", fields...)
+	if !decision.Needed {
+		return nil
+	}
 	group.Status = status
+	logger.Info("updating group status", fields...)
 	if err := r.Client.Status().Update(ctx, group); err != nil {
 		return err
 	}

@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 23:56:47 CEST 2026
+Generated: Wed May 20 12:25:10 AM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -373,6 +373,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Expose Unsupported Expression Reason Enum in NSXGroup Status <status>completed</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/33-story-reconcile-write-efficiency/01-task-stop-unneeded-status-update-churn.md`
+
+```
+## Task: Stop Unneeded Status Update Churn <status>not_started</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

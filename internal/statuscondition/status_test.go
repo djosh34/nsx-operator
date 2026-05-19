@@ -308,6 +308,88 @@ func TestBuildNetworkCloudStatusOrdersCloudConditions(t *testing.T) {
 	}
 }
 
+func TestCompareGroupStatusDetectsMeaningfulDrift(t *testing.T) {
+	now := time.Date(2026, 5, 19, 10, 30, 0, 0, time.UTC)
+	desired, err := statuscondition.BuildGroupStatus(
+		nsxv1alpha.NSXGroupStatus{},
+		8,
+		now,
+		statuscondition.RemotePresent(metav1.ConditionTrue, "RemoteFound", "remote NSX group is present"),
+		statuscondition.UnsupportedExpression(metav1.ConditionFalse, "SupportedExpression", "remote NSX group expression is representable"),
+	)
+	if err != nil {
+		t.Fatalf("BuildGroupStatus() error = %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		mutate     func(*nsxv1alpha.NSXGroupStatus)
+		wantReason string
+	}{
+		{
+			name: "unsupported reason",
+			mutate: func(status *nsxv1alpha.NSXGroupStatus) {
+				status.UnsupportedReason = nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType
+			},
+			wantReason: "unsupported_reason_changed",
+		},
+		{
+			name: "condition status",
+			mutate: func(status *nsxv1alpha.NSXGroupStatus) {
+				status.Conditions[0].Status = metav1.ConditionFalse
+			},
+			wantReason: "condition_status_changed",
+		},
+		{
+			name: "condition reason",
+			mutate: func(status *nsxv1alpha.NSXGroupStatus) {
+				status.Conditions[0].Reason = "StaleReason"
+			},
+			wantReason: "condition_reason_changed",
+		},
+		{
+			name: "condition message",
+			mutate: func(status *nsxv1alpha.NSXGroupStatus) {
+				status.Conditions[0].Message = "stale message"
+			},
+			wantReason: "condition_message_changed",
+		},
+		{
+			name: "observed generation",
+			mutate: func(status *nsxv1alpha.NSXGroupStatus) {
+				status.Conditions[0].ObservedGeneration = 7
+			},
+			wantReason: "condition_observed_generation_changed",
+		},
+		{
+			name: "last transition time",
+			mutate: func(status *nsxv1alpha.NSXGroupStatus) {
+				status.Conditions[0].LastTransitionTime = metav1.NewTime(now.Add(-time.Hour))
+			},
+			wantReason: "condition_last_transition_time_changed",
+		},
+	}
+
+	equalDecision := statuscondition.CompareGroupStatus(desired, desired)
+	if equalDecision.Needed || equalDecision.Reason != "status_equal" {
+		t.Fatalf("CompareGroupStatus() equal decision = %#v, want status_equal with no write", equalDecision)
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			current := desired
+			current.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
+			tt.mutate(&current)
+			decision := statuscondition.CompareGroupStatus(current, desired)
+			if !decision.Needed || decision.Reason != tt.wantReason {
+				t.Fatalf("CompareGroupStatus() = %#v, want needed reason %q", decision, tt.wantReason)
+			}
+			if len(decision.DriftFields) == 0 {
+				t.Fatalf("CompareGroupStatus() DriftFields empty for %s", tt.name)
+			}
+		})
+	}
+}
+
 func conditionTypes(conditions []metav1.Condition) []string {
 	types := make([]string, 0, len(conditions))
 	for _, condition := range conditions {

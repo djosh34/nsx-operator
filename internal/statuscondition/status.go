@@ -15,6 +15,12 @@ type ConditionUpdate struct {
 	Message string
 }
 
+type StatusWriteDecision struct {
+	Needed      bool
+	Reason      string
+	DriftFields []string
+}
+
 func RemotePresent(status metav1.ConditionStatus, reason string, message string) ConditionUpdate {
 	return ConditionUpdate{Type: nsxv1alpha.ConditionRemotePresent, Status: status, Reason: reason, Message: message}
 }
@@ -100,6 +106,17 @@ func BuildNetworkCloudStatus(
 	return nsxv1alpha.NSXNetworkCloudStatus{Conditions: conditions}, nil
 }
 
+func CompareGroupStatus(current nsxv1alpha.NSXGroupStatus, desired nsxv1alpha.NSXGroupStatus) StatusWriteDecision {
+	if current.UnsupportedReason != desired.UnsupportedReason {
+		return StatusWriteDecision{Needed: true, Reason: "unsupported_reason_changed", DriftFields: []string{"unsupportedReason"}}
+	}
+	return compareConditions(current.Conditions, desired.Conditions)
+}
+
+func CompareNetworkCloudStatus(current nsxv1alpha.NSXNetworkCloudStatus, desired nsxv1alpha.NSXNetworkCloudStatus) StatusWriteDecision {
+	return compareConditions(current.Conditions, desired.Conditions)
+}
+
 var groupConditionOrder = []string{
 	nsxv1alpha.ConditionRemotePresent,
 	nsxv1alpha.ConditionSpecMatchesRemote,
@@ -113,6 +130,35 @@ var groupConditionOrder = []string{
 var cloudConditionOrder = []string{
 	nsxv1alpha.ConditionReachable,
 	nsxv1alpha.ConditionSwept,
+}
+
+func compareConditions(current []metav1.Condition, desired []metav1.Condition) StatusWriteDecision {
+	if len(current) != len(desired) {
+		return StatusWriteDecision{Needed: true, Reason: "condition_count_changed", DriftFields: []string{"conditions"}}
+	}
+	for index := range current {
+		currentCondition := current[index]
+		desiredCondition := desired[index]
+		if currentCondition.Type != desiredCondition.Type {
+			return StatusWriteDecision{Needed: true, Reason: "condition_type_changed", DriftFields: []string{"conditions.type"}}
+		}
+		if currentCondition.Status != desiredCondition.Status {
+			return StatusWriteDecision{Needed: true, Reason: "condition_status_changed", DriftFields: []string{"conditions.status"}}
+		}
+		if currentCondition.Reason != desiredCondition.Reason {
+			return StatusWriteDecision{Needed: true, Reason: "condition_reason_changed", DriftFields: []string{"conditions.reason"}}
+		}
+		if currentCondition.Message != desiredCondition.Message {
+			return StatusWriteDecision{Needed: true, Reason: "condition_message_changed", DriftFields: []string{"conditions.message"}}
+		}
+		if currentCondition.ObservedGeneration != desiredCondition.ObservedGeneration {
+			return StatusWriteDecision{Needed: true, Reason: "condition_observed_generation_changed", DriftFields: []string{"conditions.observedGeneration"}}
+		}
+		if !currentCondition.LastTransitionTime.Equal(&desiredCondition.LastTransitionTime) {
+			return StatusWriteDecision{Needed: true, Reason: "condition_last_transition_time_changed", DriftFields: []string{"conditions.lastTransitionTime"}}
+		}
+	}
+	return StatusWriteDecision{Needed: false, Reason: "status_equal"}
 }
 
 func buildConditions(

@@ -34,3 +34,4 @@ NONE
 .ralph/tasks/27-story-cr-cleanup-script/01-task-add-delete-all-crs-script.md
 .ralph/tasks/31-story-multiple-segment-paths/01-task-support-multiple-segment-paths-in-nsxgroup-spec.md
 .ralph/tasks/32-story-unsupported-reason-enum/01-task-expose-unsupported-expression-reason-enum.md
+.ralph/tasks/33-story-reconcile-write-efficiency/01-task-stop-unneeded-status-update-churn.md

@@ -13,6 +13,7 @@ import (
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
 	"github.com/djosh34/nsx-operator/internal/stateoperator"
+	"github.com/djosh34/nsx-operator/internal/statuscondition"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -617,6 +618,100 @@ func TestGroupReconcileManageAppliesNSXStatusFinalizerAndDoesNotRequeue(t *testi
 	requireObservedGeneration(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, 7)
 }
 
+func TestGroupReconcileManageSkipsAlreadyCorrectApplyStatusUpdate(t *testing.T) {
+	now := time.Date(2026, 5, 19, 1, 20, 0, 0, time.UTC)
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
+	group.Generation = 7
+	group.Finalizers = []string{stateoperator.GroupFinalizer}
+	group.Status = manageApplySubmittedStatusForTest(t, group.Generation, now)
+	recorder := &operationRecorder{}
+	core, logs := observer.New(zapcore.DebugLevel)
+
+	scheme := newScheme(t)
+	baseClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&nsxv1alpha.NSXGroup{}).
+		WithObjects(cloud, group).
+		Build()
+	countingClient := newStatusUpdateCountingClient(baseClient)
+	reconciler := stateoperator.GroupReconciler{
+		Client: countingClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock:  newManualClock(now),
+		Logger: zap.New(core),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	if got := countingClient.statusUpdateCount(); got != 0 {
+		t.Fatalf("Status().Update calls = %d, want 0 for already-correct apply status", got)
+	}
+	wantOperations := []string{"patch-group:group-a", "add-ip:group-a:cidrs"}
+	if !reflect.DeepEqual(recorder.operations, wantOperations) {
+		t.Fatalf("NSX operations = %v, want %v", recorder.operations, wantOperations)
+	}
+	requireLogField(t, logs, "group status write decision", "resourceKind", "NSXGroup")
+	requireLogField(t, logs, "group status write decision", "groupName", "group-a")
+	requireLogField(t, logs, "group status write decision", "networkCloudFQDN", "nsx-a.example.test")
+	requireLogField(t, logs, "group status write decision", "groupID", "group-a")
+	requireLogField(t, logs, "group status write decision", "statusWriteReason", "status_equal")
+	requireLogBoolField(t, logs, "group status write decision", "statusWriteNeeded", false)
+}
+
+func TestGroupReconcileManageWritesStaleApplyStatusOnce(t *testing.T) {
+	now := time.Date(2026, 5, 19, 1, 25, 0, 0, time.UTC)
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
+	group.Generation = 7
+	group.Finalizers = []string{stateoperator.GroupFinalizer}
+	group.Status = manageApplySubmittedStatusForTest(t, group.Generation, now)
+	group.Status.Conditions[0].Reason = "StaleReason"
+	recorder := &operationRecorder{}
+
+	scheme := newScheme(t)
+	baseClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&nsxv1alpha.NSXGroup{}).
+		WithObjects(cloud, group).
+		Build()
+	countingClient := newStatusUpdateCountingClient(baseClient)
+	reconciler := stateoperator.GroupReconciler{
+		Client: countingClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	if got := countingClient.statusUpdateCount(); got != 1 {
+		t.Fatalf("Status().Update calls = %d, want exactly 1 for stale apply status", got)
+	}
+	var updated nsxv1alpha.NSXGroup
+	if err := countingClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionTrue, "Applying", "managed NSX group apply was submitted", now)
+}
+
 func TestGroupReconcileManageDeletionDeletesNSXStatusKeepsFinalizerAndDoesNotRequeue(t *testing.T) {
 	now := time.Date(2026, 5, 19, 1, 30, 0, 0, time.UTC)
 	deletionTime := metav1.NewTime(now)
@@ -667,6 +762,96 @@ func TestGroupReconcileManageDeletionDeletesNSXStatusKeepsFinalizerAndDoesNotReq
 	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "Deleting", "managed NSX group delete is awaiting sweep confirmation", now)
 	requireObservedGeneration(t, updated.Status.Conditions, nsxv1alpha.ConditionDeleting, 8)
 	requireObservedGeneration(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, 8)
+}
+
+func TestGroupReconcileManageDeleteSkipsAlreadyCorrectDeleteStatusUpdate(t *testing.T) {
+	now := time.Date(2026, 5, 19, 1, 35, 0, 0, time.UTC)
+	deletionTime := metav1.NewTime(now)
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
+	group.Generation = 8
+	group.Finalizers = []string{stateoperator.GroupFinalizer}
+	group.DeletionTimestamp = &deletionTime
+	group.Status = manageDeleteSubmittedStatusForTest(t, group.Generation, now)
+	recorder := &operationRecorder{}
+
+	scheme := newScheme(t)
+	baseClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&nsxv1alpha.NSXGroup{}).
+		WithObjects(cloud, group).
+		Build()
+	countingClient := newStatusUpdateCountingClient(baseClient)
+	reconciler := stateoperator.GroupReconciler{
+		Client: countingClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	if got := countingClient.statusUpdateCount(); got != 0 {
+		t.Fatalf("Status().Update calls = %d, want 0 for already-correct delete status", got)
+	}
+	wantOperations := []string{"delete-group:group-a"}
+	if !reflect.DeepEqual(recorder.operations, wantOperations) {
+		t.Fatalf("NSX operations = %v, want %v", recorder.operations, wantOperations)
+	}
+}
+
+func TestGroupReconcileManageDeleteWritesStaleDeleteStatusOnce(t *testing.T) {
+	now := time.Date(2026, 5, 19, 1, 40, 0, 0, time.UTC)
+	deletionTime := metav1.NewTime(now)
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
+	group.Generation = 8
+	group.Finalizers = []string{stateoperator.GroupFinalizer}
+	group.DeletionTimestamp = &deletionTime
+	group.Status = manageDeleteSubmittedStatusForTest(t, group.Generation, now)
+	group.Status.Conditions[0].Message = "stale delete message"
+	recorder := &operationRecorder{}
+
+	scheme := newScheme(t)
+	baseClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&nsxv1alpha.NSXGroup{}).
+		WithObjects(cloud, group).
+		Build()
+	countingClient := newStatusUpdateCountingClient(baseClient)
+	reconciler := stateoperator.GroupReconciler{
+		Client: countingClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	if got := countingClient.statusUpdateCount(); got != 1 {
+		t.Fatalf("Status().Update calls = %d, want exactly 1 for stale delete status", got)
+	}
+	var updated nsxv1alpha.NSXGroup
+	if err := countingClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionTrue, "Deleting", "managed NSX group delete was submitted", now)
 }
 
 func TestGroupReconcileManageConflictSetsConditionsAndDoesNotRequeue(t *testing.T) {
@@ -1222,6 +1407,77 @@ func (c *getCloudErrorClient) Get(ctx context.Context, key client.ObjectKey, obj
 	return c.Client.Get(ctx, key, object, opts...)
 }
 
+type statusUpdateCountingClient struct {
+	client.Client
+	statusWriter *statusUpdateCountingWriter
+}
+
+func newStatusUpdateCountingClient(base client.Client) *statusUpdateCountingClient {
+	return &statusUpdateCountingClient{
+		Client:       base,
+		statusWriter: &statusUpdateCountingWriter{StatusWriter: base.Status()},
+	}
+}
+
+func (c *statusUpdateCountingClient) Status() client.StatusWriter {
+	return c.statusWriter
+}
+
+func (c *statusUpdateCountingClient) statusUpdateCount() int {
+	return c.statusWriter.updateCount()
+}
+
+type statusUpdateCountingWriter struct {
+	client.StatusWriter
+	mu      sync.Mutex
+	updates int
+}
+
+func (w *statusUpdateCountingWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	w.mu.Lock()
+	w.updates++
+	w.mu.Unlock()
+	return w.StatusWriter.Update(ctx, obj, opts...)
+}
+
+func (w *statusUpdateCountingWriter) updateCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.updates
+}
+
+func manageApplySubmittedStatusForTest(t *testing.T, observedGeneration int64, transitionTime time.Time) nsxv1alpha.NSXGroupStatus {
+	t.Helper()
+
+	status, err := statuscondition.BuildGroupStatus(
+		nsxv1alpha.NSXGroupStatus{},
+		observedGeneration,
+		transitionTime,
+		statuscondition.Applying(metav1.ConditionTrue, "Applying", "managed NSX group apply was submitted"),
+		statuscondition.Synced(metav1.ConditionUnknown, metav1.ConditionUnknown, metav1.ConditionFalse, metav1.ConditionTrue, "Applying", "managed NSX group apply is awaiting sweep confirmation"),
+	)
+	if err != nil {
+		t.Fatalf("build manage apply submitted status: %v", err)
+	}
+	return status
+}
+
+func manageDeleteSubmittedStatusForTest(t *testing.T, observedGeneration int64, transitionTime time.Time) nsxv1alpha.NSXGroupStatus {
+	t.Helper()
+
+	status, err := statuscondition.BuildGroupStatus(
+		nsxv1alpha.NSXGroupStatus{},
+		observedGeneration,
+		transitionTime,
+		statuscondition.Deleting(metav1.ConditionTrue, "Deleting", "managed NSX group delete was submitted"),
+		statuscondition.Synced(metav1.ConditionUnknown, metav1.ConditionUnknown, metav1.ConditionFalse, metav1.ConditionTrue, "Deleting", "managed NSX group delete is awaiting sweep confirmation"),
+	)
+	if err != nil {
+		t.Fatalf("build manage delete submitted status: %v", err)
+	}
+	return status
+}
+
 func requireLogField(t *testing.T, logs *observer.ObservedLogs, message string, key string, want string) {
 	t.Helper()
 
@@ -1233,6 +1489,22 @@ func requireLogField(t *testing.T, logs *observer.ObservedLogs, message string, 
 		}
 	}
 	t.Fatalf("log %q did not contain %s=%q; logs: %v", message, key, want, logs.All())
+}
+
+func requireLogBoolField(t *testing.T, logs *observer.ObservedLogs, message string, key string, want bool) {
+	t.Helper()
+
+	for _, entry := range logs.FilterMessage(message).All() {
+		fields := entry.ContextMap()
+		got, ok := fields[key]
+		if !ok {
+			continue
+		}
+		if got == want {
+			return
+		}
+	}
+	t.Fatalf("log %q did not contain %s=%t; logs: %v", message, key, want, logs.All())
 }
 
 func networkCloud(name string, fqdn string) *nsxv1alpha.NSXNetworkCloud {
