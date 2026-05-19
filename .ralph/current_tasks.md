@@ -1,17 +1,6 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 10:57:29 PM CEST 2026
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/27-story-cr-cleanup-script/01-task-add-delete-all-crs-script.md`
-
-```
-## Task: Add Delete All CRs Script <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
+Generated: Tue May 19 11:12:42 PM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/31-story-multiple-segment-paths/01-task-support-multiple-segment-paths-in-nsxgroup-spec.md`
 

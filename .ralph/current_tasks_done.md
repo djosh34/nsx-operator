@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 10:57:29 PM CEST 2026
+Generated: Tue May 19 11:12:42 PM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -306,6 +306,18 @@ Must be manually verified with concrete evidence that it works.
 
 <description>
 Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/27-story-cr-cleanup-script/01-task-add-delete-all-crs-script.md`
+
+```
+## Task: Add Delete All CRs Script <status>completed</status> <passes>true</passes>
+
+<plan>
+.ralph/tasks/27-story-cr-cleanup-script/01-task-add-delete-all-crs-script_plans/01-delete-all-crs-script-plan.md
+NOW EXECUTE
 ```
 
 ==============

@@ -31,3 +31,4 @@ NONE
 .ralph/tasks/25-story-cli-flag-help-errors/01-task-print-help-for-bad-flags.md
 .ralph/tasks/29-story-networkcloud-ingest-script/01-task-add-networkcloud-ingest-script.md
 .ralph/tasks/30-story-networkcloud-live-lifecycle/01-task-test-networkcloud-addition-and-removal.md
+.ralph/tasks/27-story-cr-cleanup-script/01-task-add-delete-all-crs-script.md
