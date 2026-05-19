@@ -519,7 +519,7 @@ func startClientWithLoggerAndRecorder(t *testing.T, logger *zap.Logger, recorder
 		t.Fatalf("KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path")
 	}
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{repoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()

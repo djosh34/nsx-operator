@@ -33,7 +33,7 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 	defer cancel()
 
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{repoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()

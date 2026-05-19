@@ -3,4 +3,4 @@
 .bin
 coverage.out
 local_repos
-hack/compose/generated
+config/compose/generated

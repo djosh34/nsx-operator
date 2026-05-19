@@ -1,6 +1,6 @@
 # Scratch Docker Compose Stack
 
-This stack runs `nsx-operator` from `Dockerfile.scratch` with real process
+This stack runs `nsx-operator` from `Dockerfile` with real process
 boundaries. `kine` stores Kubernetes data in memory, `kube-apiserver` talks to
 `kine`, `crd-init` installs this repository's CRDs and sample resources, the
 operator talks to `kube-apiserver` through a generated kubeconfig, and NSX calls
@@ -15,7 +15,7 @@ Kubernetes context.
 
 - Docker Engine with the Docker Compose plugin available as `docker compose`.
 - `kubectl` for host-side API checks.
-- `openssl` and GNU `base64` for `hack/compose/generate-kube-assets.sh`.
+- `openssl` and GNU `base64` for `scripts/generate-compose-kube-assets.sh`.
 - A sibling `../nsx-t-mockapi` checkout containing `Dockerfile` and
   `config/config.yaml`.
 
@@ -29,18 +29,18 @@ Kubernetes context.
 - `nsx-t-mockapi`: sibling NSX-T mock API on container port `8080`, published to
   host port `${NSX_T_MOCKAPI_PORT:-18080}` and reachable in Compose as
   `nsx-t-mockapi`, `nsx-t-1`, and `nsx-t-2`.
-- `crd-init`: waits for Kubernetes readiness, applies `config/crd/bases`, waits
+- `crd-init`: waits for Kubernetes readiness, applies `crds`, waits
   for `nsxnetworkclouds.nsx.ing.com` and `nsxgroups.nsx.ing.com`, then applies
-  `hack/compose/manifests/sample.yaml`.
+  `config/compose/manifests/sample.yaml`.
 - `operator`: runs the scratch operator image with
-  `hack/compose/nsx-operator-config.yaml`.
+  `config/compose/nsx-operator-config.yaml`.
 
-`hack/compose/generate-kube-assets.sh` writes ignored local files under
-`hack/compose/generated/`, including:
+`scripts/generate-compose-kube-assets.sh` writes ignored local files under
+`config/compose/generated/`, including:
 
-- `hack/compose/generated/certs/`
-- `hack/compose/generated/kubeconfig-host.yaml`
-- `hack/compose/generated/kubeconfig-operator.yaml`
+- `config/compose/generated/certs/`
+- `config/compose/generated/kubeconfig-host.yaml`
+- `config/compose/generated/kubeconfig-operator.yaml`
 
 ## Build And Start
 
@@ -48,13 +48,13 @@ Start from a clean stack when validating the workflow:
 
 ```bash
 docker compose down --volumes --remove-orphans
-rm -rf hack/compose/generated
+rm -rf config/compose/generated
 ```
 
 Generate local Kubernetes TLS and kubeconfig artifacts:
 
 ```bash
-./hack/compose/generate-kube-assets.sh
+./scripts/generate-compose-kube-assets.sh
 ```
 
 Check the resolved Compose configuration before building:
@@ -92,7 +92,7 @@ Expected state after startup:
 Verify `kube-apiserver` from the host through the generated host kubeconfig:
 
 ```bash
-kubectl --kubeconfig hack/compose/generated/kubeconfig-host.yaml get --raw=/readyz
+kubectl --kubeconfig config/compose/generated/kubeconfig-host.yaml get --raw=/readyz
 ```
 
 The response should be `ok`.
@@ -101,8 +101,8 @@ Verify the sample `NSXNetworkCloud` and `NSXGroup` objects that `crd-init`
 applied:
 
 ```bash
-kubectl --kubeconfig hack/compose/generated/kubeconfig-host.yaml get nsxnetworkclouds.nsx.ing.com
-kubectl --kubeconfig hack/compose/generated/kubeconfig-host.yaml get nsxgroups.nsx.ing.com
+kubectl --kubeconfig config/compose/generated/kubeconfig-host.yaml get nsxnetworkclouds.nsx.ing.com
+kubectl --kubeconfig config/compose/generated/kubeconfig-host.yaml get nsxgroups.nsx.ing.com
 ```
 
 Expected resources include `mockapi` and `compose-managed-web`.
@@ -160,10 +160,10 @@ docker compose down --volumes --remove-orphans
 Remove generated local Kubernetes assets:
 
 ```bash
-rm -rf hack/compose/generated
+rm -rf config/compose/generated
 ```
 
-`hack/compose/generated/` is ignored by Git and can be regenerated at any time.
+`config/compose/generated/` is ignored by Git and can be regenerated at any time.
 
 ## Troubleshooting
 
@@ -191,10 +191,10 @@ NSX_OPERATOR_KUBE_APISERVER_PORT=26443 NSX_T_MOCKAPI_PORT=28080 docker compose u
 
 If you change `NSX_OPERATOR_KUBE_APISERVER_PORT`, the generated host kubeconfig
 still points at `https://127.0.0.1:16443`. Either edit the `server:` value in
-`hack/compose/generated/kubeconfig-host.yaml` or override it per command:
+`config/compose/generated/kubeconfig-host.yaml` or override it per command:
 
 ```bash
-kubectl --kubeconfig hack/compose/generated/kubeconfig-host.yaml \
+kubectl --kubeconfig config/compose/generated/kubeconfig-host.yaml \
   --server=https://127.0.0.1:26443 get --raw=/readyz
 ```
 
@@ -214,7 +214,7 @@ Stale generated config or certificates:
 
 ```bash
 docker compose down --volumes --remove-orphans
-rm -rf hack/compose/generated
-./hack/compose/generate-kube-assets.sh
+rm -rf config/compose/generated
+./scripts/generate-compose-kube-assets.sh
 docker compose up -d
 ```

@@ -1,22 +1,11 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 21:04:34 CEST 2026
+Generated: Tue May 19 21:22:23 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/25-story-cli-flag-help-errors/01-task-print-help-for-bad-flags.md`
 
 ```
 ## Task: Print Help For Bad Or Missing Flags <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/26-story-repository-layout/01-task-rationalize-config-crds-scripts-and-dockerfile.md`
-
-```
-## Task: Rationalize Config CRDs Scripts And Dockerfile Layout <status>not_started</status> <passes>false</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

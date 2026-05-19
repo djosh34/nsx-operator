@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 21:04:34 CEST 2026
+Generated: Tue May 19 21:22:23 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -281,6 +281,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Add Env Script Credentials Flag <status>done</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/26-story-repository-layout/01-task-rationalize-config-crds-scripts-and-dockerfile.md`
+
+```
+## Task: Rationalize Config CRDs Scripts And Dockerfile Layout <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-generated_dir="${repo_root}/hack/compose/generated"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+generated_dir="${repo_root}/config/compose/generated"
 cert_dir="${generated_dir}/certs"
 
 require_command() {

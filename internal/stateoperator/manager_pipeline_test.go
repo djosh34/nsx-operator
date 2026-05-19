@@ -1726,7 +1726,7 @@ func startStateoperatorClients(t *testing.T) (stateoperatorClients, func()) {
 		t.Fatalf("KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path")
 	}
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{stateoperatorRepoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{stateoperatorRepoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()

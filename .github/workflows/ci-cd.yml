@@ -34,9 +34,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Building ${LOCAL_IMAGE} from Dockerfile.scratch for ${GITHUB_SHA}"
+          echo "Building ${LOCAL_IMAGE} from Dockerfile for ${GITHUB_SHA}"
           docker buildx build \
-            --file Dockerfile.scratch \
+            --file Dockerfile \
             --tag "${LOCAL_IMAGE}" \
             --output "type=docker,dest=${RUNNER_TEMP}/nsx-operator-image.tar" \
             .

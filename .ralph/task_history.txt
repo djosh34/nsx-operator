@@ -26,3 +26,4 @@ NONE
 .ralph/tasks/23-story-targeted-metrics/01-task-add-targeted-operator-metrics.md
 .ralph/tasks/13-story-object-lifecycle/02-task-remove-observe-finalizers-and-autodelete-missing-observe-groups.md
 .ralph/tasks/24-story-env-script-credentials/01-task-add-env-script-credentials-flag.md
+.ralph/tasks/26-story-repository-layout/01-task-rationalize-config-crds-scripts-and-dockerfile.md

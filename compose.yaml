@@ -36,7 +36,7 @@ services:
       - "${NSX_OPERATOR_KUBE_APISERVER_PORT:-16443}:6443"
     volumes:
       - type: bind
-        source: ./hack/compose/generated/certs
+        source: ./config/compose/generated/certs
         target: /certs
         read_only: true
 
@@ -78,15 +78,15 @@ services:
       - kube-apiserver
     volumes:
       - type: bind
-        source: ./hack/compose/generated/kubeconfig-operator.yaml
+        source: ./config/compose/generated/kubeconfig-operator.yaml
         target: /kube/kubeconfig.yaml
         read_only: true
       - type: bind
-        source: ./config/crd/bases
+        source: ./crds
         target: /crds
         read_only: true
       - type: bind
-        source: ./hack/compose/manifests
+        source: ./config/compose/manifests
         target: /manifests
         read_only: true
     restart: "no"
@@ -95,7 +95,7 @@ services:
     image: nsx-operator:scratch
     build:
       context: .
-      dockerfile: Dockerfile.scratch
+      dockerfile: Dockerfile
     command: ["-config", "/etc/nsx-operator/config.yaml"]
     environment:
       KUBECONFIG: /run/nsx-operator/kubeconfig.yaml
@@ -108,11 +108,11 @@ services:
         condition: service_started
     volumes:
       - type: bind
-        source: ./hack/compose/nsx-operator-config.yaml
+        source: ./config/compose/nsx-operator-config.yaml
         target: /etc/nsx-operator/config.yaml
         read_only: true
       - type: bind
-        source: ./hack/compose/generated/kubeconfig-operator.yaml
+        source: ./config/compose/generated/kubeconfig-operator.yaml
         target: /run/nsx-operator/kubeconfig.yaml
         read_only: true
 

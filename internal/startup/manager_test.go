@@ -53,7 +53,7 @@ func TestNewManagerReturnsErrorForInvalidTickInterval(t *testing.T) {
 	}
 
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{repoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()
@@ -85,7 +85,7 @@ func TestNewManagerUsesDefaultLogger(t *testing.T) {
 	}
 
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{repoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()
@@ -134,7 +134,7 @@ func TestNewManagerRegistersControllersAndPeriodicSweeper(t *testing.T) {
 	defer cancel()
 
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{repoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()
@@ -217,7 +217,7 @@ func TestNewManagerDefaultSweepUpdatesCloudStatusWithoutCustomSweep(t *testing.T
 	defer cancel()
 
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{repoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()
@@ -297,7 +297,7 @@ func TestNewManagerSharesRateLimitedTransportAcrossCloudSweeps(t *testing.T) {
 	})
 
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{repoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()
@@ -382,7 +382,7 @@ func TestNewManagerUsesConfiguredHTTPRateLimiterLimits(t *testing.T) {
 	})
 
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{repoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()
@@ -456,7 +456,7 @@ func TestNewManagerUsesConfiguredNSXURLScheme(t *testing.T) {
 	})
 
 	testEnvironment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{repoPath(t, "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 	restConfig, err := testEnvironment.Start()
