@@ -6,3 +6,4 @@
 .ralph/tasks/06-story-api-types-crds/01-task-add-api-types-and-crd-manifests.md
 .ralph/tasks/05-story-kubeapi-client/01-task-implement-typed-kubeapi-client.md
 .ralph/tasks/07-story-state-operator-runtime/01-task-implement-state-operator-runtime.md
+.ralph/tasks/08-story-manager-sweep-pipeline/01-task-implement-manager-sweep-pipeline.md

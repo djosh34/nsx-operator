@@ -1,0 +1,691 @@
+package stateoperator
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"reflect"
+	"sort"
+	"strings"
+	"time"
+
+	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
+	"github.com/djosh34/nsx-operator/internal/kubeapi"
+	"github.com/djosh34/nsx-operator/internal/logging"
+	"github.com/djosh34/nsx-operator/internal/nsxclient"
+	"go.uber.org/zap"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const managerFieldManager = "nsx-operator-stateoperator"
+
+type BindingKey struct {
+	NetworkCloudFQDN string
+	GroupID          string
+}
+
+type RemoteGroup struct {
+	Key                   BindingKey
+	DisplayName           string
+	CIDRs                 []string
+	SegmentPath           *string
+	IPAddressExpressionID string
+	PathExpressionID      string
+	UnsupportedExpression bool
+	Raw                   nsxclient.Group
+}
+
+type GroupListFunc func(context.Context, kubeapi.ListOptions) (*nsxv1alpha.NSXGroupList, error)
+
+type ManagerClient interface {
+	ListGroups(ctx context.Context) ([]*nsxclient.Group, error)
+	PatchGroup(ctx context.Context, groupID string, group *nsxclient.Group) error
+	PatchGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpression) error
+	AddGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpression) error
+	DeleteGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string) error
+	PatchGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.PathExpression) error
+	DeleteGroup(ctx context.Context, groupID string) error
+}
+
+type ManagerClientFactory func(context.Context, nsxv1alpha.NSXNetworkCloud) (ManagerClient, error)
+
+type ManagerKubeApplier interface {
+	ApplyGroup(ctx context.Context, group nsxv1alpha.NSXGroup) error
+	UpdateGroupStatus(ctx context.Context, name string, status nsxv1alpha.NSXGroupStatus) error
+	DeleteGroupCR(ctx context.Context, name string) error
+	UpdateCloudStatus(ctx context.Context, name string, status nsxv1alpha.NSXNetworkCloudStatus) error
+}
+
+type ManagerSnapshot struct {
+	Cloud            nsxv1alpha.NSXNetworkCloud
+	NetworkCloudFQDN string
+	LocalGroups      []nsxv1alpha.NSXGroup
+	RemoteGroups     []RemoteGroup
+	GatherError      error
+}
+
+type ManagerPlan struct {
+	ObserveUpserts []nsxv1alpha.NSXGroup
+	ManagedWrites  []ManagedGroupWrite
+	ManagedDeletes []ManagedGroupDelete
+	GroupStatuses  []GroupStatusPlan
+	ObserveDeletes []string
+	CloudStatus    *CloudStatusPlan
+}
+
+type ManagerBindings struct {
+	Local       []LocalBinding
+	Remote      []RemoteBinding
+	LocalByKey  map[BindingKey]nsxv1alpha.NSXGroup
+	RemoteByKey map[BindingKey]RemoteGroup
+}
+
+type LocalBinding struct {
+	Key   BindingKey
+	Group nsxv1alpha.NSXGroup
+}
+
+type RemoteBinding struct {
+	Key    BindingKey
+	Remote RemoteGroup
+}
+
+type ManagedGroupWrite struct {
+	Name                  string
+	Key                   BindingKey
+	DisplayName           string
+	CIDRs                 []string
+	SegmentPath           *string
+	IPAddressExpressionID string
+	PathExpressionID      string
+}
+
+type ManagedGroupDelete struct {
+	GroupID string
+}
+
+type GroupStatusPlan struct {
+	Name   string
+	Status nsxv1alpha.NSXGroupStatus
+}
+
+type CloudStatusPlan struct {
+	Name   string
+	Status nsxv1alpha.NSXNetworkCloudStatus
+}
+
+func BuildBindings(snapshot ManagerSnapshot) (ManagerBindings, error) {
+	localGroups := append([]nsxv1alpha.NSXGroup(nil), snapshot.LocalGroups...)
+	sort.Slice(localGroups, func(i int, j int) bool {
+		return localGroups[i].Name < localGroups[j].Name
+	})
+
+	remoteGroups := append([]RemoteGroup(nil), snapshot.RemoteGroups...)
+	sort.Slice(remoteGroups, func(i int, j int) bool {
+		return compareBindingKeys(remoteGroups[i].Key, remoteGroups[j].Key) < 0
+	})
+
+	bindings := ManagerBindings{
+		Local:       make([]LocalBinding, 0, len(localGroups)),
+		Remote:      make([]RemoteBinding, 0, len(remoteGroups)),
+		LocalByKey:  make(map[BindingKey]nsxv1alpha.NSXGroup, len(localGroups)),
+		RemoteByKey: make(map[BindingKey]RemoteGroup, len(remoteGroups)),
+	}
+	for _, group := range localGroups {
+		key := BindingKey{NetworkCloudFQDN: group.Spec.NetworkCloudFQDN, GroupID: group.Spec.GroupID}
+		if _, exists := bindings.LocalByKey[key]; exists {
+			return ManagerBindings{}, fmt.Errorf("duplicate local binding %s/%s", key.NetworkCloudFQDN, key.GroupID)
+		}
+		bindings.Local = append(bindings.Local, LocalBinding{Key: key, Group: group})
+		bindings.LocalByKey[key] = group
+	}
+	for _, remote := range remoteGroups {
+		if _, exists := bindings.RemoteByKey[remote.Key]; exists {
+			return ManagerBindings{}, fmt.Errorf("duplicate remote binding %s/%s", remote.Key.NetworkCloudFQDN, remote.Key.GroupID)
+		}
+		bindings.Remote = append(bindings.Remote, RemoteBinding{Key: remote.Key, Remote: remote})
+		bindings.RemoteByKey[remote.Key] = remote
+	}
+	return bindings, nil
+}
+
+func RemoteGroupFromNSXGroup(networkCloudFQDN string, group nsxclient.Group) RemoteGroup {
+	remote := RemoteGroup{
+		Key: BindingKey{
+			NetworkCloudFQDN: networkCloudFQDN,
+			GroupID:          group.ID,
+		},
+		DisplayName: group.DisplayName,
+		Raw:         group,
+	}
+	if len(group.ExtendedExpression) > 0 {
+		remote.UnsupportedExpression = true
+	}
+	seenIPExpression := false
+	seenPathExpression := false
+	for _, raw := range group.Expression {
+		var header struct {
+			ResourceType string `json:"resource_type"`
+		}
+		if err := json.Unmarshal(raw, &header); err != nil {
+			remote.UnsupportedExpression = true
+			continue
+		}
+		switch header.ResourceType {
+		case "IPAddressExpression":
+			if seenIPExpression {
+				remote.UnsupportedExpression = true
+				continue
+			}
+			seenIPExpression = true
+			var expression nsxclient.IPAddressExpression
+			if err := json.Unmarshal(raw, &expression); err != nil {
+				remote.UnsupportedExpression = true
+				continue
+			}
+			remote.CIDRs = append([]string(nil), expression.IPAddresses...)
+			remote.IPAddressExpressionID = expression.ID
+		case "PathExpression":
+			if seenPathExpression {
+				remote.UnsupportedExpression = true
+				continue
+			}
+			seenPathExpression = true
+			var expression nsxclient.PathExpression
+			if err := json.Unmarshal(raw, &expression); err != nil {
+				remote.UnsupportedExpression = true
+				continue
+			}
+			if len(expression.Paths) != 1 {
+				remote.UnsupportedExpression = true
+				if len(expression.Paths) == 0 {
+					continue
+				}
+			}
+			remote.SegmentPath = copyStringPointer(&expression.Paths[0])
+			remote.PathExpressionID = expression.ID
+		default:
+			remote.UnsupportedExpression = true
+		}
+	}
+	return remote
+}
+
+func GatherManagerSnapshot(
+	ctx context.Context,
+	cloud nsxv1alpha.NSXNetworkCloud,
+	listGroups GroupListFunc,
+	managerClientFactory ManagerClientFactory,
+) (ManagerSnapshot, error) {
+	normalizedFQDN := NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
+	snapshot := ManagerSnapshot{
+		Cloud:            cloud,
+		NetworkCloudFQDN: normalizedFQDN,
+	}
+	if listGroups == nil {
+		return ManagerSnapshot{}, errors.New("group list function is required")
+	}
+	if managerClientFactory == nil {
+		return ManagerSnapshot{}, errors.New("manager client factory is required")
+	}
+	localGroups, err := listGroups(ctx, kubeapi.ListOptions{
+		Filters: []kubeapi.FieldFilter{
+			kubeapi.FilterBy(kubeapi.FieldNetworkCloudFQDN, normalizedFQDN),
+		},
+	})
+	if err != nil {
+		snapshot.GatherError = fmt.Errorf("list local nsx groups for %q: %w", normalizedFQDN, err)
+		return snapshot, nil
+	}
+	snapshot.LocalGroups = append([]nsxv1alpha.NSXGroup(nil), localGroups.Items...)
+
+	managerClient, err := managerClientFactory(ctx, cloud)
+	if err != nil {
+		snapshot.GatherError = fmt.Errorf("construct nsx manager client for %q: %w", normalizedFQDN, err)
+		return snapshot, nil
+	}
+	remoteGroups, err := managerClient.ListGroups(ctx)
+	if err != nil {
+		snapshot.GatherError = fmt.Errorf("list remote nsx groups for %q: %w", normalizedFQDN, err)
+		return snapshot, nil
+	}
+	snapshot.RemoteGroups = make([]RemoteGroup, 0, len(remoteGroups))
+	for _, remoteGroup := range remoteGroups {
+		if remoteGroup == nil {
+			continue
+		}
+		snapshot.RemoteGroups = append(snapshot.RemoteGroups, RemoteGroupFromNSXGroup(normalizedFQDN, *remoteGroup))
+	}
+	return snapshot, nil
+}
+
+func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPlan, error) {
+	if snapshot.GatherError != nil {
+		return ManagerPlan{
+			CloudStatus: &CloudStatusPlan{
+				Name: snapshot.Cloud.Name,
+				Status: nsxv1alpha.NSXNetworkCloudStatus{
+					Conditions: []metav1.Condition{
+						condition(nsxv1alpha.ConditionReachable, metav1.ConditionFalse, "GatherFailed", snapshot.GatherError.Error(), snapshot.Cloud.Generation, now),
+						condition(nsxv1alpha.ConditionSwept, metav1.ConditionFalse, "GatherFailed", snapshot.GatherError.Error(), snapshot.Cloud.Generation, now),
+					},
+				},
+			},
+		}, nil
+	}
+	bindings, err := BuildBindings(snapshot)
+	if err != nil {
+		return ManagerPlan{}, err
+	}
+	plan := ManagerPlan{}
+	for _, remoteBinding := range bindings.Remote {
+		if _, exists := bindings.LocalByKey[remoteBinding.Key]; exists {
+			continue
+		}
+		name := observeGroupName(remoteBinding.Key)
+		plan.ObserveUpserts = append(plan.ObserveUpserts, nsxv1alpha.NSXGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec:       observeSpecFromRemote(remoteBinding.Remote),
+		})
+		plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
+			Name:   name,
+			Status: syncedRemoteStatus(remoteBinding.Remote, now),
+		})
+	}
+	for _, localBinding := range bindings.Local {
+		remote, exists := bindings.RemoteByKey[localBinding.Key]
+		switch localBinding.Group.Spec.Mode {
+		case nsxv1alpha.NSXGroupModeObserve:
+			if !exists {
+				plan.ObserveDeletes = append(plan.ObserveDeletes, localBinding.Group.Name)
+				continue
+			}
+			remoteSpec := observeSpecFromRemote(remote)
+			if !groupSpecsEqual(localBinding.Group.Spec, remoteSpec) {
+				plan.ObserveUpserts = append(plan.ObserveUpserts, nsxv1alpha.NSXGroup{
+					ObjectMeta: metav1.ObjectMeta{Name: localBinding.Group.Name},
+					Spec:       remoteSpec,
+				})
+			}
+			plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
+				Name:   localBinding.Group.Name,
+				Status: syncedRemoteStatus(remote, now),
+			})
+		case nsxv1alpha.NSXGroupModeManage:
+			if !exists {
+				plan.ManagedWrites = append(plan.ManagedWrites, managedWriteFromLocal(localBinding.Group, RemoteGroup{}))
+				plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
+					Name:   localBinding.Group.Name,
+					Status: missingManageStatus(now),
+				})
+				continue
+			}
+			if !managedSpecMatchesRemote(localBinding.Group.Spec, remote) {
+				plan.ManagedWrites = append(plan.ManagedWrites, managedWriteFromLocal(localBinding.Group, remote))
+				plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
+					Name:   localBinding.Group.Name,
+					Status: applyingManageStatus(now),
+				})
+				continue
+			}
+			plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
+				Name:   localBinding.Group.Name,
+				Status: matchingManageStatus(now),
+			})
+		}
+	}
+	return plan, nil
+}
+
+func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, managerClient ManagerClient, plan ManagerPlan) error {
+	if kubeApplier == nil {
+		return errors.New("kubernetes manager applier is required")
+	}
+	if managerClient == nil && (len(plan.ManagedWrites) > 0 || len(plan.ManagedDeletes) > 0) {
+		return errors.New("manager client is required for managed writes or deletes")
+	}
+	for _, group := range plan.ObserveUpserts {
+		if err := kubeApplier.ApplyGroup(ctx, group); err != nil {
+			return fmt.Errorf("apply observe group %q: %w", group.Name, err)
+		}
+	}
+	for _, write := range plan.ManagedWrites {
+		if err := applyManagedWrite(ctx, managerClient, write); err != nil {
+			return err
+		}
+	}
+	for _, deletion := range plan.ManagedDeletes {
+		if err := managerClient.DeleteGroup(ctx, deletion.GroupID); err != nil {
+			return fmt.Errorf("delete managed nsx group %q: %w", deletion.GroupID, err)
+		}
+	}
+	for _, status := range plan.GroupStatuses {
+		if err := kubeApplier.UpdateGroupStatus(ctx, status.Name, status.Status); err != nil {
+			return fmt.Errorf("update group status %q: %w", status.Name, err)
+		}
+	}
+	for _, name := range plan.ObserveDeletes {
+		if err := kubeApplier.DeleteGroupCR(ctx, name); err != nil {
+			return fmt.Errorf("delete observe group cr %q: %w", name, err)
+		}
+	}
+	if plan.CloudStatus != nil {
+		if err := kubeApplier.UpdateCloudStatus(ctx, plan.CloudStatus.Name, plan.CloudStatus.Status); err != nil {
+			return fmt.Errorf("update cloud status %q: %w", plan.CloudStatus.Name, err)
+		}
+	}
+	return nil
+}
+
+func defaultManagerSweep(
+	kubeClient *kubeapi.Client,
+	managerClientFactory ManagerClientFactory,
+	logger *zap.Logger,
+	clock Clock,
+) CloudSweepFunc {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	return func(ctx context.Context, cloud nsxv1alpha.NSXNetworkCloud, sweep SweepContext) error {
+		normalizedFQDN := NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
+		fields := []zap.Field{
+			logging.Component("stateoperator"),
+			logging.SweepID(sweep.ID),
+			logging.NetworkCloudFQDN(normalizedFQDN),
+			zap.String("networkCloudName", cloud.Name),
+		}
+		logger.Info("starting default manager sweep", fields...)
+		snapshot, err := GatherManagerSnapshot(ctx, cloud, kubeClient.Groups().List, managerClientFactory)
+		if err != nil {
+			logger.Info("default manager gather setup failed", append(fields, zap.Error(err))...)
+			return err
+		}
+		logger.Debug("default manager gather completed", append(
+			fields,
+			zap.Int("localGroupCount", len(snapshot.LocalGroups)),
+			zap.Int("remoteGroupCount", len(snapshot.RemoteGroups)),
+			zap.Bool("gatherFailed", snapshot.GatherError != nil),
+		)...)
+		plan, err := ProcessManagerSnapshot(snapshot, clock.Now())
+		if err != nil {
+			logger.Info("default manager processing failed", append(fields, zap.Error(err))...)
+			return err
+		}
+		logger.Debug("default manager processing completed", append(
+			fields,
+			zap.Int("observeUpsertCount", len(plan.ObserveUpserts)),
+			zap.Int("managedWriteCount", len(plan.ManagedWrites)),
+			zap.Int("managedDeleteCount", len(plan.ManagedDeletes)),
+			zap.Int("groupStatusCount", len(plan.GroupStatuses)),
+			zap.Int("observeDeleteCount", len(plan.ObserveDeletes)),
+			zap.Bool("cloudStatusPlanned", plan.CloudStatus != nil),
+		)...)
+		var managerClient ManagerClient
+		if len(plan.ManagedWrites) > 0 || len(plan.ManagedDeletes) > 0 {
+			managerClient, err = managerClientFactory(ctx, cloud)
+			if err != nil {
+				logger.Info("default manager apply client construction failed", append(fields, zap.Error(err))...)
+				return fmt.Errorf("construct nsx manager client for apply: %w", err)
+			}
+		}
+		if err := ApplyManagerPlan(ctx, kubeAPIAdapter{client: kubeClient}, managerClient, plan); err != nil {
+			logger.Info("default manager apply failed", append(fields, zap.Error(err))...)
+			return err
+		}
+		logger.Info("completed default manager sweep", fields...)
+		return nil
+	}
+}
+
+type kubeAPIAdapter struct {
+	client *kubeapi.Client
+}
+
+func (a kubeAPIAdapter) ApplyGroup(ctx context.Context, group nsxv1alpha.NSXGroup) error {
+	_, err := a.client.Groups().Apply(ctx, &group, kubeapi.ApplyOptions{FieldManager: managerFieldManager, Force: true})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a kubeAPIAdapter) UpdateGroupStatus(ctx context.Context, name string, status nsxv1alpha.NSXGroupStatus) error {
+	current, err := a.client.Groups().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	_, err = a.client.Groups().UpdateStatus(ctx, name, status, kubeapi.StatusUpdateOptions{ResourceVersion: current.ResourceVersion})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a kubeAPIAdapter) DeleteGroupCR(ctx context.Context, name string) error {
+	return a.client.Groups().Delete(ctx, name, metav1.DeleteOptions{})
+}
+
+func (a kubeAPIAdapter) UpdateCloudStatus(ctx context.Context, name string, status nsxv1alpha.NSXNetworkCloudStatus) error {
+	current, err := a.client.NetworkClouds().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	_, err = a.client.NetworkClouds().UpdateStatus(ctx, name, status, kubeapi.StatusUpdateOptions{ResourceVersion: current.ResourceVersion})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func compareBindingKeys(left BindingKey, right BindingKey) int {
+	if left.NetworkCloudFQDN < right.NetworkCloudFQDN {
+		return -1
+	}
+	if left.NetworkCloudFQDN > right.NetworkCloudFQDN {
+		return 1
+	}
+	if left.GroupID < right.GroupID {
+		return -1
+	}
+	if left.GroupID > right.GroupID {
+		return 1
+	}
+	return 0
+}
+
+func applyManagedWrite(ctx context.Context, managerClient ManagerClient, write ManagedGroupWrite) error {
+	group := &nsxclient.Group{
+		Resource: nsxclient.Resource{
+			ID:          write.Key.GroupID,
+			DisplayName: write.DisplayName,
+		},
+	}
+	if err := managerClient.PatchGroup(ctx, write.Key.GroupID, group); err != nil {
+		return fmt.Errorf("patch managed nsx group %q: %w", write.Key.GroupID, err)
+	}
+	if len(write.CIDRs) == 0 {
+		if write.IPAddressExpressionID != "" {
+			if err := managerClient.DeleteGroupIPAddressExpression(ctx, write.Key.GroupID, write.IPAddressExpressionID); err != nil {
+				return fmt.Errorf("delete managed nsx group %q ip expression %q: %w", write.Key.GroupID, write.IPAddressExpressionID, err)
+			}
+		}
+	} else {
+		expression := &nsxclient.IPAddressExpression{
+			Resource: nsxclient.Resource{
+				ID:           write.IPAddressExpressionID,
+				ResourceType: "IPAddressExpression",
+			},
+			IPAddresses: append([]string(nil), write.CIDRs...),
+		}
+		if write.IPAddressExpressionID != "" {
+			if err := managerClient.PatchGroupIPAddressExpression(ctx, write.Key.GroupID, write.IPAddressExpressionID, expression); err != nil {
+				return fmt.Errorf("patch managed nsx group %q ip expression %q: %w", write.Key.GroupID, write.IPAddressExpressionID, err)
+			}
+		} else {
+			expression.ID = "cidrs"
+			if err := managerClient.AddGroupIPAddressExpression(ctx, write.Key.GroupID, expression.ID, expression); err != nil {
+				return fmt.Errorf("add managed nsx group %q ip expression %q: %w", write.Key.GroupID, expression.ID, err)
+			}
+		}
+	}
+	if write.SegmentPath != nil && write.PathExpressionID != "" {
+		expression := &nsxclient.PathExpression{
+			Resource: nsxclient.Resource{
+				ID:           write.PathExpressionID,
+				ResourceType: "PathExpression",
+			},
+			Paths: []string{*write.SegmentPath},
+		}
+		if err := managerClient.PatchGroupPathExpression(ctx, write.Key.GroupID, write.PathExpressionID, expression); err != nil {
+			return fmt.Errorf("patch managed nsx group %q path expression %q: %w", write.Key.GroupID, write.PathExpressionID, err)
+		}
+	}
+	return nil
+}
+
+func observeGroupName(key BindingKey) string {
+	cloud := strings.TrimSpace(strings.ToLower(key.NetworkCloudFQDN))
+	cloud = strings.ReplaceAll(cloud, ":", "-")
+	groupID := strings.TrimSpace(key.GroupID)
+	return cloud + "--" + groupID
+}
+
+func observeSpecFromRemote(remote RemoteGroup) nsxv1alpha.NSXGroupSpec {
+	return nsxv1alpha.NSXGroupSpec{
+		NetworkCloudFQDN: remote.Key.NetworkCloudFQDN,
+		GroupID:          remote.Key.GroupID,
+		DisplayName:      remote.DisplayName,
+		Mode:             nsxv1alpha.NSXGroupModeObserve,
+		CIDRs:            copyStringSlice(remote.CIDRs),
+		SegmentPath:      copyStringPointer(remote.SegmentPath),
+	}
+}
+
+func groupSpecsEqual(left nsxv1alpha.NSXGroupSpec, right nsxv1alpha.NSXGroupSpec) bool {
+	return left.NetworkCloudFQDN == right.NetworkCloudFQDN &&
+		left.GroupID == right.GroupID &&
+		left.DisplayName == right.DisplayName &&
+		left.Mode == right.Mode &&
+		reflect.DeepEqual(left.CIDRs, right.CIDRs) &&
+		reflect.DeepEqual(left.SegmentPath, right.SegmentPath)
+}
+
+func managedSpecMatchesRemote(local nsxv1alpha.NSXGroupSpec, remote RemoteGroup) bool {
+	return local.NetworkCloudFQDN == remote.Key.NetworkCloudFQDN &&
+		local.GroupID == remote.Key.GroupID &&
+		local.DisplayName == remote.DisplayName &&
+		reflect.DeepEqual(local.CIDRs, remote.CIDRs) &&
+		reflect.DeepEqual(local.SegmentPath, remote.SegmentPath)
+}
+
+func managedWriteFromLocal(group nsxv1alpha.NSXGroup, remote RemoteGroup) ManagedGroupWrite {
+	return ManagedGroupWrite{
+		Name:                  group.Name,
+		Key:                   BindingKey{NetworkCloudFQDN: group.Spec.NetworkCloudFQDN, GroupID: group.Spec.GroupID},
+		DisplayName:           group.Spec.DisplayName,
+		CIDRs:                 copyStringSlice(group.Spec.CIDRs),
+		SegmentPath:           copyStringPointer(group.Spec.SegmentPath),
+		IPAddressExpressionID: remote.IPAddressExpressionID,
+		PathExpressionID:      remote.PathExpressionID,
+	}
+}
+
+func missingManageStatus(now time.Time) nsxv1alpha.NSXGroupStatus {
+	return nsxv1alpha.NSXGroupStatus{
+		Conditions: []metav1.Condition{
+			condition(nsxv1alpha.ConditionRemotePresent, metav1.ConditionFalse, "RemoteMissing", "remote NSX group is missing", 0, now),
+			condition(nsxv1alpha.ConditionApplying, metav1.ConditionTrue, "Applying", "managed NSX group create is planned", 0, now),
+			condition(nsxv1alpha.ConditionSynced, metav1.ConditionFalse, "Applying", "managed NSX group create is planned", 0, now),
+		},
+	}
+}
+
+func applyingManageStatus(now time.Time) nsxv1alpha.NSXGroupStatus {
+	return nsxv1alpha.NSXGroupStatus{
+		Conditions: []metav1.Condition{
+			condition(nsxv1alpha.ConditionRemotePresent, metav1.ConditionTrue, "RemoteFound", "remote NSX group is present", 0, now),
+			condition(nsxv1alpha.ConditionApplying, metav1.ConditionTrue, "Applying", "managed NSX group update is planned", 0, now),
+			condition(nsxv1alpha.ConditionSynced, metav1.ConditionFalse, "Applying", "managed NSX group update is planned", 0, now),
+		},
+	}
+}
+
+func matchingManageStatus(now time.Time) nsxv1alpha.NSXGroupStatus {
+	return nsxv1alpha.NSXGroupStatus{
+		Conditions: []metav1.Condition{
+			condition(nsxv1alpha.ConditionRemotePresent, metav1.ConditionTrue, "RemoteFound", "remote NSX group is present", 0, now),
+			condition(nsxv1alpha.ConditionSpecMatchesRemote, metav1.ConditionTrue, "SpecMatches", "local group matches remote NSX group", 0, now),
+			condition(nsxv1alpha.ConditionSynced, metav1.ConditionTrue, "Synced", "local group matches remote NSX group", 0, now),
+		},
+	}
+}
+
+func syncedRemoteStatus(remote RemoteGroup, now time.Time) nsxv1alpha.NSXGroupStatus {
+	unsupportedStatus := metav1.ConditionFalse
+	unsupportedReason := "SupportedExpression"
+	unsupportedMessage := "remote NSX group expression is representable"
+	syncedStatus := metav1.ConditionTrue
+	syncedReason := "Synced"
+	syncedMessage := "local group reflects remote NSX group"
+	if remote.UnsupportedExpression {
+		unsupportedStatus = metav1.ConditionTrue
+		unsupportedReason = "UnsupportedExpression"
+		unsupportedMessage = "remote NSX group expression is not fully representable"
+		syncedStatus = metav1.ConditionFalse
+		syncedReason = "UnsupportedExpression"
+		syncedMessage = "remote NSX group expression needs operator support before it can be synced"
+	}
+	return nsxv1alpha.NSXGroupStatus{
+		Conditions: []metav1.Condition{
+			condition(nsxv1alpha.ConditionRemotePresent, metav1.ConditionTrue, "RemoteFound", "remote NSX group is present", 0, now),
+			condition(nsxv1alpha.ConditionSpecMatchesRemote, metav1.ConditionTrue, "SpecMatches", "local group spec matches remote NSX group", 0, now),
+			condition(nsxv1alpha.ConditionUnsupportedExpression, unsupportedStatus, unsupportedReason, unsupportedMessage, 0, now),
+			condition(nsxv1alpha.ConditionSynced, syncedStatus, syncedReason, syncedMessage, 0, now),
+		},
+	}
+}
+
+func copyStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
+}
+
+func copyStringSlice(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return append([]string(nil), values...)
+}
+
+func NormalizeNetworkCloudFQDN(value string) string {
+	trimmed := strings.TrimSpace(value)
+	trimmed = strings.TrimRight(trimmed, "/")
+	parsed, err := url.Parse(trimmed)
+	if err == nil && parsed.Host != "" {
+		return strings.ToLower(parsed.Host)
+	}
+	return strings.ToLower(trimmed)
+}
+
+func condition(
+	conditionType string,
+	status metav1.ConditionStatus,
+	reason string,
+	message string,
+	observedGeneration int64,
+	now time.Time,
+) metav1.Condition {
+	return metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		ObservedGeneration: observedGeneration,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             reason,
+		Message:            message,
+	}
+}

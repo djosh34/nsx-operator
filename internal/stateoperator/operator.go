@@ -7,6 +7,7 @@ import (
 	"time"
 
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
+	"github.com/djosh34/nsx-operator/internal/kubeapi"
 	"github.com/djosh34/nsx-operator/internal/logging"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,12 +36,14 @@ type SweepIDGenerator interface {
 }
 
 type Options struct {
-	Client       client.Client
-	TickInterval time.Duration
-	Logger       *zap.Logger
-	SweepCloud   CloudSweepFunc
-	Clock        Clock
-	IDGenerator  SweepIDGenerator
+	Client               client.Client
+	KubeClient           *kubeapi.Client
+	TickInterval         time.Duration
+	Logger               *zap.Logger
+	SweepCloud           CloudSweepFunc
+	ManagerClientFactory ManagerClientFactory
+	Clock                Clock
+	IDGenerator          SweepIDGenerator
 }
 
 type NSXStateOperator struct {
@@ -66,15 +69,18 @@ func New(options Options) (*NSXStateOperator, error) {
 	}
 
 	sweepCloud := options.SweepCloud
-	if sweepCloud == nil {
-		sweepCloud = func(context.Context, nsxv1alpha.NSXNetworkCloud, SweepContext) error {
-			return nil
-		}
-	}
-
 	clock := options.Clock
 	if clock == nil {
 		clock = realClock{}
+	}
+	if sweepCloud == nil {
+		if options.KubeClient != nil && options.ManagerClientFactory != nil {
+			sweepCloud = defaultManagerSweep(options.KubeClient, options.ManagerClientFactory, logger, clock)
+		} else {
+			sweepCloud = func(context.Context, nsxv1alpha.NSXNetworkCloud, SweepContext) error {
+				return nil
+			}
+		}
 	}
 
 	idGenerator := options.IDGenerator

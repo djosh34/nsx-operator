@@ -215,6 +215,14 @@ func FilterBy(field FieldSelectorField, value string) FieldFilter {
 	return FieldFilter{field: field, value: value}
 }
 
+func (f FieldFilter) Field() FieldSelectorField {
+	return f.field
+}
+
+func (f FieldFilter) Value() string {
+	return f.value
+}
+
 type ApplyOptions struct {
 	FieldManager string
 	Force        bool

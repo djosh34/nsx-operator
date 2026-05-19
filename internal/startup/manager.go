@@ -1,11 +1,14 @@
 package startup
 
 import (
+	"context"
 	"fmt"
 
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
 	"github.com/djosh34/nsx-operator/internal/config"
+	"github.com/djosh34/nsx-operator/internal/kubeapi"
 	"github.com/djosh34/nsx-operator/internal/logging"
+	"github.com/djosh34/nsx-operator/internal/nsxclient"
 	"github.com/djosh34/nsx-operator/internal/stateoperator"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -69,13 +72,37 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		return nil, fmt.Errorf("construct controller runtime manager: %w", err)
 	}
 
+	typedKubeClient, err := kubeapi.NewClient(kubeapi.Options{
+		Config: restConfig,
+		Logger: logger,
+	})
+	if err != nil {
+		logger.Info("typed kubernetes crd client construction failed", logging.Component("startup"), zap.Error(err))
+		return nil, fmt.Errorf("construct typed kubernetes crd client: %w", err)
+	}
+	managerClientFactory := func(_ context.Context, cloud nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+		normalizedFQDN := stateoperator.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
+		client, err := nsxclient.NewClient(nsxclient.Options{
+			BaseURL:  "https://" + normalizedFQDN,
+			Username: options.Config.NSX.Auth.Username,
+			Password: options.Config.NSX.Auth.Password,
+			Logger:   logger,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return client, nil
+	}
+
 	operator, err := stateoperator.New(stateoperator.Options{
-		Client:       runtimeManager.GetClient(),
-		TickInterval: options.Config.Operator.TickInterval,
-		Logger:       logger,
-		SweepCloud:   options.SweepCloud,
-		Clock:        options.Clock,
-		IDGenerator:  options.IDGenerator,
+		Client:               runtimeManager.GetClient(),
+		KubeClient:           typedKubeClient,
+		TickInterval:         options.Config.Operator.TickInterval,
+		Logger:               logger,
+		SweepCloud:           options.SweepCloud,
+		ManagerClientFactory: managerClientFactory,
+		Clock:                options.Clock,
+		IDGenerator:          options.IDGenerator,
 	})
 	if err != nil {
 		logger.Info("state operator construction failed", logging.Component("startup"), zap.Error(err))

@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 02:06:28 CEST 2026
+Generated: Tue May 19 02:38:07 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -83,6 +83,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Implement NSXStateOperator Runtime <status>completed</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/08-story-manager-sweep-pipeline/01-task-implement-manager-sweep-pipeline.md`
+
+```
+## Task: Implement Per-Manager Gather Process Apply Pipeline <status>done</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

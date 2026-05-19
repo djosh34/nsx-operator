@@ -1,17 +1,6 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 02:06:28 CEST 2026
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/08-story-manager-sweep-pipeline/01-task-implement-manager-sweep-pipeline.md`
-
-```
-## Task: Implement Per-Manager Gather Process Apply Pipeline <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
+Generated: Tue May 19 02:38:07 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/09-story-reconcile-behavior/01-task-implement-controller-reconcile-behavior.md`
 

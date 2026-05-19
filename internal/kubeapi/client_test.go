@@ -132,6 +132,16 @@ func requireGroupNames(t *testing.T, ctx context.Context, client *kubeapi.Client
 	t.Logf("typed group list with filter returned %v", got)
 }
 
+func TestFieldFilterExposesTypedFieldAndValue(t *testing.T) {
+	filter := kubeapi.FilterBy(kubeapi.FieldNetworkCloudFQDN, "nsx-a.example.net")
+	if filter.Field() != kubeapi.FieldNetworkCloudFQDN {
+		t.Fatalf("Field() = %q, want %q", filter.Field(), kubeapi.FieldNetworkCloudFQDN)
+	}
+	if filter.Value() != "nsx-a.example.net" {
+		t.Fatalf("Value() = %q, want nsx-a.example.net", filter.Value())
+	}
+}
+
 func TestUpdateRequiresResourceVersionAndPersistsFetchedObjectChanges(t *testing.T) {
 	client, stop := startClient(t)
 	t.Cleanup(stop)
