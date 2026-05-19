@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -17,10 +18,9 @@ import (
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
 	"github.com/djosh34/nsx-operator/internal/statuscondition"
 	"go.uber.org/zap"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-const managerFieldManager = "nsx-operator-stateoperator"
 
 type BindingKey struct {
 	NetworkCloudFQDN string
@@ -207,6 +207,17 @@ func RemoteGroupFromNSXGroup(networkCloudFQDN string, group nsxclient.Group) Rem
 			}
 			remote.SegmentPath = copyStringPointer(&expression.Paths[0])
 			remote.PathExpressionID = expression.ID
+		case "ConjunctionOperator":
+			var expression struct {
+				ConjunctionOperator string `json:"conjunction_operator"`
+			}
+			if err := json.Unmarshal(raw, &expression); err != nil {
+				remote.UnsupportedExpression = true
+				continue
+			}
+			if expression.ConjunctionOperator != "OR" {
+				remote.UnsupportedExpression = true
+			}
 		default:
 			remote.UnsupportedExpression = true
 		}
@@ -305,10 +316,7 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 			NetworkCloudFQDN: remoteBinding.Key.NetworkCloudFQDN,
 			GroupID:          remoteBinding.Key.GroupID,
 		})
-		plan.ObserveUpserts = append(plan.ObserveUpserts, nsxv1alpha.NSXGroup{
-			ObjectMeta: metav1.ObjectMeta{Name: name},
-			Spec:       observeSpecFromRemote(remoteBinding.Remote),
-		})
+		plan.ObserveUpserts = append(plan.ObserveUpserts, observeGroupFromRemote(name, remoteBinding.Remote))
 		status, err := syncedRemoteStatus(nsxv1alpha.NSXGroupStatus{}, 0, remoteBinding.Remote, now)
 		if err != nil {
 			return ManagerPlan{}, fmt.Errorf("build observe import status %q: %w", name, err)
@@ -328,10 +336,7 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 			}
 			remoteSpec := observeSpecFromRemote(remote)
 			if !groupSpecsEqual(localBinding.Group.Spec, remoteSpec) {
-				plan.ObserveUpserts = append(plan.ObserveUpserts, nsxv1alpha.NSXGroup{
-					ObjectMeta: metav1.ObjectMeta{Name: localBinding.Group.Name},
-					Spec:       remoteSpec,
-				})
+				plan.ObserveUpserts = append(plan.ObserveUpserts, observeGroupFromRemote(localBinding.Group.Name, remote))
 			}
 			status, err := syncedRemoteStatus(localBinding.Group.Status, localBinding.Group.Generation, remote, now)
 			if err != nil {
@@ -484,7 +489,24 @@ type kubeAPIAdapter struct {
 }
 
 func (a kubeAPIAdapter) ApplyGroup(ctx context.Context, group nsxv1alpha.NSXGroup) error {
-	_, err := a.client.Groups().Apply(ctx, &group, kubeapi.ApplyOptions{FieldManager: managerFieldManager, Force: true})
+	current, err := a.client.Groups().Get(ctx, group.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		_, err := a.client.Groups().Create(ctx, &group, metav1.CreateOptions{})
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	current.Spec = group.Spec
+	for _, finalizer := range group.Finalizers {
+		if !slices.Contains(current.Finalizers, finalizer) {
+			current.Finalizers = append(current.Finalizers, finalizer)
+		}
+	}
+	_, err = a.client.Groups().Update(ctx, current, metav1.UpdateOptions{})
 	if err != nil {
 		return err
 	}
@@ -583,6 +605,16 @@ func applyManagedWrite(ctx context.Context, managerClient ManagerClient, write M
 		}
 	}
 	return nil
+}
+
+func observeGroupFromRemote(name string, remote RemoteGroup) nsxv1alpha.NSXGroup {
+	return nsxv1alpha.NSXGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       name,
+			Finalizers: []string{GroupFinalizer},
+		},
+		Spec: observeSpecFromRemote(remote),
+	}
 }
 
 func observeSpecFromRemote(remote RemoteGroup) nsxv1alpha.NSXGroupSpec {

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -190,6 +191,9 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 	if upsert.Name != "nsx-a.example.test-8443--app-web" {
 		t.Fatalf("Observe upsert name = %q, want deterministic cloud/group name", upsert.Name)
 	}
+	if !slices.Contains(upsert.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("Observe upsert finalizers = %v, want %q", upsert.Finalizers, stateoperator.GroupFinalizer)
+	}
 	wantSpec := nsxv1alpha.NSXGroupSpec{
 		NetworkCloudFQDN: "nsx-a.example.test:8443",
 		GroupID:          "app-web",
@@ -271,6 +275,9 @@ func TestProcessManagerSnapshotObserveGroupsMirrorRemoteAndDeleteWhenMissing(t *
 	}
 	if plan.ObserveUpserts[0].Name != "observe-drifted" {
 		t.Fatalf("ObserveUpsert name = %q, want existing CR name", plan.ObserveUpserts[0].Name)
+	}
+	if !slices.Contains(plan.ObserveUpserts[0].Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("ObserveUpsert finalizers = %v, want %q", plan.ObserveUpserts[0].Finalizers, stateoperator.GroupFinalizer)
 	}
 	if plan.ObserveUpserts[0].Spec.DisplayName != "Remote App" || !reflect.DeepEqual(plan.ObserveUpserts[0].Spec.CIDRs, []string{"10.31.0.0/24"}) {
 		t.Fatalf("ObserveUpsert spec = %#v, want remote replacement spec", plan.ObserveUpserts[0].Spec)
@@ -390,7 +397,49 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-missing").Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned", now)
 }
 
-func TestRemoteGroupFromNSXGroupParsesExpressionsAndFlagsUnsupported(t *testing.T) {
+func TestRemoteGroupFromNSXGroupSupportsEmptyExpression(t *testing.T) {
+	remote := stateoperator.RemoteGroupFromNSXGroup("nsx-a.example.test", nsxclient.Group{
+		Resource: nsxclient.Resource{ID: "empty", DisplayName: "Empty"},
+	})
+	if remote.Key != (stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "empty"}) {
+		t.Fatalf("remote key = %#v, want cloud/group binding", remote.Key)
+	}
+	if remote.DisplayName != "Empty" {
+		t.Fatalf("remote display name = %q, want Empty", remote.DisplayName)
+	}
+	if len(remote.CIDRs) != 0 || remote.SegmentPath != nil {
+		t.Fatalf("remote represented spec = cidrs:%v segment:%v, want empty", remote.CIDRs, remote.SegmentPath)
+	}
+	if remote.UnsupportedExpression {
+		t.Fatalf("UnsupportedExpression = true for empty expression")
+	}
+}
+
+func TestRemoteGroupFromNSXGroupSupportsIPAddressExpression(t *testing.T) {
+	remote := stateoperator.RemoteGroupFromNSXGroup("nsx-a.example.test", nsxclient.Group{
+		Resource: nsxclient.Resource{ID: "app-ip", DisplayName: "App IP"},
+		Expression: []json.RawMessage{
+			rawExpression(t, nsxclient.IPAddressExpression{
+				Resource:    nsxclient.Resource{ID: "ip-expression", ResourceType: "IPAddressExpression"},
+				IPAddresses: []string{"10.50.0.0/24", "10.51.0.0/24"},
+			}),
+		},
+	})
+	if !reflect.DeepEqual(remote.CIDRs, []string{"10.50.0.0/24", "10.51.0.0/24"}) {
+		t.Fatalf("remote CIDRs = %#v, want IP expression addresses", remote.CIDRs)
+	}
+	if remote.IPAddressExpressionID != "ip-expression" {
+		t.Fatalf("remote IP expression ID = %q, want ip-expression", remote.IPAddressExpressionID)
+	}
+	if remote.SegmentPath != nil || remote.PathExpressionID != "" {
+		t.Fatalf("remote path expression = id:%q path:%v, want empty", remote.PathExpressionID, remote.SegmentPath)
+	}
+	if remote.UnsupportedExpression {
+		t.Fatalf("UnsupportedExpression = true for IP expression")
+	}
+}
+
+func TestRemoteGroupFromNSXGroupSupportsIPOrSegmentExpression(t *testing.T) {
 	segmentPath := "/infra/segments/web"
 	remote := stateoperator.RemoteGroupFromNSXGroup("nsx-a.example.test", nsxclient.Group{
 		Resource: nsxclient.Resource{ID: "app-web", DisplayName: "App Web"},
@@ -398,6 +447,10 @@ func TestRemoteGroupFromNSXGroupParsesExpressionsAndFlagsUnsupported(t *testing.
 			rawExpression(t, nsxclient.IPAddressExpression{
 				Resource:    nsxclient.Resource{ID: "ip-expression", ResourceType: "IPAddressExpression"},
 				IPAddresses: []string{"10.50.0.0/24"},
+			}),
+			rawExpression(t, map[string]string{
+				"resource_type":        "ConjunctionOperator",
+				"conjunction_operator": "OR",
 			}),
 			rawExpression(t, nsxclient.PathExpression{
 				Resource: nsxclient.Resource{ID: "path-expression", ResourceType: "PathExpression"},
@@ -420,11 +473,20 @@ func TestRemoteGroupFromNSXGroupParsesExpressionsAndFlagsUnsupported(t *testing.
 	if remote.UnsupportedExpression {
 		t.Fatalf("UnsupportedExpression = true for representable expressions")
 	}
+}
 
+func TestRemoteGroupFromNSXGroupFlagsUnsupportedAndPreservesRepresentableFields(t *testing.T) {
 	unsupported := stateoperator.RemoteGroupFromNSXGroup("nsx-a.example.test", nsxclient.Group{
 		Resource: nsxclient.Resource{ID: "app-unsupported", DisplayName: "Unsupported App"},
 		Expression: []json.RawMessage{
-			rawExpression(t, map[string]string{"resource_type": "ConjunctionOperator", "id": "and"}),
+			rawExpression(t, nsxclient.IPAddressExpression{
+				Resource:    nsxclient.Resource{ID: "ip-expression", ResourceType: "IPAddressExpression"},
+				IPAddresses: []string{"10.52.0.0/24"},
+			}),
+			rawExpression(t, map[string]string{
+				"resource_type":        "ConjunctionOperator",
+				"conjunction_operator": "AND",
+			}),
 			json.RawMessage(`{`),
 			rawExpression(t, nsxclient.PathExpression{
 				Resource: nsxclient.Resource{ID: "multi-path", ResourceType: "PathExpression"},
@@ -435,6 +497,12 @@ func TestRemoteGroupFromNSXGroupParsesExpressionsAndFlagsUnsupported(t *testing.
 	})
 	if !unsupported.UnsupportedExpression {
 		t.Fatalf("UnsupportedExpression = false, want true for unknown expression: %#v", unsupported)
+	}
+	if !reflect.DeepEqual(unsupported.CIDRs, []string{"10.52.0.0/24"}) {
+		t.Fatalf("unsupported CIDRs = %#v, want representable IP fields preserved", unsupported.CIDRs)
+	}
+	if unsupported.SegmentPath == nil || *unsupported.SegmentPath != "/infra/segments/first" {
+		t.Fatalf("unsupported segment path = %#v, want first representable path preserved", unsupported.SegmentPath)
 	}
 }
 
@@ -632,6 +700,34 @@ func TestApplyManagerPlanRejectsMissingRequiredClients(t *testing.T) {
 	})
 }
 
+func TestApplyManagerPlanAllowsObserveOnlyPlanWithoutManagerClient(t *testing.T) {
+	recorder := &operationRecorder{}
+	plan := stateoperator.ManagerPlan{
+		ObserveUpserts: []nsxv1alpha.NSXGroup{
+			{ObjectMeta: metav1.ObjectMeta{Name: "observe-import"}},
+		},
+		GroupStatuses: []stateoperator.GroupStatusPlan{
+			{Name: "observe-import"},
+		},
+		ObserveDeletes: []string{"observe-missing"},
+		CloudStatus:    &stateoperator.CloudStatusPlan{Name: "cloud-a"},
+	}
+
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, nil, plan)
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	want := []string{
+		"apply-group:observe-import",
+		"group-status:observe-import",
+		"delete-group-cr:observe-missing",
+		"cloud-status:cloud-a",
+	}
+	if !reflect.DeepEqual(recorder.operations, want) {
+		t.Fatalf("operations = %v, want %v", recorder.operations, want)
+	}
+}
+
 func TestApplyManagerPlanDeletesExistingIPAddressExpressionWhenManagedCIDRsAreEmpty(t *testing.T) {
 	recorder := &operationRecorder{}
 	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
@@ -665,20 +761,38 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 	if _, err := typedClient.Groups().Create(ctx, localObserve, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("create typed group: %v", err)
 	}
+	driftedObserve := managerGroup("observe-drifted", "nsx-a.example.test", "remote-replace", nsxv1alpha.NSXGroupModeObserve)
+	driftedObserve.Spec.DisplayName = "Old Remote"
+	driftedObserve.Spec.CIDRs = []string{"10.70.0.0/24"}
+	if _, err := typedClient.Groups().Create(ctx, driftedObserve, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create drifted typed group: %v", err)
+	}
 
 	controllerClient := fake.NewClientBuilder().
 		WithScheme(newScheme(t)).
 		WithObjects(cloud).
 		Build()
+	managerRecorder := &operationRecorder{listGroups: []*nsxclient.Group{
+		{
+			Resource: nsxclient.Resource{ID: "remote-import", DisplayName: "Remote Import"},
+		},
+		{
+			Resource: nsxclient.Resource{ID: "remote-replace", DisplayName: "Remote Replacement"},
+			Expression: []json.RawMessage{
+				rawExpression(t, nsxclient.IPAddressExpression{
+					Resource:    nsxclient.Resource{ID: "replacement-ip", ResourceType: "IPAddressExpression"},
+					IPAddresses: []string{"10.71.0.0/24"},
+				}),
+			},
+		},
+	}}
 	operator, err := stateoperator.New(stateoperator.Options{
 		Client:       controllerClient,
 		KubeClient:   typedClient,
 		TickInterval: time.Hour,
 		Logger:       zap.NewExample(),
 		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
-			return &operationRecorder{listGroups: []*nsxclient.Group{{
-				Resource: nsxclient.Resource{ID: "remote-import", DisplayName: "Remote Import"},
-			}}}, nil
+			return managerRecorder, nil
 		},
 	})
 	if err != nil {
@@ -693,11 +807,37 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 	}()
 
 	requireTypedGroupCondition(ctx, t, typedClient, "nsx-a.example.test--remote-import", nsxv1alpha.ConditionSynced, metav1.ConditionTrue)
+	imported, err := typedClient.Groups().Get(ctx, "nsx-a.example.test--remote-import", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get imported observe group: %v", err)
+	}
+	if !slices.Contains(imported.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("imported finalizers = %v, want %q", imported.Finalizers, stateoperator.GroupFinalizer)
+	}
+	if imported.Spec.Mode != nsxv1alpha.NSXGroupModeObserve || imported.Spec.DisplayName != "Remote Import" {
+		t.Fatalf("imported spec = %#v, want Observe Remote Import", imported.Spec)
+	}
+	requireTypedGroupCondition(ctx, t, typedClient, "observe-drifted", nsxv1alpha.ConditionSynced, metav1.ConditionTrue)
+	replaced, err := typedClient.Groups().Get(ctx, "observe-drifted", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get replaced observe group: %v", err)
+	}
+	if !slices.Contains(replaced.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("replaced finalizers = %v, want %q", replaced.Finalizers, stateoperator.GroupFinalizer)
+	}
+	if replaced.Spec.DisplayName != "Remote Replacement" || !reflect.DeepEqual(replaced.Spec.CIDRs, []string{"10.71.0.0/24"}) {
+		t.Fatalf("replaced spec = %#v, want remote replacement spec", replaced.Spec)
+	}
 	requireTypedGroupDeleted(ctx, t, typedClient, "observe-stale")
 
 	stopOperator()
 	if err := <-operatorErr; err != nil {
 		t.Fatalf("operator Start() error = %v", err)
+	}
+	for _, operation := range managerRecorder.operations {
+		if strings.HasPrefix(operation, "delete-group:") {
+			t.Fatalf("manager operations = %v, want no NSX delete for Observe sweep", managerRecorder.operations)
+		}
 	}
 }
 
