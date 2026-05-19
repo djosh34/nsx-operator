@@ -17,3 +17,5 @@
 .ralph/tasks/15-story-http-concurrency-model/01-task-validate-http-concurrency-model.md
 .ralph/tasks/17-story-testing-setup/01-task-build-test-and-e2e-setup.md
 .ralph/tasks/18-story-acceptance-hardening/01-task-verify-full-acceptance-criteria.md
+NONE
+.ralph/tasks/19-story-scratch-compose-stack/01-task-create-scratch-docker-compose-stack.md

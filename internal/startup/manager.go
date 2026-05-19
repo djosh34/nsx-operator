@@ -87,7 +87,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	managerClientFactory := func(_ context.Context, cloud nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
 		normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
 		client, err := nsxclient.NewClient(nsxclient.Options{
-			BaseURL:    "https://" + normalizedFQDN,
+			BaseURL:    nsxManagerBaseURL(options.Config.NSX, normalizedFQDN),
 			HTTPClient: nsxHTTPClient,
 			Username:   options.Config.NSX.Auth.Username,
 			Password:   options.Config.NSX.Auth.Password,
@@ -159,4 +159,12 @@ func newNSXHTTPClient(cfg config.HTTPRateLimiterConfig, logger *zap.Logger) *htt
 	return &http.Client{
 		Transport: httpratelimit.NewRoundTripper(http.DefaultTransport, limiterConfig, logger),
 	}
+}
+
+func nsxManagerBaseURL(cfg config.NSXConfig, normalizedFQDN string) string {
+	scheme := cfg.URLScheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	return scheme + "://" + normalizedFQDN
 }

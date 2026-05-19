@@ -29,8 +29,9 @@ type HTTPRateLimiterConfig struct {
 }
 
 type NSXConfig struct {
-	Auth BasicAuth
-	TLS  TLSConfig
+	URLScheme string
+	Auth      BasicAuth
+	TLS       TLSConfig
 }
 
 type BasicAuth struct {
@@ -79,8 +80,9 @@ type rawHTTPRateLimiterConfig struct {
 }
 
 type rawNSXConfig struct {
-	Auth rawAuthConfig `yaml:"auth"`
-	TLS  rawTLSConfig  `yaml:"tls"`
+	URLScheme string        `yaml:"urlScheme"`
+	Auth      rawAuthConfig `yaml:"auth"`
+	TLS       rawTLSConfig  `yaml:"tls"`
 }
 
 type rawAuthConfig struct {
@@ -126,6 +128,10 @@ func Load(options Options) (Config, error) {
 	if !isSupportedLogLevel(raw.Logging.Level) {
 		return Config{}, fmt.Errorf("logging.level must be one of debug, info, warn, or error")
 	}
+	nsxURLScheme, err := parseNSXURLScheme(raw.NSX.URLScheme)
+	if err != nil {
+		return Config{}, err
+	}
 	if raw.NSX.TLS.CABundleFile != "" {
 		if _, err := os.Stat(raw.NSX.TLS.CABundleFile); err != nil {
 			return Config{}, fmt.Errorf("validate nsx.tls.caBundleFile %q: %w", raw.NSX.TLS.CABundleFile, err)
@@ -146,7 +152,8 @@ func Load(options Options) (Config, error) {
 			MaxRequestsPerSecondPerHost: raw.HTTPRateLimiter.MaxRequestsPerSecondPerHost,
 		},
 		NSX: NSXConfig{
-			Auth: auth,
+			URLScheme: nsxURLScheme,
+			Auth:      auth,
 			TLS: TLSConfig{
 				CABundleFile: raw.NSX.TLS.CABundleFile,
 			},
@@ -174,6 +181,18 @@ func isSupportedLogLevel(level string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func parseNSXURLScheme(value string) (string, error) {
+	if value == "" {
+		return "https", nil
+	}
+	switch value {
+	case "http", "https":
+		return value, nil
+	default:
+		return "", fmt.Errorf("nsx.urlScheme must be http or https")
 	}
 }
 

@@ -1,0 +1,118 @@
+name: nsx-operator-scratch
+
+services:
+  kine:
+    image: ghcr.io/k3s-io/kine:v0.14.6-k3s1.32
+    command:
+      - "--endpoint"
+      - "sqlite://file::memory:?cache=shared"
+      - "--listen-address"
+      - "0.0.0.0:2379"
+      - "--metrics-bind-address"
+      - "0"
+
+  kube-apiserver:
+    image: registry.k8s.io/kube-apiserver:v1.32.0
+    command:
+      - "kube-apiserver"
+      - "--etcd-servers=http://kine:2379"
+      - "--bind-address=0.0.0.0"
+      - "--secure-port=6443"
+      - "--advertise-address=127.0.0.1"
+      - "--client-ca-file=/certs/ca.crt"
+      - "--tls-cert-file=/certs/apiserver.crt"
+      - "--tls-private-key-file=/certs/apiserver.key"
+      - "--service-account-key-file=/certs/sa.pub"
+      - "--service-account-signing-key-file=/certs/sa.key"
+      - "--service-account-issuer=https://kube-apiserver:6443"
+      - "--authorization-mode=AlwaysAllow"
+      - "--anonymous-auth=false"
+      - "--service-cluster-ip-range=10.96.0.0/12"
+      - "--allow-privileged=true"
+      - "--v=2"
+    depends_on:
+      - kine
+    ports:
+      - "${NSX_OPERATOR_KUBE_APISERVER_PORT:-16443}:6443"
+    volumes:
+      - type: bind
+        source: ./hack/compose/generated/certs
+        target: /certs
+        read_only: true
+
+  nsx-t-mockapi:
+    image: nsx-t-mockapi:scratch
+    build:
+      context: ../nsx-t-mockapi
+      dockerfile: Dockerfile
+    command: ["serve", "-config", "/config/config.yaml"]
+    ports:
+      - "${NSX_T_MOCKAPI_PORT:-18080}:8080"
+    volumes:
+      - type: bind
+        source: ../nsx-t-mockapi/config/config.yaml
+        target: /config/config.yaml
+        read_only: true
+      - type: volume
+        source: nsx-mockapi-data
+        target: /data
+    networks:
+      default:
+        aliases:
+          - nsx-t-1
+          - nsx-t-2
+
+  crd-init:
+    image: alpine/k8s:1.32.0
+    entrypoint: ["/bin/sh", "-ceu"]
+    command:
+      - |
+        until kubectl --kubeconfig /kube/kubeconfig.yaml get --raw=/readyz >/dev/null; do
+          sleep 1
+        done
+        kubectl --kubeconfig /kube/kubeconfig.yaml apply -f /crds
+        kubectl --kubeconfig /kube/kubeconfig.yaml wait --for=condition=Established crd/nsxnetworkclouds.nsx.ing.com --timeout=60s
+        kubectl --kubeconfig /kube/kubeconfig.yaml wait --for=condition=Established crd/nsxgroups.nsx.ing.com --timeout=60s
+        kubectl --kubeconfig /kube/kubeconfig.yaml apply -f /manifests
+    depends_on:
+      - kube-apiserver
+    volumes:
+      - type: bind
+        source: ./hack/compose/generated/kubeconfig-operator.yaml
+        target: /kube/kubeconfig.yaml
+        read_only: true
+      - type: bind
+        source: ./config/crd/bases
+        target: /crds
+        read_only: true
+      - type: bind
+        source: ./hack/compose/manifests
+        target: /manifests
+        read_only: true
+    restart: "no"
+
+  operator:
+    image: nsx-operator:scratch
+    build:
+      context: .
+      dockerfile: Dockerfile.scratch
+    command: ["-config", "/etc/nsx-operator/config.yaml"]
+    environment:
+      KUBECONFIG: /run/nsx-operator/kubeconfig.yaml
+    depends_on:
+      crd-init:
+        condition: service_completed_successfully
+      nsx-t-mockapi:
+        condition: service_started
+    volumes:
+      - type: bind
+        source: ./hack/compose/nsx-operator-config.yaml
+        target: /etc/nsx-operator/config.yaml
+        read_only: true
+      - type: bind
+        source: ./hack/compose/generated/kubeconfig-operator.yaml
+        target: /run/nsx-operator/kubeconfig.yaml
+        read_only: true
+
+volumes:
+  nsx-mockapi-data:

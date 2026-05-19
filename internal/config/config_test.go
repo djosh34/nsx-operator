@@ -70,6 +70,51 @@ logging:
 	}
 }
 
+func TestLoadNSXURLSchemeDefaultsToHTTPSAndAllowsHTTP(t *testing.T) {
+	t.Run("default https", func(t *testing.T) {
+		configPath := writeValidConfig(t, t.TempDir(), `
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+		loaded, err := config.Load(config.Options{
+			Path:    configPath,
+			Environ: map[string]string{},
+		})
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+
+		if loaded.NSX.URLScheme != "https" {
+			t.Fatalf("URLScheme = %q, want https", loaded.NSX.URLScheme)
+		}
+	})
+
+	t.Run("explicit http", func(t *testing.T) {
+		configPath := writeValidConfig(t, t.TempDir(), `
+nsx:
+  urlScheme: http
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+		loaded, err := config.Load(config.Options{
+			Path:    configPath,
+			Environ: map[string]string{},
+		})
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+
+		if loaded.NSX.URLScheme != "http" {
+			t.Fatalf("URLScheme = %q, want http", loaded.NSX.URLScheme)
+		}
+	})
+}
+
 func TestLoadEnvCredentialsOverrideConfigCredentials(t *testing.T) {
 	configPath := writeValidConfig(t, t.TempDir(), `
 nsx:

@@ -3,6 +3,7 @@ package startup_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -437,6 +438,86 @@ func TestNewManagerUsesConfiguredHTTPRateLimiterLimits(t *testing.T) {
 	}
 }
 
+func TestNewManagerUsesConfiguredNSXURLScheme(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Fatalf("KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	transport := &schemeRecordingTransport{
+		requests: make(chan recordedNSXRequest, 1),
+	}
+	previousDefaultTransport := http.DefaultTransport
+	http.DefaultTransport = transport
+	t.Cleanup(func() {
+		http.DefaultTransport = previousDefaultTransport
+	})
+
+	testEnvironment := &envtest.Environment{
+		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: true,
+	}
+	restConfig, err := testEnvironment.Start()
+	if err != nil {
+		t.Fatalf("start envtest API server: %v", err)
+	}
+	defer func() {
+		if err := testEnvironment.Stop(); err != nil {
+			t.Errorf("stop envtest API server: %v", err)
+		}
+	}()
+
+	manager, err := startup.NewManager(startup.ManagerOptions{
+		Config: config.Config{
+			NSX: config.NSXConfig{
+				URLScheme: "http",
+				Auth: config.BasicAuth{
+					Username: "nsx-admin",
+					Password: "nsx-password",
+				},
+			},
+			Operator: config.OperatorConfig{TickInterval: time.Minute},
+			HTTPRateLimiter: config.HTTPRateLimiterConfig{
+				MaxRequestsInFlightPerHost:  2,
+				MaxRequestsPerSecondPerHost: 100,
+			},
+		},
+		RestConfig: restConfig,
+		Logger:     zap.NewNop(),
+	})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	apiClient, err := client.New(restConfig, client.Options{Scheme: manager.GetScheme()})
+	if err != nil {
+		t.Fatalf("create direct client: %v", err)
+	}
+	createNetworkCloud(ctx, t, apiClient, "cloud-http", "nsx-t-mockapi:8080")
+
+	managerCtx, stopManager := context.WithCancel(ctx)
+	defer stopManager()
+	managerErr := make(chan error, 1)
+	go func() {
+		managerErr <- manager.Start(managerCtx)
+	}()
+
+	request := transport.requireRequest(ctx, t)
+	if request.Scheme != "http" {
+		t.Fatalf("NSX request scheme = %q, want http", request.Scheme)
+	}
+	if request.Host != "nsx-t-mockapi:8080" {
+		t.Fatalf("NSX request host = %q, want nsx-t-mockapi:8080", request.Host)
+	}
+
+	stopManager()
+	if err := <-managerErr; err != nil {
+		t.Fatalf("manager Start() error = %v", err)
+	}
+}
+
 func requireSweptCloud(t *testing.T, sweptClouds <-chan string, want string) {
 	t.Helper()
 
@@ -488,6 +569,52 @@ func (transport routingTransport) RoundTrip(req *http.Request) (*http.Response, 
 	routed.URL = &routedURL
 	routed.Host = req.URL.Host
 	return transport.base.RoundTrip(routed)
+}
+
+type recordedNSXRequest struct {
+	Scheme string
+	Host   string
+	Path   string
+}
+
+type schemeRecordingTransport struct {
+	requests chan recordedNSXRequest
+}
+
+func (transport *schemeRecordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+	if req.URL == nil {
+		return nil, fmt.Errorf("request URL is required")
+	}
+	if req.URL.Path != "/policy/api/v1/infra/domains/default/groups" {
+		return nil, fmt.Errorf("unexpected NSX request path %q", req.URL.Path)
+	}
+	transport.requests <- recordedNSXRequest{
+		Scheme: req.URL.Scheme,
+		Host:   req.URL.Host,
+		Path:   req.URL.Path,
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"results":[],"result_count":0}`)),
+		Request:    req,
+	}, nil
+}
+
+func (transport *schemeRecordingTransport) requireRequest(ctx context.Context, t *testing.T) recordedNSXRequest {
+	t.Helper()
+
+	select {
+	case request := <-transport.requests:
+		return request
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for NSX request: %v", ctx.Err())
+		return recordedNSXRequest{}
+	}
 }
 
 type nsxListGate struct {

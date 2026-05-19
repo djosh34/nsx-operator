@@ -1,0 +1,19 @@
+apiVersion: nsx.ing.com/v1alpha
+kind: NSXNetworkCloud
+metadata:
+  name: mockapi
+spec:
+  networkCloudFQDN: nsx-t-mockapi:8080
+  networkCloudId: mockapi
+  name: Mock API
+---
+apiVersion: nsx.ing.com/v1alpha
+kind: NSXGroup
+metadata:
+  name: compose-managed-web
+spec:
+  networkCloudFQDN: nsx-t-mockapi:8080
+  groupID: compose-managed-web
+  display_name: Compose Managed Web
+  mode: Manage
+  cidrs: []

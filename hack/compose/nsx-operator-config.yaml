@@ -1,0 +1,12 @@
+operator:
+  tickInterval: 5s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 4
+  maxRequestsPerSecondPerHost: 20
+nsx:
+  urlScheme: http
+  auth:
+    username: nsx_admin
+    password: nsx_password
+logging:
+  level: debug
