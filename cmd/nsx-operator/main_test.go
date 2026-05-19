@@ -39,10 +39,46 @@ func TestRunWritesValidJSONLToStderrForInvalidFlag(t *testing.T) {
 		t.Fatalf("run() exit code = %d, want 2; stderr: %q", exitCode, stderr)
 	}
 
-	entries := parseCommandLogs(t, stderr)
+	entries := parseCommandJSONLogs(t, stderr)
 	if !commandLogContains(entries, "info", "startup failed") {
 		t.Fatalf("stderr did not include startup failed log: %q", stderr)
 	}
+}
+
+func TestRunPrintsHelpForUnknownFlag(t *testing.T) {
+	var exitCode int
+	stderr := captureStderr(t, func() {
+		exitCode = run([]string{"--not-a-real-flag"})
+	})
+	if exitCode != 2 {
+		t.Fatalf("run() exit code = %d, want 2; stderr: %q", exitCode, stderr)
+	}
+
+	requireCommandUsageError(t, stderr, "flag provided but not defined: -not-a-real-flag")
+}
+
+func TestRunPrintsHelpWhenConfigFlagIsMissing(t *testing.T) {
+	var exitCode int
+	stderr := captureStderr(t, func() {
+		exitCode = run([]string{})
+	})
+	if exitCode != 2 {
+		t.Fatalf("run() exit code = %d, want 2; stderr: %q", exitCode, stderr)
+	}
+
+	requireCommandUsageError(t, stderr, "config path is required")
+}
+
+func TestRunPrintsHelpForMissingFlagValue(t *testing.T) {
+	var exitCode int
+	stderr := captureStderr(t, func() {
+		exitCode = run([]string{"--config"})
+	})
+	if exitCode != 2 {
+		t.Fatalf("run() exit code = %d, want 2; stderr: %q", exitCode, stderr)
+	}
+
+	requireCommandUsageError(t, stderr, "flag needs an argument: -config")
 }
 
 func TestRunReturnsStartupErrorForInvalidConfig(t *testing.T) {
@@ -166,6 +202,34 @@ logging:
 	}
 	if !commandLogContains(entries, "info", "operator process exiting") {
 		t.Fatalf("stderr did not include process exit log: %q", stderr)
+	}
+}
+
+func TestRunDoesNotPrintHelpForValidConfig(t *testing.T) {
+	replaceNewRuntimeManager(t, successfulRuntimeManager)
+	configPath := writeCommandConfig(t, `
+operator:
+  tickInterval: 30s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 8
+  maxRequestsPerSecondPerHost: 20
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: info
+`)
+
+	var exitCode int
+	stderr := captureStderr(t, func() {
+		exitCode = run([]string{"--config", configPath})
+	})
+	if exitCode != 0 {
+		t.Fatalf("run() exit code = %d, want 0; stderr: %q", exitCode, stderr)
+	}
+	if strings.Contains(stderr, "Usage of nsx-operator:") {
+		t.Fatalf("stderr printed unexpected usage: %q", stderr)
 	}
 }
 
@@ -306,6 +370,43 @@ func TestRunReportsLoggerSyncError(t *testing.T) {
 	}
 }
 
+func TestRunReportsBootstrapSyncErrorAfterRuntimeLoggerSucceeds(t *testing.T) {
+	replaceNewRuntimeManager(t, successfulRuntimeManager)
+	configPath := writeCommandConfig(t, `
+operator:
+  tickInterval: 30s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 8
+  maxRequestsPerSecondPerHost: 20
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: info
+`)
+
+	callCount := 0
+	replaceNewStderrLogger(t, func(string) (*zap.Logger, error) {
+		callCount++
+		if callCount == 1 {
+			return newSyncErrorLogger(), nil
+		}
+		return zap.NewNop(), nil
+	})
+
+	var exitCode int
+	stderr := captureStderr(t, func() {
+		exitCode = run([]string{"--config", configPath})
+	})
+	if exitCode != 1 {
+		t.Fatalf("run() exit code = %d, want 1; stderr: %q", exitCode, stderr)
+	}
+	if !strings.Contains(stderr, "sync logger: sync boom") {
+		t.Fatalf("stderr = %q, want sync error", stderr)
+	}
+}
+
 func TestEnvironMapUsesLastValueForDuplicateNames(t *testing.T) {
 	environ := environMap([]string{
 		"NSX_USERNAME=first",
@@ -418,6 +519,35 @@ func parseCommandLogs(t *testing.T, output string) []map[string]any {
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+func parseCommandJSONLogs(t *testing.T, output string) []map[string]any {
+	t.Helper()
+
+	var jsonLines []string
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "{") {
+			jsonLines = append(jsonLines, line)
+		}
+	}
+	return parseCommandLogs(t, strings.Join(jsonLines, "\n"))
+}
+
+func requireCommandUsageError(t *testing.T, stderr string, errorText string) {
+	t.Helper()
+
+	if !strings.Contains(stderr, errorText) {
+		t.Fatalf("stderr = %q, want original error %q", stderr, errorText)
+	}
+	if !strings.Contains(stderr, "Usage of nsx-operator:") {
+		t.Fatalf("stderr = %q, want command usage", stderr)
+	}
+	if !strings.Contains(stderr, "-config") {
+		t.Fatalf("stderr = %q, want config flag help", stderr)
+	}
+	if !strings.Contains(stderr, "-env-script") {
+		t.Fatalf("stderr = %q, want env-script flag help", stderr)
+	}
 }
 
 func commandLogContains(entries []map[string]any, level string, message string) bool {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -30,28 +29,22 @@ var (
 func run(args []string) int {
 	bootstrapLogger, err := newStderrLogger("info")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "construct bootstrap logger: %v\n", err)
+		if writeErr := writeStderrf("construct bootstrap logger: %v\n", err); writeErr != nil {
+			return 1
+		}
 		return 1
 	}
 
 	flagSet := flag.NewFlagSet("nsx-operator", flag.ContinueOnError)
-	flagSet.SetOutput(io.Discard)
+	flagSet.SetOutput(os.Stderr)
 	configPath := flagSet.String("config", "", "path to operator config YAML")
 	envScriptPath := flagSet.String("env-script", "", "path to executable script that prints NSX credentials")
 	if err := flagSet.Parse(args); err != nil {
-		bootstrapLogger.Info("startup failed", logging.Component("cmd"), zap.Error(fmt.Errorf("parse flags: %w", err)))
-		if syncErr := bootstrapLogger.Sync(); syncErr != nil {
-			fmt.Fprintf(os.Stderr, "sync logger: %v\n", syncErr)
-		}
-		return 2
+		return failUsage(bootstrapLogger, flagSet, fmt.Errorf("parse flags: %w", err), false)
 	}
 
 	if *configPath == "" {
-		bootstrapLogger.Info("startup failed", logging.Component("cmd"), zap.Error(fmt.Errorf("config path is required")))
-		if err := bootstrapLogger.Sync(); err != nil {
-			fmt.Fprintf(os.Stderr, "sync logger: %v\n", err)
-		}
-		return 2
+		return failUsage(bootstrapLogger, flagSet, fmt.Errorf("config path is required"), true)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -80,27 +73,54 @@ func run(args []string) int {
 		bootstrapLogger.Info("startup failed", logging.Component("cmd"), zap.Error(err))
 		if runtimeLogger != bootstrapLogger {
 			if syncErr := runtimeLogger.Sync(); syncErr != nil {
-				fmt.Fprintf(os.Stderr, "sync logger: %v\n", syncErr)
+				writeSyncError(runtimeLogger, syncErr)
 			}
 		}
 		if syncErr := bootstrapLogger.Sync(); syncErr != nil {
-			fmt.Fprintf(os.Stderr, "sync logger: %v\n", syncErr)
+			writeSyncError(bootstrapLogger, syncErr)
 		}
 		return 1
 	}
 
 	runtimeLogger.Info("operator process exiting", logging.Component("cmd"))
 	if err := runtimeLogger.Sync(); err != nil {
-		fmt.Fprintf(os.Stderr, "sync logger: %v\n", err)
+		writeSyncError(runtimeLogger, err)
 		return 1
 	}
 	if runtimeLogger != bootstrapLogger {
 		if err := bootstrapLogger.Sync(); err != nil {
-			fmt.Fprintf(os.Stderr, "sync logger: %v\n", err)
+			writeSyncError(bootstrapLogger, err)
 			return 1
 		}
 	}
 	return 0
+}
+
+func failUsage(bootstrapLogger *zap.Logger, flagSet *flag.FlagSet, err error, printUsage bool) int {
+	if printUsage {
+		if _, writeErr := fmt.Fprintf(flagSet.Output(), "%v\n", err); writeErr != nil {
+			bootstrapLogger.Info("usage error write failed", logging.Component("cmd"), zap.Error(writeErr))
+		}
+		flagSet.Usage()
+	}
+	bootstrapLogger.Info("startup failed", logging.Component("cmd"), zap.Error(err))
+	if syncErr := bootstrapLogger.Sync(); syncErr != nil {
+		writeSyncError(bootstrapLogger, syncErr)
+	}
+	return 2
+}
+
+func writeStderrf(format string, args ...any) error {
+	if _, err := fmt.Fprintf(os.Stderr, format, args...); err != nil {
+		return fmt.Errorf("write stderr: %w", err)
+	}
+	return nil
+}
+
+func writeSyncError(logger *zap.Logger, err error) {
+	if writeErr := writeStderrf("sync logger: %v\n", err); writeErr != nil {
+		logger.Info("sync error write failed", logging.Component("cmd"), zap.Error(writeErr))
+	}
 }
 
 func environMap(values []string) map[string]string {

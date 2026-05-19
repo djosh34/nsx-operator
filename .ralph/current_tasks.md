@@ -1,17 +1,6 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 21:49:57 CEST 2026
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/25-story-cli-flag-help-errors/01-task-print-help-for-bad-flags.md`
-
-```
-## Task: Print Help For Bad Or Missing Flags <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
+Generated: Tue May 19 22:06:27 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/27-story-cr-cleanup-script/01-task-add-delete-all-crs-script.md`
 

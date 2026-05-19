@@ -28,3 +28,4 @@ NONE
 .ralph/tasks/24-story-env-script-credentials/01-task-add-env-script-credentials-flag.md
 .ralph/tasks/26-story-repository-layout/01-task-rationalize-config-crds-scripts-and-dockerfile.md
 .ralph/tasks/28-story-k8s-safe-names/01-task-make-generated-names-k8s-safe.md
+.ralph/tasks/25-story-cli-flag-help-errors/01-task-print-help-for-bad-flags.md
