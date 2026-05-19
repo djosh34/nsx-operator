@@ -733,6 +733,46 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 	}
 }
 
+func TestApplyManagerPlanWriteDisabledSkipsRemainingNSXWritesButAppliesStatuses(t *testing.T) {
+	segmentPath := "/infra/segments/web"
+	recorder := &operationRecorder{
+		patchGroupErr: nsxclient.WriteDisabledError{
+			Method:           "PATCH",
+			URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/managed-write",
+			Reason:           nsxclient.WriteDisabledReasonGlobalConfig,
+			NetworkCloudName: "cloud-a",
+			NetworkCloudFQDN: "nsx-a.example.test",
+		},
+	}
+	plan := stateoperator.ManagerPlan{
+		ManagedWrites: []stateoperator.ManagedGroupWrite{{
+			Name:                  "managed-write",
+			Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-write"},
+			DisplayName:           "Managed Write",
+			CIDRs:                 []string{"10.42.0.0/24"},
+			SegmentPath:           &segmentPath,
+			IPAddressExpressionID: "selected-ip",
+			PathExpressionID:      "selected-path",
+		}},
+		ManagedDeletes: []stateoperator.ManagedGroupDelete{{GroupID: "managed-delete"}},
+		GroupStatuses:  []stateoperator.GroupStatusPlan{{Name: "managed-write"}},
+		CloudStatus:    &stateoperator.CloudStatusPlan{Name: "cloud-a"},
+	}
+
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, plan)
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	want := []string{
+		"patch-group:managed-write",
+		"group-status:managed-write",
+		"cloud-status:cloud-a",
+	}
+	if !reflect.DeepEqual(recorder.operations, want) {
+		t.Fatalf("operations = %v, want %v", recorder.operations, want)
+	}
+}
+
 func TestApplyManagerPlanPatchesOnlyRepresentedGroupWriteFields(t *testing.T) {
 	segmentPath := "/infra/segments/web"
 	recorder := &operationRecorder{}

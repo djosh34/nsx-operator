@@ -30,6 +30,14 @@ type NSXNetworkCloudSpec struct {
 	NetworkCloudFQDN string `json:"networkCloudFQDN"`
 	NetworkCloudID   string `json:"networkCloudId"`
 	Name             string `json:"name"`
+	WritesEnabled    *bool  `json:"writesEnabled,omitempty"`
+}
+
+func (in NSXNetworkCloudSpec) NSXWritesEnabled() bool {
+	if in.WritesEnabled == nil {
+		return true
+	}
+	return *in.WritesEnabled
 }
 
 type NSXNetworkCloudStatus struct {

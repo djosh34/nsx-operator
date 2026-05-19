@@ -29,6 +29,9 @@ spec:
         - name: DisplayName
           type: string
           jsonPath: .spec.name
+        - name: WritesEnabled
+          type: boolean
+          jsonPath: .spec.writesEnabled
         - name: Reachable
           type: string
           jsonPath: .status.conditions[?(@.type=="Reachable")].status
@@ -66,6 +69,10 @@ spec:
                 name:
                   type: string
                   description: Human-readable display name.
+                writesEnabled:
+                  type: boolean
+                  default: true
+                  description: Enables non-GET NSX write calls for this NetworkCloud when global NSX writes are also enabled.
             status:
               type: object
               properties:

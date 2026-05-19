@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 09:21:29 AM CEST 2026
+Generated: Tue May 19 10:31:46 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -237,6 +237,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Add GitHub CI/CD Workflow for Parallel Build, Test, and GHCR Publish <status>done</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/22-story-nsx-write-disable-controls/01-task-add-nsx-write-disable-controls.md`
+
+```
+## Task: Add Global And Per-NetworkCloud NSX Write Disable Controls <status>done</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

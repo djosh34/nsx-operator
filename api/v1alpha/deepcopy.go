@@ -9,6 +9,7 @@ func (in *NSXNetworkCloud) DeepCopyInto(out *NSXNetworkCloud) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
 	in.Status.DeepCopyInto(&out.Status)
 }
 
@@ -57,6 +58,14 @@ func (in *NSXNetworkCloudStatus) DeepCopyInto(out *NSXNetworkCloudStatus) {
 		for i := range in.Conditions {
 			in.Conditions[i].DeepCopyInto(&out.Conditions[i])
 		}
+	}
+}
+
+func (in *NSXNetworkCloudSpec) DeepCopyInto(out *NSXNetworkCloudSpec) {
+	*out = *in
+	if in.WritesEnabled != nil {
+		out.WritesEnabled = new(bool)
+		*out.WritesEnabled = *in.WritesEnabled
 	}
 }
 

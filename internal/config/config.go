@@ -29,9 +29,11 @@ type HTTPRateLimiterConfig struct {
 }
 
 type NSXConfig struct {
-	URLScheme string
-	Auth      BasicAuth
-	TLS       TLSConfig
+	URLScheme               string
+	WritesEnabled           bool
+	WritesEnabledConfigured bool
+	Auth                    BasicAuth
+	TLS                     TLSConfig
 }
 
 type BasicAuth struct {
@@ -80,9 +82,10 @@ type rawHTTPRateLimiterConfig struct {
 }
 
 type rawNSXConfig struct {
-	URLScheme string        `yaml:"urlScheme"`
-	Auth      rawAuthConfig `yaml:"auth"`
-	TLS       rawTLSConfig  `yaml:"tls"`
+	URLScheme     string        `yaml:"urlScheme"`
+	WritesEnabled *bool         `yaml:"writesEnabled"`
+	Auth          rawAuthConfig `yaml:"auth"`
+	TLS           rawTLSConfig  `yaml:"tls"`
 }
 
 type rawAuthConfig struct {
@@ -143,6 +146,11 @@ func Load(options Options) (Config, error) {
 		return Config{}, err
 	}
 
+	writesEnabled := true
+	if raw.NSX.WritesEnabled != nil {
+		writesEnabled = *raw.NSX.WritesEnabled
+	}
+
 	return Config{
 		Operator: OperatorConfig{
 			TickInterval: tickInterval,
@@ -152,8 +160,10 @@ func Load(options Options) (Config, error) {
 			MaxRequestsPerSecondPerHost: raw.HTTPRateLimiter.MaxRequestsPerSecondPerHost,
 		},
 		NSX: NSXConfig{
-			URLScheme: nsxURLScheme,
-			Auth:      auth,
+			URLScheme:               nsxURLScheme,
+			WritesEnabled:           writesEnabled,
+			WritesEnabledConfigured: true,
+			Auth:                    auth,
 			TLS: TLSConfig{
 				CABundleFile: raw.NSX.TLS.CABundleFile,
 			},

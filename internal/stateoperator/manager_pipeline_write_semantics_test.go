@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -200,7 +201,88 @@ func TestManagedWriteDeletesOnlySelectedIPAddressExpressionWhenCIDRsAreAbsent(t 
 	requireMemberPaths(t, segmentMembers, "/infra/segments/unrelated-delete")
 }
 
+func TestDisabledNSXWritesDoNotReachMockAPIRecorderWhileReadsStillDo(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+
+	mock := startStateoperatorMockAPI(t, ctx)
+	recorder := &httpRequestRecorder{}
+	managerClient := newStateoperatorMockAPIRecordingClientWithWriteControl(t, mock.baseURL, recorder, nsxclient.WriteControl{
+		Enabled:          false,
+		Reason:           nsxclient.WriteDisabledReasonNetworkCloud,
+		NetworkCloudName: "cloud-a",
+		NetworkCloudFQDN: "nsx-a.example.test",
+	})
+
+	writeCalls := []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{
+			name: "POST",
+			call: func(ctx context.Context) error {
+				_, err := managerClient.CreateFirewallSection(ctx, &nsxclient.FirewallSection{
+					Resource: nsxclient.Resource{ID: "section-a", DisplayName: "Section A"},
+				})
+				return err
+			},
+		},
+		{
+			name: "PUT",
+			call: func(ctx context.Context) error {
+				_, err := managerClient.PutGroup(ctx, "disabled-put", &nsxclient.Group{
+					Resource: nsxclient.Resource{ID: "disabled-put", DisplayName: "Disabled Put", ResourceType: "Group"},
+				})
+				return err
+			},
+		},
+		{
+			name: "PATCH",
+			call: func(ctx context.Context) error {
+				return managerClient.PatchGroup(ctx, "disabled-patch", &nsxclient.GroupPatch{
+					ID:           "disabled-patch",
+					DisplayName:  "Disabled Patch",
+					ResourceType: "Group",
+				})
+			},
+		},
+		{
+			name: "DELETE",
+			call: func(ctx context.Context) error {
+				return managerClient.DeleteGroup(ctx, "disabled-delete")
+			},
+		},
+	}
+	for _, tt := range writeCalls {
+		err := tt.call(ctx)
+		if err == nil {
+			t.Fatalf("%s error = nil, want write disabled error", tt.name)
+		}
+		var writeDisabled nsxclient.WriteDisabledError
+		if !errors.As(err, &writeDisabled) {
+			t.Fatalf("%s error = %T %[2]v, want WriteDisabledError", tt.name, err)
+		}
+	}
+	if got := recorder.Snapshot(); len(got) != 0 {
+		t.Fatalf("disabled writes reached mock API recorder: %#v\nmockapi logs:\n%s", got, mock.logs())
+	}
+
+	if _, err := managerClient.ListGroups(ctx); err != nil {
+		t.Fatalf("ListGroups() error = %v\nmockapi logs:\n%s", err, mock.logs())
+	}
+	requireRecordedHTTPRequests(t, recorder.Snapshot(), []recordedHTTPRequest{{
+		method: http.MethodGet,
+		path:   "/policy/api/v1/infra/domains/default/groups",
+	}})
+}
+
 func newStateoperatorMockAPIRecordingClient(t *testing.T, baseURL string, recorder *httpRequestRecorder) *nsxclient.Client {
+	t.Helper()
+
+	return newStateoperatorMockAPIRecordingClientWithWriteControl(t, baseURL, recorder, nsxclient.WriteControl{})
+}
+
+func newStateoperatorMockAPIRecordingClientWithWriteControl(t *testing.T, baseURL string, recorder *httpRequestRecorder, writeControl nsxclient.WriteControl) *nsxclient.Client {
 	t.Helper()
 
 	client, err := nsxclient.NewClient(nsxclient.Options{
@@ -212,9 +294,10 @@ func newStateoperatorMockAPIRecordingClient(t *testing.T, baseURL string, record
 				recorder: recorder,
 			},
 		},
-		Username: stateoperatorMockAPIUsername,
-		Password: stateoperatorMockAPIPassword,
-		Logger:   zap.NewNop(),
+		Username:     stateoperatorMockAPIUsername,
+		Password:     stateoperatorMockAPIPassword,
+		Logger:       zap.NewNop(),
+		WriteControl: writeControl,
 	})
 	if err != nil {
 		t.Fatalf("construct recording mockapi nsx client: %v", err)

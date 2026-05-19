@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestClientAddsBasicAuthToReadAndWriteRequests(t *testing.T) {
@@ -162,6 +164,110 @@ func TestListMethodsFollowPaginationUntilCursorIsEmpty(t *testing.T) {
 	}
 }
 
+func TestClientWriteControlBlocksNonGETAndAllowsReadRequests(t *testing.T) {
+	t.Parallel()
+
+	var seen []string
+	core, logs := observer.New(zapcore.DebugLevel)
+	client, err := NewClient(Options{
+		BaseURL:  "https://nsx.example.test",
+		Username: "nsx_admin",
+		Password: "nsx_password",
+		Logger:   zap.New(core),
+		WriteControl: WriteControl{
+			Enabled:          false,
+			Reason:           WriteDisabledReasonNetworkCloud,
+			NetworkCloudName: "cloud-a",
+			NetworkCloudFQDN: "nsx.example.test",
+		},
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			seen = append(seen, req.Method+" "+req.URL.RequestURI())
+			switch req.Method {
+			case http.MethodGet:
+				if req.URL.Path == defaultDomainPath()+"/groups" {
+					return jsonResponse(req, http.StatusOK, `{"results":[],"result_count":0}`), nil
+				}
+				return jsonResponse(req, http.StatusOK, `{}`), nil
+			default:
+				t.Errorf("transport saw blocked write %s %s", req.Method, req.URL.RequestURI())
+				return jsonResponse(req, http.StatusTeapot, `{}`), nil
+			}
+		})},
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	writeCalls := []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{
+			name: "POST",
+			call: func(ctx context.Context) error {
+				_, err := client.CreateFirewallSection(ctx, &FirewallSection{Resource: Resource{ID: "section-a", DisplayName: "Section A"}})
+				return err
+			},
+		},
+		{
+			name: "PUT",
+			call: func(ctx context.Context) error {
+				_, err := client.PutGroup(ctx, "app", &Group{Resource: Resource{ID: "app", DisplayName: "App", ResourceType: "Group"}})
+				return err
+			},
+		},
+		{
+			name: "PATCH",
+			call: func(ctx context.Context) error {
+				return client.PatchGroup(ctx, "app", &GroupPatch{ID: "app", DisplayName: "App", ResourceType: "Group"})
+			},
+		},
+		{
+			name: "DELETE",
+			call: func(ctx context.Context) error {
+				return client.DeleteGroup(ctx, "app")
+			},
+		},
+	}
+	for _, tt := range writeCalls {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call(context.Background())
+			if err == nil {
+				t.Fatal("write call error = nil, want write disabled error")
+			}
+			var writeDisabled WriteDisabledError
+			if !errors.As(err, &writeDisabled) {
+				t.Fatalf("write call error = %T %[1]v, want WriteDisabledError", err)
+			}
+			if writeDisabled.Method != tt.name {
+				t.Fatalf("WriteDisabledError.Method = %q, want %q", writeDisabled.Method, tt.name)
+			}
+			if writeDisabled.Reason != WriteDisabledReasonNetworkCloud {
+				t.Fatalf("WriteDisabledError.Reason = %q, want %q", writeDisabled.Reason, WriteDisabledReasonNetworkCloud)
+			}
+		})
+	}
+
+	if _, err := client.GetGroup(context.Background(), "app"); err != nil {
+		t.Fatalf("GetGroup() error = %v", err)
+	}
+	if _, err := client.ListGroups(context.Background()); err != nil {
+		t.Fatalf("ListGroups() error = %v", err)
+	}
+	wantSeen := []string{
+		"GET /policy/api/v1/infra/domains/default/groups/app",
+		"GET /policy/api/v1/infra/domains/default/groups",
+	}
+	if !reflect.DeepEqual(seen, wantSeen) {
+		t.Fatalf("transport saw requests = %v, want only reads %v", seen, wantSeen)
+	}
+
+	requireObservedLogField(t, logs, "skipped nsx write request because writes are disabled", "writeDisabledReason", string(WriteDisabledReasonNetworkCloud))
+	requireObservedLogField(t, logs, "skipped nsx write request because writes are disabled", "networkCloudName", "cloud-a")
+	requireObservedLogField(t, logs, "skipped nsx write request because writes are disabled", "networkCloudFQDN", "nsx.example.test")
+	requireObservedLogField(t, logs, "skipped nsx write request because writes are disabled", "method", http.MethodPatch)
+}
+
 func TestGroupPathExpressionRoutesUsePolicyExpressionEndpoints(t *testing.T) {
 	t.Parallel()
 
@@ -221,6 +327,19 @@ func TestGroupPathExpressionRoutesUsePolicyExpressionEndpoints(t *testing.T) {
 	if addPayload.ID != "segment" || addPayload.ResourceType != "PathExpression" || !reflect.DeepEqual(addPayload.Paths, []string{"/infra/segments/web"}) {
 		t.Fatalf("add payload = %#v, want path expression payload", addPayload)
 	}
+}
+
+func requireObservedLogField(t *testing.T, logs *observer.ObservedLogs, message string, key string, want string) {
+	t.Helper()
+
+	for _, entry := range logs.FilterMessage(message).All() {
+		for _, field := range entry.Context {
+			if field.Key == key && field.String == want {
+				return
+			}
+		}
+	}
+	t.Fatalf("log %q did not contain %s=%q; logs: %v", message, key, want, logs.All())
 }
 
 func TestStatusErrorsMapTypedCodes(t *testing.T) {

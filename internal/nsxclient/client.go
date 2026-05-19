@@ -20,19 +20,28 @@ const (
 )
 
 type Options struct {
-	BaseURL    string
-	HTTPClient *http.Client
-	Username   string
-	Password   string
-	Logger     *zap.Logger
+	BaseURL      string
+	HTTPClient   *http.Client
+	Username     string
+	Password     string
+	Logger       *zap.Logger
+	WriteControl WriteControl
+}
+
+type WriteControl struct {
+	Enabled          bool
+	Reason           WriteDisabledReason
+	NetworkCloudName string
+	NetworkCloudFQDN string
 }
 
 type Client struct {
-	baseURL    *url.URL
-	httpClient *http.Client
-	username   string
-	password   string
-	log        *zap.Logger
+	baseURL      *url.URL
+	httpClient   *http.Client
+	username     string
+	password     string
+	log          *zap.Logger
+	writeControl WriteControl
 }
 
 func NewClient(options Options) (*Client, error) {
@@ -62,13 +71,26 @@ func NewClient(options Options) (*Client, error) {
 	}
 	baseURL.Path = strings.TrimRight(baseURL.Path, "/")
 
-	log.Info("constructed nsx manager client", zap.String("baseURL", redactedURL(baseURL)))
+	writeControl := options.WriteControl
+	if writeControl.Reason == "" {
+		writeControl.Enabled = true
+	}
+
+	log.Info(
+		"constructed nsx manager client",
+		zap.String("baseURL", redactedURL(baseURL)),
+		zap.Bool("nsxWritesEnabled", writeControl.Enabled),
+		zap.String("writeDisabledReason", string(writeControl.Reason)),
+		zap.String("networkCloudName", writeControl.NetworkCloudName),
+		zap.String("networkCloudFQDN", writeControl.NetworkCloudFQDN),
+	)
 	return &Client{
-		baseURL:    baseURL,
-		httpClient: httpClient,
-		username:   options.Username,
-		password:   options.Password,
-		log:        log,
+		baseURL:      baseURL,
+		httpClient:   httpClient,
+		username:     options.Username,
+		password:     options.Password,
+		log:          log,
+		writeControl: writeControl,
 	}, nil
 }
 
@@ -93,6 +115,9 @@ func DecodeListResults[T any](reader io.Reader) ([]*T, string, int, error) {
 }
 
 func (c *Client) do(ctx context.Context, method string, path string, query url.Values, payload any, target any) error {
+	if err := c.requireWriteEnabled(method, path, query); err != nil {
+		return err
+	}
 	req, err := c.newRequest(ctx, method, path, query, payload)
 	if err != nil {
 		return err
@@ -117,6 +142,37 @@ func (c *Client) do(ctx context.Context, method string, path string, query url.V
 	return nil
 }
 
+func (c *Client) requireWriteEnabled(method string, path string, query url.Values) error {
+	if method == http.MethodGet || c.writeControl.Enabled {
+		return nil
+	}
+	requestURL := c.requestURL(path, query)
+	writeErr := WriteDisabledError{
+		Method:           method,
+		URL:              redactedURL(&requestURL),
+		Reason:           c.writeControl.Reason,
+		NetworkCloudName: c.writeControl.NetworkCloudName,
+		NetworkCloudFQDN: c.writeControl.NetworkCloudFQDN,
+	}
+	c.log.Info(
+		"skipped nsx write request because writes are disabled",
+		zap.String("method", method),
+		zap.String("url", writeErr.URL),
+		zap.String("path", path),
+		zap.String("writeDisabledReason", string(writeErr.Reason)),
+		zap.String("networkCloudName", writeErr.NetworkCloudName),
+		zap.String("networkCloudFQDN", writeErr.NetworkCloudFQDN),
+	)
+	return writeErr
+}
+
+func (c *Client) requestURL(path string, query url.Values) url.URL {
+	requestURL := *c.baseURL
+	requestURL.Path = strings.TrimRight(c.baseURL.Path, "/") + path
+	requestURL.RawQuery = query.Encode()
+	return requestURL
+}
+
 func (c *Client) newRequest(
 	ctx context.Context,
 	method string,
@@ -124,9 +180,7 @@ func (c *Client) newRequest(
 	query url.Values,
 	payload any,
 ) (*http.Request, error) {
-	requestURL := *c.baseURL
-	requestURL.Path = strings.TrimRight(c.baseURL.Path, "/") + path
-	requestURL.RawQuery = query.Encode()
+	requestURL := c.requestURL(path, query)
 
 	var body io.Reader
 	if payload != nil {

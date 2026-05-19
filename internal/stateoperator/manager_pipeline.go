@@ -426,14 +426,24 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 			return fmt.Errorf("apply observe group %q: %w", group.Name, err)
 		}
 	}
+	nsxWritesSkipped := false
 	for _, write := range plan.ManagedWrites {
 		if err := applyManagedWrite(ctx, managerClient, write); err != nil {
+			if isWriteDisabled(err) {
+				nsxWritesSkipped = true
+				break
+			}
 			return err
 		}
 	}
-	for _, deletion := range plan.ManagedDeletes {
-		if err := managerClient.DeleteGroup(ctx, deletion.GroupID); err != nil {
-			return fmt.Errorf("delete managed nsx group %q: %w", deletion.GroupID, err)
+	if !nsxWritesSkipped {
+		for _, deletion := range plan.ManagedDeletes {
+			if err := managerClient.DeleteGroup(ctx, deletion.GroupID); err != nil {
+				if isWriteDisabled(err) {
+					break
+				}
+				return fmt.Errorf("delete managed nsx group %q: %w", deletion.GroupID, err)
+			}
 		}
 	}
 	for _, status := range plan.GroupStatuses {
@@ -457,6 +467,11 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 		}
 	}
 	return nil
+}
+
+func isWriteDisabled(err error) bool {
+	var writeDisabled nsxclient.WriteDisabledError
+	return errors.As(err, &writeDisabled)
 }
 
 func defaultManagerSweep(

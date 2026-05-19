@@ -115,6 +115,51 @@ nsx:
 	})
 }
 
+func TestLoadNSXWritesEnabledDefaultsTrueAndAllowsFalse(t *testing.T) {
+	t.Run("default true", func(t *testing.T) {
+		configPath := writeValidConfig(t, t.TempDir(), `
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+		loaded, err := config.Load(config.Options{
+			Path:    configPath,
+			Environ: map[string]string{},
+		})
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+
+		if !loaded.NSX.WritesEnabled {
+			t.Fatal("WritesEnabled = false, want default true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		configPath := writeValidConfig(t, t.TempDir(), `
+nsx:
+  writesEnabled: false
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+		loaded, err := config.Load(config.Options{
+			Path:    configPath,
+			Environ: map[string]string{},
+		})
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+
+		if loaded.NSX.WritesEnabled {
+			t.Fatal("WritesEnabled = true, want false")
+		}
+	})
+}
+
 func TestLoadEnvCredentialsOverrideConfigCredentials(t *testing.T) {
 	configPath := writeValidConfig(t, t.TempDir(), `
 nsx:

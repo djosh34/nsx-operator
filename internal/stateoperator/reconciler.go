@@ -364,6 +364,17 @@ func (r GroupReconciler) manageApplySubmittedStatus(group nsxv1alpha.NSXGroup) (
 }
 
 func (r GroupReconciler) manageApplyFailureStatus(group nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
+	var writeDisabled nsxclient.WriteDisabledError
+	if errors.As(err, &writeDisabled) {
+		return r.buildManageApplyOutcomeStatus(
+			group,
+			metav1.ConditionFalse,
+			"NSXWritesDisabled",
+			"managed NSX group apply was skipped because NSX writes are disabled by "+writeDisabledConfigName(writeDisabled.Reason),
+			"NSXWritesDisabled",
+			"managed NSX group apply needs writes to be enabled before it can be synced",
+		)
+	}
 	var conflict nsxclient.ConflictError
 	if errors.As(err, &conflict) {
 		return r.buildManageApplyOutcomeStatus(
@@ -458,6 +469,17 @@ func (r GroupReconciler) manageDeleteSubmittedStatus(group nsxv1alpha.NSXGroup) 
 }
 
 func (r GroupReconciler) manageDeleteFailureStatus(group nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
+	var writeDisabled nsxclient.WriteDisabledError
+	if errors.As(err, &writeDisabled) {
+		return r.buildManageDeleteOutcomeStatus(
+			group,
+			metav1.ConditionFalse,
+			"NSXWritesDisabled",
+			"managed NSX group delete was skipped because NSX writes are disabled by "+writeDisabledConfigName(writeDisabled.Reason),
+			"NSXWritesDisabled",
+			"managed NSX group delete needs writes to be enabled before it can be synced",
+		)
+	}
 	var conflict nsxclient.ConflictError
 	if errors.As(err, &conflict) {
 		return r.buildManageDeleteOutcomeStatus(
@@ -535,6 +557,17 @@ func (r GroupReconciler) buildManageDeleteOutcomeStatus(
 		return nsxv1alpha.NSXGroupStatus{}, false
 	}
 	return status, true
+}
+
+func writeDisabledConfigName(reason nsxclient.WriteDisabledReason) string {
+	switch reason {
+	case nsxclient.WriteDisabledReasonGlobalConfig:
+		return "global config"
+	case nsxclient.WriteDisabledReasonNetworkCloud:
+		return "NetworkCloud config"
+	default:
+		return "configuration"
+	}
 }
 
 func (r GroupReconciler) updateGroupStatus(ctx context.Context, group *nsxv1alpha.NSXGroup, status nsxv1alpha.NSXGroupStatus) error {

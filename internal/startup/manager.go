@@ -92,6 +92,10 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 			Username:   options.Config.NSX.Auth.Username,
 			Password:   options.Config.NSX.Auth.Password,
 			Logger:     logger,
+			WriteControl: writeControlForCloud(
+				options.Config.NSX,
+				cloud,
+			),
 		})
 		if err != nil {
 			return nil, err
@@ -167,4 +171,28 @@ func nsxManagerBaseURL(cfg config.NSXConfig, normalizedFQDN string) string {
 		scheme = "https"
 	}
 	return scheme + "://" + normalizedFQDN
+}
+
+func writeControlForCloud(cfg config.NSXConfig, cloud nsxv1alpha.NSXNetworkCloud) nsxclient.WriteControl {
+	normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
+	globalWritesEnabled := cfg.WritesEnabled
+	if !cfg.WritesEnabledConfigured {
+		globalWritesEnabled = true
+	}
+	control := nsxclient.WriteControl{
+		Enabled:          true,
+		NetworkCloudName: cloud.Name,
+		NetworkCloudFQDN: normalizedFQDN,
+	}
+	if !globalWritesEnabled {
+		control.Enabled = false
+		control.Reason = nsxclient.WriteDisabledReasonGlobalConfig
+		return control
+	}
+	if !cloud.Spec.NSXWritesEnabled() {
+		control.Enabled = false
+		control.Reason = nsxclient.WriteDisabledReasonNetworkCloud
+		return control
+	}
+	return control
 }

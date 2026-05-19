@@ -5,6 +5,7 @@ httpRateLimiter:
   maxRequestsPerSecondPerHost: 20
 nsx:
   urlScheme: http
+  writesEnabled: true
   auth:
     username: nsx_admin
     password: nsx_password

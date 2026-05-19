@@ -76,6 +76,12 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 
 	cloudA := createObject(ctx, t, clouds, networkCloudObject("cloud-a", "nsx-a.example.net", "cloud-a", "Cloud A"))
 	createObject(ctx, t, clouds, networkCloudObject("cloud-b", "nsx-b.example.net", "cloud-b", "Cloud B"))
+	cloudWritesDisabled := networkCloudObject("cloud-writes-disabled", "nsx-disabled.example.net", "cloud-writes-disabled", "Cloud Writes Disabled")
+	if err := unstructured.SetNestedField(cloudWritesDisabled, false, "spec", "writesEnabled"); err != nil {
+		t.Fatalf("set cloud writesEnabled false: %v", err)
+	}
+	createdWritesDisabled := createObject(ctx, t, clouds, cloudWritesDisabled)
+	requireSpecBool(ctx, t, clouds, createdWritesDisabled.GetName(), "writesEnabled", false)
 	groupA := createObject(ctx, t, groups, groupObject("group-a", "nsx-a.example.net", "app-a", NSXGroupModeManage, "App A", []string{"10.0.0.0/24"}, nil))
 	createObject(ctx, t, groups, groupObject("group-b", "nsx-b.example.net", "app-b", NSXGroupModeObserve, "App B", []string{"10.1.0.0/24"}, nil))
 
@@ -126,6 +132,19 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 		"spec": map[string]any{
 			"networkCloudId": "missing-fqdn",
 			"name":           "Missing FQDN",
+		},
+	})
+	requireCreateRejected(ctx, t, clouds, map[string]any{
+		"apiVersion": SchemeGroupVersion.String(),
+		"kind":       "NSXNetworkCloud",
+		"metadata": map[string]any{
+			"name": "invalid-writes-enabled",
+		},
+		"spec": map[string]any{
+			"networkCloudFQDN": "nsx-a.example.net",
+			"networkCloudId":   "invalid-writes-enabled",
+			"name":             "Invalid Writes Enabled",
+			"writesEnabled":    "false",
 		},
 	})
 }
@@ -317,6 +336,25 @@ func requireNames(ctx context.Context, t *testing.T, client resourceClient, fiel
 		t.Fatalf("list with field selector %q returned names %v, want %v", fieldSelector, got, want)
 	}
 	t.Logf("field selector %q returned %v", fieldSelector, got)
+}
+
+func requireSpecBool(ctx context.Context, t *testing.T, client resourceClient, name string, field string, want bool) {
+	t.Helper()
+	current, err := client.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get %s: %v", name, err)
+	}
+	got, found, err := unstructured.NestedBool(current.Object, "spec", field)
+	if err != nil {
+		t.Fatalf("read spec.%s from %s: %v", field, name, err)
+	}
+	if !found {
+		t.Fatalf("spec.%s missing from %s", field, name)
+	}
+	if got != want {
+		t.Fatalf("spec.%s = %t, want %t", field, got, want)
+	}
+	t.Logf("spec.%s for %s stored as %t", field, name, got)
 }
 
 func requireCreateRejected(ctx context.Context, t *testing.T, client resourceClient, object map[string]any) {

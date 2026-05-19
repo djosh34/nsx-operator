@@ -54,6 +54,7 @@ func TestAddToSchemeRegistersNetworkCloudAndGroupTypes(t *testing.T) {
 }
 
 func TestDeepCopyObjectKeepsNetworkCloudAndGroupIndependent(t *testing.T) {
+	writesEnabled := false
 	segmentPath := "/infra/segments/app"
 	group := &NSXGroup{
 		TypeMeta: metav1.TypeMeta{
@@ -118,6 +119,7 @@ func TestDeepCopyObjectKeepsNetworkCloudAndGroupIndependent(t *testing.T) {
 			NetworkCloudFQDN: "nsx-a.example.net",
 			NetworkCloudID:   "cloud-a",
 			Name:             "Cloud A",
+			WritesEnabled:    &writesEnabled,
 		},
 		Status: NSXNetworkCloudStatus{
 			Conditions: []metav1.Condition{{
@@ -135,13 +137,28 @@ func TestDeepCopyObjectKeepsNetworkCloudAndGroupIndependent(t *testing.T) {
 		t.Fatalf("DeepCopyObject returned %T, want *NSXNetworkCloud", networkCloudCopyObject)
 	}
 	networkCloudCopy.Labels["cloud"] = "changed"
+	*networkCloudCopy.Spec.WritesEnabled = true
 	networkCloudCopy.Status.Conditions[0].Reason = "Changed"
 
 	if networkCloud.Labels["cloud"] != "a" {
 		t.Fatalf("original network cloud label mutated to %q", networkCloud.Labels["cloud"])
 	}
+	if networkCloud.Spec.WritesEnabled == nil || *networkCloud.Spec.WritesEnabled {
+		t.Fatalf("original network cloud writesEnabled mutated to %v", networkCloud.Spec.WritesEnabled)
+	}
 	if networkCloud.Status.Conditions[0].Reason != "Connected" {
 		t.Fatalf("original network cloud condition reason mutated to %q", networkCloud.Status.Conditions[0].Reason)
+	}
+}
+
+func TestNetworkCloudSpecWritesEnabledDefaultsTrueAndAllowsFalse(t *testing.T) {
+	if !(NSXNetworkCloudSpec{}).NSXWritesEnabled() {
+		t.Fatal("NSXWritesEnabled() = false for omitted field, want true")
+	}
+
+	disabled := false
+	if (NSXNetworkCloudSpec{WritesEnabled: &disabled}).NSXWritesEnabled() {
+		t.Fatal("NSXWritesEnabled() = true for explicit false, want false")
 	}
 }
 

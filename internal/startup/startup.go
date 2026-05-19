@@ -61,6 +61,7 @@ func Run(options Options) error {
 		logging.Component("startup"),
 		zap.String("logging_level", loadedConfig.Logging.Level),
 		zap.String("credential_source", string(loadedConfig.NSX.Auth.Source)),
+		zap.Bool("nsx_writes_enabled", loadedConfig.NSX.WritesEnabled),
 		zap.Duration("operator_tick_interval", loadedConfig.Operator.TickInterval),
 		zap.Int("http_max_requests_in_flight_per_host", loadedConfig.HTTPRateLimiter.MaxRequestsInFlightPerHost),
 		zap.Int("http_max_requests_per_second_per_host", loadedConfig.HTTPRateLimiter.MaxRequestsPerSecondPerHost),

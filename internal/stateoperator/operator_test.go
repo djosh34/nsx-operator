@@ -781,6 +781,76 @@ func TestGroupReconcileManageNetworkErrorSetsUnknownConditionsAndDoesNotRequeue(
 	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "ApplyNetworkError", "managed NSX group apply needs a later sweep or Kubernetes event", now)
 }
 
+func TestGroupReconcileManageWriteDisabledSetsConditionsAndDoesNotRequeue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 2, 50, 0, 0, time.UTC)
+	group, kubeClient, recorder := newManageReconcileFixture(t, now)
+	recorder.patchGroupErr = nsxclient.WriteDisabledError{
+		Method:           "PATCH",
+		URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/group-a",
+		Reason:           nsxclient.WriteDisabledReasonGlobalConfig,
+		NetworkCloudName: "cloud-a",
+		NetworkCloudFQDN: "nsx-a.example.test",
+	}
+
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionFalse, "NSXWritesDisabled", "managed NSX group apply was skipped because NSX writes are disabled by global config", now)
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "NSXWritesDisabled", "managed NSX group apply needs writes to be enabled before it can be synced", now)
+}
+
+func TestGroupReconcileManageWriteDisabledUnknownReasonUsesConfigurationMessage(t *testing.T) {
+	now := time.Date(2026, 5, 19, 2, 55, 0, 0, time.UTC)
+	group, kubeClient, recorder := newManageReconcileFixture(t, now)
+	recorder.patchGroupErr = nsxclient.WriteDisabledError{
+		Method: "PATCH",
+		URL:    "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/group-a",
+	}
+
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionFalse, "NSXWritesDisabled", "managed NSX group apply was skipped because NSX writes are disabled by configuration", now)
+}
+
 func TestGroupReconcileManageMissingCloudReturnsError(t *testing.T) {
 	now := time.Date(2026, 5, 19, 3, 0, 0, 0, time.UTC)
 	group := managerGroup("group-a", "missing.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
@@ -901,6 +971,45 @@ func TestGroupReconcileManageDeleteClassifiedErrorsSetConditionsAndDoNotRequeue(
 			requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, tc.reason, "managed NSX group delete needs a later sweep or Kubernetes event", now)
 		})
 	}
+}
+
+func TestGroupReconcileManageDeleteWriteDisabledSetsConditionsKeepsFinalizerAndDoesNotRequeue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 3, 40, 0, 0, time.UTC)
+	group, kubeClient, recorder := newManageDeleteReconcileFixture(t, now)
+	recorder.deleteGroupErr = nsxclient.WriteDisabledError{
+		Method:           "DELETE",
+		URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/group-a",
+		Reason:           nsxclient.WriteDisabledReasonNetworkCloud,
+		NetworkCloudName: "cloud-a",
+		NetworkCloudFQDN: "nsx-a.example.test",
+	}
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	if !slices.Contains(updated.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("finalizers = %v, want %q kept", updated.Finalizers, stateoperator.GroupFinalizer)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionFalse, "NSXWritesDisabled", "managed NSX group delete was skipped because NSX writes are disabled by NetworkCloud config", now)
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "NSXWritesDisabled", "managed NSX group delete needs writes to be enabled before it can be synced", now)
 }
 
 func newScheme(t *testing.T) *runtime.Scheme {
