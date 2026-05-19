@@ -15,3 +15,4 @@
 .ralph/tasks/13-story-object-lifecycle/01-task-implement-finalizer-and-lifecycle-rules.md
 .ralph/tasks/14-story-nsx-write-semantics/01-task-enforce-nsx-write-semantics.md
 .ralph/tasks/15-story-http-concurrency-model/01-task-validate-http-concurrency-model.md
+.ralph/tasks/17-story-testing-setup/01-task-build-test-and-e2e-setup.md
