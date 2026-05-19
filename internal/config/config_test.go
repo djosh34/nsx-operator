@@ -260,6 +260,213 @@ nsx:
 	}
 }
 
+func TestLoadRejectsEnvScriptMissingUsernameWithoutFallback(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "credentials.sh")
+	script := []byte(`#!/bin/sh
+printf '%s\n' 'NSX_PASSWORD=script-pass'
+`)
+	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+		t.Fatalf("write env script: %v", err)
+	}
+	configPath := writeValidConfig(t, dir, `
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+	_, err := config.Load(config.Options{
+		Path:          configPath,
+		EnvScriptPath: scriptPath,
+		Environ: map[string]string{
+			"NSX_USERNAME": "env-user",
+			"NSX_PASSWORD": "env-pass",
+		},
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want missing env script username error")
+	}
+	if !strings.Contains(err.Error(), "NSX_USERNAME") {
+		t.Fatalf("Load() error = %v, want NSX_USERNAME error", err)
+	}
+	if containsAny(err.Error(), "script-pass", "env-user", "env-pass", "config-user", "config-pass") {
+		t.Fatalf("Load() error leaked credential material: %v", err)
+	}
+}
+
+func TestLoadRejectsEnvScriptMissingPasswordWithoutLeakingUsername(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "credentials.sh")
+	script := []byte(`#!/bin/sh
+printf '%s\n' 'NSX_USERNAME=script-user'
+`)
+	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+		t.Fatalf("write env script: %v", err)
+	}
+	configPath := writeValidConfig(t, dir, `
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+	_, err := config.Load(config.Options{
+		Path:          configPath,
+		EnvScriptPath: scriptPath,
+		Environ:       map[string]string{},
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want missing env script password error")
+	}
+	if !strings.Contains(err.Error(), "NSX_PASSWORD") {
+		t.Fatalf("Load() error = %v, want NSX_PASSWORD error", err)
+	}
+	if containsAny(err.Error(), "script-user", "config-user", "config-pass") {
+		t.Fatalf("Load() error leaked credential material: %v", err)
+	}
+}
+
+func TestLoadRejectsEnvScriptExecutionFailureWithoutLeakingOutput(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "credentials.sh")
+	script := []byte(`#!/bin/sh
+printf '%s\n' 'NSX_USERNAME=stdout-user'
+printf '%s\n' 'NSX_PASSWORD=stdout-pass'
+printf '%s\n' 'stderr-secret' >&2
+exit 7
+`)
+	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+		t.Fatalf("write env script: %v", err)
+	}
+	configPath := writeValidConfig(t, dir, `
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+	_, err := config.Load(config.Options{
+		Path:          configPath,
+		EnvScriptPath: scriptPath,
+		Environ:       map[string]string{},
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want env script execution error")
+	}
+	if !strings.Contains(err.Error(), "execute env script") {
+		t.Fatalf("Load() error = %v, want execution context", err)
+	}
+	if containsAny(err.Error(), "stdout-user", "stdout-pass", "stderr-secret", "config-user", "config-pass") {
+		t.Fatalf("Load() error leaked script output or fallback credentials: %v", err)
+	}
+}
+
+func TestLoadRejectsEnvScriptMissingOrEmptyShebang(t *testing.T) {
+	tests := map[string]struct {
+		script    string
+		wantError string
+	}{
+		"missing shebang": {
+			script:    "NSX_USERNAME=script-user\nNSX_PASSWORD=script-pass\n",
+			wantError: "must start with a shebang",
+		},
+		"empty shebang": {
+			script:    "#!   \nNSX_USERNAME=script-user\nNSX_PASSWORD=script-pass\n",
+			wantError: "shebang must include an interpreter",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			scriptPath := filepath.Join(dir, "credentials.sh")
+			if err := os.WriteFile(scriptPath, []byte(test.script), 0o700); err != nil {
+				t.Fatalf("write env script: %v", err)
+			}
+			configPath := writeValidConfig(t, dir, `
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+			_, err := config.Load(config.Options{
+				Path:          configPath,
+				EnvScriptPath: scriptPath,
+				Environ:       map[string]string{},
+			})
+			if err == nil {
+				t.Fatal("Load() error = nil, want env script shebang error")
+			}
+			if !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("Load() error = %v, want %q", err, test.wantError)
+			}
+			if containsAny(err.Error(), "script-user", "script-pass", "config-user", "config-pass") {
+				t.Fatalf("Load() error leaked credential material: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadEnvScriptUsesShebangInterpreterAndArguments(t *testing.T) {
+	dir := t.TempDir()
+	argvPath := filepath.Join(dir, "argv.txt")
+	interpreterPath := filepath.Join(dir, "fake-interpreter.sh")
+	interpreter := []byte(`#!/bin/sh
+printf '%s\n' "$@" > "` + argvPath + `"
+printf '%s\n' 'NSX_USERNAME=script-user'
+printf '%s\n' 'NSX_PASSWORD=script-pass'
+`)
+	if err := os.WriteFile(interpreterPath, interpreter, 0o700); err != nil {
+		t.Fatalf("write fake interpreter: %v", err)
+	}
+	scriptPath := filepath.Join(dir, "credentials.custom")
+	script := []byte("#!" + interpreterPath + " --format env\nignored by fake interpreter\n")
+	if err := os.WriteFile(scriptPath, script, 0o600); err != nil {
+		t.Fatalf("write env script: %v", err)
+	}
+	configPath := writeValidConfig(t, dir, `
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+	loaded, err := config.Load(config.Options{
+		Path:          configPath,
+		EnvScriptPath: scriptPath,
+		Environ:       map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.NSX.Auth.Username != "script-user" {
+		t.Fatalf("Username = %q, want script-user", loaded.NSX.Auth.Username)
+	}
+	if loaded.NSX.Auth.Password != "script-pass" {
+		t.Fatalf("Password = %q, want script-pass", loaded.NSX.Auth.Password)
+	}
+	if loaded.NSX.Auth.Source != config.CredentialSourceEnvScript {
+		t.Fatalf("Source = %q, want %q", loaded.NSX.Auth.Source, config.CredentialSourceEnvScript)
+	}
+
+	argvContent, err := os.ReadFile(argvPath)
+	if err != nil {
+		t.Fatalf("read fake interpreter argv: %v", err)
+	}
+	argvLines := strings.Split(strings.TrimSuffix(string(argvContent), "\n"), "\n")
+	wantArgv := []string{"--format", "env", scriptPath}
+	if len(argvLines) != len(wantArgv) {
+		t.Fatalf("fake interpreter argv = %#v, want %#v", argvLines, wantArgv)
+	}
+	for i, want := range wantArgv {
+		if argvLines[i] != want {
+			t.Fatalf("fake interpreter argv[%d] = %q, want %q; all argv = %#v", i, argvLines[i], want, argvLines)
+		}
+	}
+}
+
 func TestLoadConfigCredentialFilesAsFinalFallback(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config-username.txt"), []byte("config-file-user\n"), 0o600); err != nil {

@@ -37,6 +37,7 @@ func run(args []string) int {
 	flagSet := flag.NewFlagSet("nsx-operator", flag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
 	configPath := flagSet.String("config", "", "path to operator config YAML")
+	envScriptPath := flagSet.String("env-script", "", "path to executable script that prints NSX credentials")
 	if err := flagSet.Parse(args); err != nil {
 		bootstrapLogger.Info("startup failed", logging.Component("cmd"), zap.Error(fmt.Errorf("parse flags: %w", err)))
 		if syncErr := bootstrapLogger.Sync(); syncErr != nil {
@@ -60,8 +61,9 @@ func run(args []string) int {
 	err = startup.Run(startup.Options{
 		Context: ctx,
 		Config: config.Options{
-			Path:    *configPath,
-			Environ: environMap(os.Environ()),
+			Path:          *configPath,
+			EnvScriptPath: *envScriptPath,
+			Environ:       environMap(os.Environ()),
 		},
 		BootstrapLogger: bootstrapLogger,
 		LoggerFactory: func(loggingConfig config.LoggingConfig) (*zap.Logger, error) {

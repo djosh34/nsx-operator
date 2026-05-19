@@ -37,8 +37,13 @@ func Run(options Options) error {
 		bootstrapLogger = zap.NewNop()
 	}
 
-	bootstrapLogger.Info("loading startup config", logging.Component("startup"), zap.String("config_path", options.Config.Path))
-	loadedConfig, err := config.Load(options.Config)
+	configOptions := options.Config
+	if configOptions.Logger == nil {
+		configOptions.Logger = bootstrapLogger
+	}
+
+	bootstrapLogger.Info("loading startup config", logging.Component("startup"), zap.String("config_path", configOptions.Path))
+	loadedConfig, err := config.Load(configOptions)
 	if err != nil {
 		bootstrapLogger.Info("startup config validation failed", logging.Component("startup"), zap.Error(err))
 		return fmt.Errorf("load startup config: %w", err)

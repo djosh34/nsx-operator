@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/djosh34/nsx-operator/internal/config"
 	"github.com/djosh34/nsx-operator/internal/startup"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -87,6 +88,51 @@ logging:
 	}
 }
 
+func TestRunPassesEnvScriptCredentialsToRuntimeManager(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "credentials.sh")
+	script := []byte(`#!/bin/sh
+printf '%s\n' 'NSX_USERNAME=script-user'
+printf '%s\n' 'NSX_PASSWORD=script-pass'
+`)
+	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+		t.Fatalf("write env script: %v", err)
+	}
+	configPath := writeCommandConfig(t, `
+operator:
+  tickInterval: 30s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 8
+  maxRequestsPerSecondPerHost: 20
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: info
+`)
+
+	var managerConfig config.Config
+	replaceNewRuntimeManager(t, func(options startup.ManagerOptions) (startup.RunnableManager, error) {
+		managerConfig = options.Config
+		return commandFakeManager{}, nil
+	})
+
+	exitCode := run([]string{"--config", configPath, "--env-script", scriptPath})
+	if exitCode != 0 {
+		t.Fatalf("run() exit code = %d, want 0", exitCode)
+	}
+	if managerConfig.NSX.Auth.Username != "script-user" {
+		t.Fatalf("manager username = %q, want script-user", managerConfig.NSX.Auth.Username)
+	}
+	if managerConfig.NSX.Auth.Password != "script-pass" {
+		t.Fatalf("manager password = %q, want script-pass", managerConfig.NSX.Auth.Password)
+	}
+	if managerConfig.NSX.Auth.Source != config.CredentialSourceEnvScript {
+		t.Fatalf("manager credential source = %q, want %q", managerConfig.NSX.Auth.Source, config.CredentialSourceEnvScript)
+	}
+}
+
 func TestRunWritesValidJSONLToStderrForValidConfig(t *testing.T) {
 	replaceNewRuntimeManager(t, successfulRuntimeManager)
 	configPath := writeCommandConfig(t, `
@@ -149,6 +195,49 @@ logging:
 
 	parseCommandLogs(t, stderr)
 	if strings.Contains(stderr, "command-sentinel-user") || strings.Contains(stderr, "command-sentinel-password") {
+		t.Fatalf("stderr leaked credentials: %q", stderr)
+	}
+}
+
+func TestRunEnvScriptLogsCredentialSourceWithoutCredentialMaterial(t *testing.T) {
+	replaceNewRuntimeManager(t, successfulRuntimeManager)
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "credentials.sh")
+	script := []byte(`#!/bin/sh
+printf '%s\n' 'NSX_USERNAME=command-script-user'
+printf '%s\n' 'NSX_PASSWORD=command-script-password'
+`)
+	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+		t.Fatalf("write env script: %v", err)
+	}
+	configPath := writeCommandConfig(t, `
+operator:
+  tickInterval: 30s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 8
+  maxRequestsPerSecondPerHost: 20
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: debug
+`)
+
+	var exitCode int
+	stderr := captureStderr(t, func() {
+		exitCode = run([]string{"--config", configPath, "--env-script", scriptPath})
+	})
+	if exitCode != 0 {
+		t.Fatalf("run() exit code = %d, want 0; stderr: %q", exitCode, stderr)
+	}
+
+	entries := parseCommandLogs(t, stderr)
+	if !commandLogFieldContains(entries, "credential_source", string(config.CredentialSourceEnvScript)) {
+		t.Fatalf("stderr did not include env script credential source: %q", stderr)
+	}
+	if strings.Contains(stderr, "command-script-user") || strings.Contains(stderr, "command-script-password") ||
+		strings.Contains(stderr, "config-user") || strings.Contains(stderr, "config-pass") {
 		t.Fatalf("stderr leaked credentials: %q", stderr)
 	}
 }
@@ -334,6 +423,15 @@ func parseCommandLogs(t *testing.T, output string) []map[string]any {
 func commandLogContains(entries []map[string]any, level string, message string) bool {
 	for _, entry := range entries {
 		if entry["level"] == level && entry["msg"] == message {
+			return true
+		}
+	}
+	return false
+}
+
+func commandLogFieldContains(entries []map[string]any, field string, value string) bool {
+	for _, entry := range entries {
+		if entry[field] == value {
 			return true
 		}
 	}
