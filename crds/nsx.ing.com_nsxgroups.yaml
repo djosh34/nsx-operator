@@ -39,6 +39,9 @@ spec:
         - name: Unsupported
           type: string
           jsonPath: .status.conditions[?(@.type=="UnsupportedExpression")].status
+        - name: UnsupportedReason
+          type: string
+          jsonPath: .status.unsupportedReason
       subresources:
         status: {}
       schema:
@@ -93,6 +96,18 @@ spec:
             status:
               type: object
               properties:
+                unsupportedReason:
+                  type: string
+                  description: Machine-readable reason why the remote NSX group expression is not fully representable by this CRD spec. Omitted when the expression is supported.
+                  enum:
+                    - UnsupportedExpressionType
+                    - MultipleIPAddressExpressions
+                    - MultiplePathExpressions
+                    - InvalidIPAddressExpression
+                    - InvalidPathExpression
+                    - UnsupportedIPAddressExpressionFields
+                    - UnsupportedPathExpressionFields
+                    - UnsupportedNestedExpression
                 conditions:
                   type: array
                   description: Kubernetes-style conditions. Status is conditions only; no remote objects, fingerprints, revisions, or duplicate synced fields.

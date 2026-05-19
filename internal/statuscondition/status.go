@@ -80,7 +80,11 @@ func BuildGroupStatus(
 	if err != nil {
 		return nsxv1alpha.NSXGroupStatus{}, err
 	}
-	return nsxv1alpha.NSXGroupStatus{Conditions: conditions}, nil
+	unsupportedReason, err := unsupportedReasonFromUpdates(updates)
+	if err != nil {
+		return nsxv1alpha.NSXGroupStatus{}, err
+	}
+	return nsxv1alpha.NSXGroupStatus{UnsupportedReason: unsupportedReason, Conditions: conditions}, nil
 }
 
 func BuildNetworkCloudStatus(
@@ -156,4 +160,37 @@ func buildConditions(
 		})
 	}
 	return conditions, nil
+}
+
+func unsupportedReasonFromUpdates(updates []ConditionUpdate) (nsxv1alpha.UnsupportedExpressionReason, error) {
+	for _, update := range updates {
+		if update.Type != nsxv1alpha.ConditionUnsupportedExpression {
+			continue
+		}
+		if update.Status != metav1.ConditionTrue {
+			return "", nil
+		}
+		reason := nsxv1alpha.UnsupportedExpressionReason(update.Reason)
+		if !isStatusUnsupportedReason(reason) {
+			return "", fmt.Errorf("unsupported expression condition reason %q is not a status unsupported reason enum value", update.Reason)
+		}
+		return reason, nil
+	}
+	return "", nil
+}
+
+func isStatusUnsupportedReason(reason nsxv1alpha.UnsupportedExpressionReason) bool {
+	switch reason {
+	case nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType,
+		nsxv1alpha.UnsupportedExpressionReasonMultipleIPAddressExpressions,
+		nsxv1alpha.UnsupportedExpressionReasonMultiplePathExpressions,
+		nsxv1alpha.UnsupportedExpressionReasonInvalidIPAddressExpression,
+		nsxv1alpha.UnsupportedExpressionReasonInvalidPathExpression,
+		nsxv1alpha.UnsupportedExpressionReasonUnsupportedIPAddressExpressionFields,
+		nsxv1alpha.UnsupportedExpressionReasonUnsupportedPathExpressionFields,
+		nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression:
+		return true
+	default:
+		return false
+	}
 }

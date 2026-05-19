@@ -260,6 +260,7 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 			SegmentPaths:     []string{"/infra/segments/app", "/infra/segments/db"},
 		},
 		Status: NSXGroupStatus{
+			UnsupportedReason: UnsupportedExpressionReasonInvalidIPAddressExpression,
 			Conditions: []metav1.Condition{{
 				Type:    ConditionRemotePresent,
 				Status:  metav1.ConditionTrue,
@@ -293,6 +294,13 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 	if _, ok := groupSpec["domainId"]; ok {
 		t.Fatalf("group spec unexpectedly exposes domainId in %s", string(groupJSON))
 	}
+	groupStatus, ok := groupMap["status"].(map[string]any)
+	if !ok {
+		t.Fatalf("group status decoded as %T, want object", groupMap["status"])
+	}
+	if got, ok := groupStatus["unsupportedReason"].(string); !ok || got != string(UnsupportedExpressionReasonInvalidIPAddressExpression) {
+		t.Fatalf("group status unsupportedReason = %#v, want %q in %s", groupStatus["unsupportedReason"], UnsupportedExpressionReasonInvalidIPAddressExpression, string(groupJSON))
+	}
 
 	var decodedGroup NSXGroup
 	if err := json.Unmarshal(groupJSON, &decodedGroup); err != nil {
@@ -306,6 +314,9 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 	}
 	if len(decodedGroup.Status.Conditions) != 1 || decodedGroup.Status.Conditions[0].Type != ConditionRemotePresent {
 		t.Fatalf("decoded conditions = %#v, want RemotePresent condition", decodedGroup.Status.Conditions)
+	}
+	if decodedGroup.Status.UnsupportedReason != UnsupportedExpressionReasonInvalidIPAddressExpression {
+		t.Fatalf("decoded unsupportedReason = %q, want %q", decodedGroup.Status.UnsupportedReason, UnsupportedExpressionReasonInvalidIPAddressExpression)
 	}
 
 	networkCloud := NSXNetworkCloud{
@@ -372,5 +383,22 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 	}
 	if _, ok := groupWithEmptySegmentsSpec["segment_paths"]; ok {
 		t.Fatalf("empty segment_paths should be absent from JSON, got %s", string(groupWithEmptySegmentsJSON))
+	}
+
+	groupWithoutUnsupportedReason := NSXGroup{Status: NSXGroupStatus{}}
+	groupWithoutUnsupportedReasonJSON, err := json.Marshal(groupWithoutUnsupportedReason)
+	if err != nil {
+		t.Fatalf("marshal group without unsupported reason: %v", err)
+	}
+	var groupWithoutUnsupportedReasonMap map[string]any
+	if err := json.Unmarshal(groupWithoutUnsupportedReasonJSON, &groupWithoutUnsupportedReasonMap); err != nil {
+		t.Fatalf("unmarshal group without unsupported reason as map: %v", err)
+	}
+	groupWithoutUnsupportedReasonStatus, ok := groupWithoutUnsupportedReasonMap["status"].(map[string]any)
+	if !ok {
+		t.Fatalf("group without unsupported reason status decoded as %T, want object", groupWithoutUnsupportedReasonMap["status"])
+	}
+	if _, ok := groupWithoutUnsupportedReasonStatus["unsupportedReason"]; ok {
+		t.Fatalf("empty unsupportedReason should be absent from JSON, got %s", string(groupWithoutUnsupportedReasonJSON))
 	}
 }

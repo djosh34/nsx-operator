@@ -2,6 +2,7 @@ package v1alpha
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,7 +58,7 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 	requireEstablishedCRD(ctx, t, extensionsClient, "nsxnetworkclouds.nsx.ing.com")
 	requireEstablishedCRD(ctx, t, extensionsClient, "nsxgroups.nsx.ing.com")
 	requireStatusSchemaConditionsOnly(ctx, t, extensionsClient, "nsxnetworkclouds.nsx.ing.com")
-	requireStatusSchemaConditionsOnly(ctx, t, extensionsClient, "nsxgroups.nsx.ing.com")
+	requireGroupStatusSchemaWithUnsupportedReason(ctx, t, extensionsClient, "nsxgroups.nsx.ing.com")
 
 	dynamicClient, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
@@ -280,6 +281,90 @@ func requireStatusSchemaConditionsOnly(ctx context.Context, t *testing.T, client
 		t.Fatalf("CRD %s status.conditions schema is missing", name)
 	}
 	t.Logf("CRD %s status schema exposes only conditions", name)
+}
+
+func requireGroupStatusSchemaWithUnsupportedReason(ctx context.Context, t *testing.T, client *apiextensionsclient.Clientset, name string) {
+	t.Helper()
+	crd, err := client.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get CRD %s for status schema verification: %v", name, err)
+	}
+	if len(crd.Spec.Versions) != 1 {
+		t.Fatalf("CRD %s versions = %d, want exactly one served version", name, len(crd.Spec.Versions))
+	}
+	version := crd.Spec.Versions[0]
+	schema := version.Schema
+	if schema == nil || schema.OpenAPIV3Schema == nil {
+		t.Fatalf("CRD %s missing OpenAPI v3 schema", name)
+	}
+	statusSchema, ok := schema.OpenAPIV3Schema.Properties["status"]
+	if !ok {
+		t.Fatalf("CRD %s schema has no status property", name)
+	}
+	gotProperties := make([]string, 0, len(statusSchema.Properties))
+	for property := range statusSchema.Properties {
+		gotProperties = append(gotProperties, property)
+	}
+	slices.Sort(gotProperties)
+	if !slices.Equal(gotProperties, []string{"conditions", "unsupportedReason"}) {
+		t.Fatalf("CRD %s status properties = %v, want conditions and unsupportedReason", name, gotProperties)
+	}
+	if _, ok := statusSchema.Properties["conditions"]; !ok {
+		t.Fatalf("CRD %s status.conditions schema is missing", name)
+	}
+	unsupportedReasonSchema, ok := statusSchema.Properties["unsupportedReason"]
+	if !ok {
+		t.Fatalf("CRD %s status.unsupportedReason schema is missing", name)
+	}
+	if unsupportedReasonSchema.Type != "string" {
+		t.Fatalf("CRD %s status.unsupportedReason type = %q, want string", name, unsupportedReasonSchema.Type)
+	}
+	gotEnum := jsonEnumStrings(t, unsupportedReasonSchema.Enum)
+	wantEnum := []string{
+		string(UnsupportedExpressionReasonInvalidIPAddressExpression),
+		string(UnsupportedExpressionReasonInvalidPathExpression),
+		string(UnsupportedExpressionReasonMultipleIPAddressExpressions),
+		string(UnsupportedExpressionReasonMultiplePathExpressions),
+		string(UnsupportedExpressionReasonUnsupportedExpressionType),
+		string(UnsupportedExpressionReasonUnsupportedIPAddressExpressionFields),
+		string(UnsupportedExpressionReasonUnsupportedNestedExpression),
+		string(UnsupportedExpressionReasonUnsupportedPathExpressionFields),
+	}
+	slices.Sort(gotEnum)
+	slices.Sort(wantEnum)
+	if !slices.Equal(gotEnum, wantEnum) {
+		t.Fatalf("CRD %s status.unsupportedReason enum = %v, want %v", name, gotEnum, wantEnum)
+	}
+	if slices.Contains(gotEnum, string(UnsupportedExpressionReasonSupportedExpression)) {
+		t.Fatalf("CRD %s status.unsupportedReason enum must not include supported success reason", name)
+	}
+
+	foundPrinterColumn := false
+	for _, column := range version.AdditionalPrinterColumns {
+		if column.Name == "UnsupportedReason" {
+			foundPrinterColumn = true
+			if column.Type != "string" || column.JSONPath != ".status.unsupportedReason" {
+				t.Fatalf("UnsupportedReason printer column = type %q jsonPath %q, want string .status.unsupportedReason", column.Type, column.JSONPath)
+			}
+		}
+	}
+	if !foundPrinterColumn {
+		t.Fatalf("CRD %s missing UnsupportedReason printer column", name)
+	}
+	t.Logf("CRD %s status schema exposes conditions and unsupportedReason enum", name)
+}
+
+func jsonEnumStrings(t *testing.T, enumValues []apiextensionsv1.JSON) []string {
+	t.Helper()
+	values := make([]string, 0, len(enumValues))
+	for _, enumValue := range enumValues {
+		var value string
+		if err := json.Unmarshal(enumValue.Raw, &value); err != nil {
+			t.Fatalf("decode enum value %s as string: %v", string(enumValue.Raw), err)
+		}
+		values = append(values, value)
+	}
+	return values
 }
 
 func createObject(ctx context.Context, t *testing.T, client resourceClient, object map[string]any) *unstructured.Unstructured {

@@ -1,4 +1,4 @@
-## Task: Expose Unsupported Expression Reason Enum in NSXGroup Status <status>not_started</status> <passes>false</passes>
+## Task: Expose Unsupported Expression Reason Enum in NSXGroup Status <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
@@ -45,14 +45,32 @@ Out of scope:
 
 
 <acceptance_criteria>
-- [ ] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
-- [ ] The verification evidence is recorded in the task or linked artifact.
-- [ ] Completion is not based only on a shallow checkbox, assumption, or code inspection.
-- [ ] The served `NSXGroup` CRD exposes `status.unsupportedReason` as an optional string enum and adds an `UnsupportedReason` printer column.
-- [ ] `api/v1alpha.NSXGroupStatus` contains `UnsupportedReason UnsupportedExpressionReason `json:"unsupportedReason,omitempty"`` or an equivalent strongly typed enum field.
-- [ ] Every current unsupported decision path records one of the enum reasons; no unsupported path remains a bare bool assignment with no reason.
-- [ ] `UnsupportedExpression=True` conditions use the enum value as the condition reason, and `status.unsupportedReason` contains the same value.
-- [ ] Supported/representable remote expressions leave `status.unsupportedReason` empty and set `UnsupportedExpression=False`.
-- [ ] Unit tests cover each enum value and prove condition/status consistency.
-- [ ] Full relevant tests are run and recorded, including status condition tests, manager pipeline tests, API/CRD integration tests, and NSX-facing verification against `../nsx-t-mockapi` or equivalent testcontainers evidence where the remote expression shape matters.
+- [x] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
+- [x] The verification evidence is recorded in the task or linked artifact.
+- [x] Completion is not based only on a shallow checkbox, assumption, or code inspection.
+- [x] The served `NSXGroup` CRD exposes `status.unsupportedReason` as an optional string enum and adds an `UnsupportedReason` printer column.
+- [x] `api/v1alpha.NSXGroupStatus` contains `UnsupportedReason UnsupportedExpressionReason `json:"unsupportedReason,omitempty"`` or an equivalent strongly typed enum field.
+- [x] Every current unsupported decision path records one of the enum reasons; no unsupported path remains a bare bool assignment with no reason.
+- [x] `UnsupportedExpression=True` conditions use the enum value as the condition reason, and `status.unsupportedReason` contains the same value.
+- [x] Supported/representable remote expressions leave `status.unsupportedReason` empty and set `UnsupportedExpression=False`.
+- [x] Unit tests cover each enum value and prove condition/status consistency.
+- [x] Full relevant tests are run and recorded, including status condition tests, manager pipeline tests, API/CRD integration tests, and NSX-facing verification against `../nsx-t-mockapi` or equivalent testcontainers evidence where the remote expression shape matters.
 </acceptance_criteria>
+
+<verification_evidence>
+- `go test ./api/v1alpha -run 'TestJSONShapeUsesPublicAPIFieldNames' -count=1` passed. Evidence: API JSON test proves `status.unsupportedReason` marshals when set and is omitted when empty.
+- `KUBEBUILDER_ASSETS="$(.bin/setup-envtest use 1.32.x -p path)" go test ./api/v1alpha -run 'TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema' -count=1` passed. Evidence: envtest installs the served CRD and asserts `status.unsupportedReason` is a string enum, `SupportedExpression` is not in the status enum, and the `UnsupportedReason` printer column uses `.status.unsupportedReason`.
+- `go test ./internal/statuscondition -count=1` passed. Evidence: status builder tests prove `UnsupportedExpression=True` carries the enum into `NSXGroupStatus.UnsupportedReason` and `UnsupportedExpression=False` clears it.
+- `KUBEBUILDER_ASSETS="$(.bin/setup-envtest use 1.32.x -p path)" go test ./internal/stateoperator -run 'Test(RemoteGroupFromNSXGroup|ProcessManagerSnapshotRemoteOnlyUnsupportedExpressionMarksUnsynced|ProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts|DefaultManagerSweepLogsUnsupportedRemoteReason)' -count=1` passed. Evidence: manager projection tests cover every enum value, status consistency tests prove supported and unsupported remote groups update status correctly, and default sweep log tests assert zap debug fields `networkCloudFQDN`, `groupID`, and `unsupportedReason`.
+- `KUBEBUILDER_ASSETS="$(.bin/setup-envtest use 1.32.x -p path)" go test ./...` passed. Evidence: all packages compile and pass with envtest-backed API/Kubernetes integration tests.
+- `make check` passed. Evidence: includes `fmt`, `vet`, `lint`, `test`, `test-race`, mockapi contract tests against `internal/testsupport/mockapi`, e2e envtest tests, large-chaos tests, and coverage.
+- `make test` passed.
+- `make test-coverage` passed with total coverage `84.2%`, meeting the 80% threshold. Relevant touched packages reported `api/v1alpha 100.0%`, `internal/stateoperator 82.1%`, and `internal/statuscondition 88.5%`.
+- Final boundary check: `rg -n "UnsupportedExpression\s+bool|UnsupportedExpression: true|UnsupportedExpression = true|UnsupportedReason.*string" api internal crds -g '*.go' -g '*.yaml'` found no bool-only unsupported state or bare true assignments; the remaining unsupported state is typed as `UnsupportedExpressionReason`.
+</verification_evidence>
+
+<execution_plan>
+.ralph/tasks/32-story-unsupported-reason-enum/01-task-expose-unsupported-expression-reason-enum_plans/01-typed-unsupported-reason-status.md
+</execution_plan>
+
+NOW EXECUTE

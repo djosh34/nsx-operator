@@ -35,8 +35,18 @@ type RemoteGroup struct {
 	SegmentPaths          []string
 	IPAddressExpressionID string
 	PathExpressionID      string
-	UnsupportedExpression bool
+	UnsupportedReason     nsxv1alpha.UnsupportedExpressionReason
 	Raw                   nsxclient.Group
+}
+
+func (r RemoteGroup) HasUnsupportedExpression() bool {
+	return r.UnsupportedReason != ""
+}
+
+func (r *RemoteGroup) markUnsupported(reason nsxv1alpha.UnsupportedExpressionReason) {
+	if r.UnsupportedReason == "" {
+		r.UnsupportedReason = reason
+	}
 }
 
 type GroupListFunc func(context.Context, kubeapi.ListOptions) (*nsxv1alpha.NSXGroupList, error)
@@ -168,7 +178,7 @@ func RemoteGroupFromNSXGroup(networkCloudFQDN string, group nsxclient.Group) Rem
 		Raw:         group,
 	}
 	if len(group.ExtendedExpression) > 0 {
-		remote.UnsupportedExpression = true
+		remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression)
 	}
 	seenIPExpression := false
 	seenPathExpression := false
@@ -177,52 +187,125 @@ func RemoteGroupFromNSXGroup(networkCloudFQDN string, group nsxclient.Group) Rem
 			ResourceType string `json:"resource_type"`
 		}
 		if err := json.Unmarshal(raw, &header); err != nil {
-			remote.UnsupportedExpression = true
+			remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType)
 			continue
 		}
 		switch header.ResourceType {
 		case "IPAddressExpression":
 			if seenIPExpression {
-				remote.UnsupportedExpression = true
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonMultipleIPAddressExpressions)
 				continue
 			}
 			seenIPExpression = true
+			fields, err := expressionFields(raw)
+			if err != nil {
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonInvalidIPAddressExpression)
+				continue
+			}
+			if _, ok := fields["ip_addresses"]; !ok {
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonInvalidIPAddressExpression)
+				continue
+			}
 			var expression nsxclient.IPAddressExpression
 			if err := json.Unmarshal(raw, &expression); err != nil {
-				remote.UnsupportedExpression = true
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonInvalidIPAddressExpression)
 				continue
 			}
 			remote.CIDRs = append([]string(nil), expression.IPAddresses...)
 			remote.IPAddressExpressionID = expression.ID
+			if hasUnsupportedExpressionFields(fields, allowedIPAddressExpressionFields) {
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonUnsupportedIPAddressExpressionFields)
+			}
 		case "PathExpression":
 			if seenPathExpression {
-				remote.UnsupportedExpression = true
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonMultiplePathExpressions)
 				continue
 			}
 			seenPathExpression = true
+			fields, err := expressionFields(raw)
+			if err != nil {
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonInvalidPathExpression)
+				continue
+			}
+			if _, ok := fields["paths"]; !ok {
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonInvalidPathExpression)
+				continue
+			}
 			var expression nsxclient.PathExpression
 			if err := json.Unmarshal(raw, &expression); err != nil {
-				remote.UnsupportedExpression = true
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonInvalidPathExpression)
 				continue
 			}
 			remote.SegmentPaths = copyStringSlice(expression.Paths)
 			remote.PathExpressionID = expression.ID
+			if hasUnsupportedExpressionFields(fields, allowedPathExpressionFields) {
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonUnsupportedPathExpressionFields)
+			}
 		case "ConjunctionOperator":
 			var expression struct {
 				ConjunctionOperator string `json:"conjunction_operator"`
 			}
 			if err := json.Unmarshal(raw, &expression); err != nil {
-				remote.UnsupportedExpression = true
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression)
 				continue
 			}
 			if expression.ConjunctionOperator != "OR" {
-				remote.UnsupportedExpression = true
+				remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression)
 			}
 		default:
-			remote.UnsupportedExpression = true
+			remote.markUnsupported(nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType)
 		}
 	}
 	return remote
+}
+
+var allowedIPAddressExpressionFields = map[string]struct{}{
+	"id":                  {},
+	"display_name":        {},
+	"description":         {},
+	"resource_type":       {},
+	"path":                {},
+	"parent_path":         {},
+	"relative_path":       {},
+	"_revision":           {},
+	"_create_user":        {},
+	"_last_modified_user": {},
+	"_create_time":        {},
+	"_last_modified_time": {},
+	"ip_addresses":        {},
+}
+
+var allowedPathExpressionFields = map[string]struct{}{
+	"id":                  {},
+	"display_name":        {},
+	"description":         {},
+	"resource_type":       {},
+	"path":                {},
+	"parent_path":         {},
+	"relative_path":       {},
+	"_revision":           {},
+	"_create_user":        {},
+	"_last_modified_user": {},
+	"_create_time":        {},
+	"_last_modified_time": {},
+	"paths":               {},
+}
+
+func expressionFields(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+func hasUnsupportedExpressionFields(fields map[string]json.RawMessage, allowed map[string]struct{}) bool {
+	for field := range fields {
+		if _, ok := allowed[field]; !ok {
+			return true
+		}
+	}
+	return false
 }
 
 func GatherManagerSnapshot(
@@ -511,6 +594,16 @@ func defaultManagerSweep(
 			zap.Int("remoteGroupCount", len(snapshot.RemoteGroups)),
 			zap.Bool("gatherFailed", snapshot.GatherError != nil),
 		)...)
+		for _, remote := range snapshot.RemoteGroups {
+			if !remote.HasUnsupportedExpression() {
+				continue
+			}
+			logger.Debug("default manager remote group has unsupported expression", append(
+				fields,
+				logging.GroupID(remote.Key.GroupID),
+				zap.String("unsupportedReason", string(remote.UnsupportedReason)),
+			)...)
+		}
 		plan, err := ProcessManagerSnapshot(snapshot, clock.Now())
 		if err != nil {
 			logger.Info("default manager processing failed", append(fields, zap.Error(err))...)
@@ -905,9 +998,9 @@ func syncedRemoteStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration i
 	realizedStatus, realizedReason, realizedMessage := realizedCondition(remote)
 	syncedReason := "Synced"
 	syncedMessage := "local group reflects remote NSX group"
-	if remote.UnsupportedExpression {
-		syncedReason = "UnsupportedExpression"
-		syncedMessage = "remote NSX group expression needs operator support before it can be synced"
+	if remote.HasUnsupportedExpression() {
+		syncedReason = string(remote.UnsupportedReason)
+		syncedMessage = fmt.Sprintf("remote NSX group expression needs operator support before it can be synced: %s", remote.UnsupportedReason)
 	}
 	if realizedStatus == metav1.ConditionUnknown && unsupportedStatus != metav1.ConditionTrue {
 		syncedReason = "RealizationPending"
@@ -932,10 +1025,10 @@ func syncedRemoteStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration i
 }
 
 func unsupportedExpressionCondition(remote RemoteGroup) (metav1.ConditionStatus, string, string) {
-	if remote.UnsupportedExpression {
-		return metav1.ConditionTrue, "UnsupportedExpression", "remote NSX group expression is not fully representable"
+	if remote.HasUnsupportedExpression() {
+		return metav1.ConditionTrue, string(remote.UnsupportedReason), fmt.Sprintf("remote NSX group expression is not fully representable: %s", remote.UnsupportedReason)
 	}
-	return metav1.ConditionFalse, "SupportedExpression", "remote NSX group expression is representable"
+	return metav1.ConditionFalse, string(nsxv1alpha.UnsupportedExpressionReasonSupportedExpression), "remote NSX group expression is representable"
 }
 
 func realizedCondition(remote RemoteGroup) (metav1.ConditionStatus, string, string) {

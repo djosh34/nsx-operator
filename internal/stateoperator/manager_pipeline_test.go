@@ -28,6 +28,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -222,6 +224,9 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 	if plan.GroupStatuses[0].Name != "nsx-a.example.test-8443-app-web-group" {
 		t.Fatalf("Group status name = %q, want observe upsert name", plan.GroupStatuses[0].Name)
 	}
+	if plan.GroupStatuses[0].Status.UnsupportedReason != "" {
+		t.Fatalf("UnsupportedReason = %q for supported remote expression, want empty", plan.GroupStatuses[0].Status.UnsupportedReason)
+	}
 	requireConditionTypes(t, plan.GroupStatuses[0].Status.Conditions, []string{
 		nsxv1alpha.ConditionRemotePresent,
 		nsxv1alpha.ConditionSpecMatchesRemote,
@@ -246,9 +251,9 @@ func TestProcessManagerSnapshotRemoteOnlyUnsupportedExpressionMarksUnsynced(t *t
 		Cloud:            *networkCloud("cloud-a", "nsx-a.example.test"),
 		NetworkCloudFQDN: "nsx-a.example.test",
 		RemoteGroups: []stateoperator.RemoteGroup{{
-			Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-unsupported"},
-			DisplayName:           "Unsupported App",
-			UnsupportedExpression: true,
+			Key:               stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-unsupported"},
+			DisplayName:       "Unsupported App",
+			UnsupportedReason: nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression,
 		}},
 	}, now)
 	if err != nil {
@@ -257,8 +262,11 @@ func TestProcessManagerSnapshotRemoteOnlyUnsupportedExpressionMarksUnsynced(t *t
 	if len(plan.GroupStatuses) != 1 {
 		t.Fatalf("GroupStatuses = %#v, want one unsupported status", plan.GroupStatuses)
 	}
-	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionUnsupportedExpression, metav1.ConditionTrue, "UnsupportedExpression", "remote NSX group expression is not fully representable", now)
-	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionFalse, "UnsupportedExpression", "remote NSX group expression needs operator support before it can be synced", now)
+	if plan.GroupStatuses[0].Status.UnsupportedReason != nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression {
+		t.Fatalf("UnsupportedReason = %q, want %q", plan.GroupStatuses[0].Status.UnsupportedReason, nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression)
+	}
+	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionUnsupportedExpression, metav1.ConditionTrue, string(nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression), "remote NSX group expression is not fully representable: UnsupportedNestedExpression", now)
+	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionFalse, string(nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression), "remote NSX group expression needs operator support before it can be synced: UnsupportedNestedExpression", now)
 }
 
 func TestProcessManagerSnapshotObserveGroupsMirrorRemoteAndDeleteWhenMissing(t *testing.T) {
@@ -517,8 +525,8 @@ func TestRemoteGroupFromNSXGroupSupportsEmptyExpression(t *testing.T) {
 	if len(remote.CIDRs) != 0 || len(remote.SegmentPaths) != 0 {
 		t.Fatalf("remote represented spec = cidrs:%v segments:%v, want empty", remote.CIDRs, remote.SegmentPaths)
 	}
-	if remote.UnsupportedExpression {
-		t.Fatalf("UnsupportedExpression = true for empty expression")
+	if remote.UnsupportedReason != "" {
+		t.Fatalf("UnsupportedReason = %q for empty expression, want empty", remote.UnsupportedReason)
 	}
 }
 
@@ -541,8 +549,8 @@ func TestRemoteGroupFromNSXGroupSupportsIPAddressExpression(t *testing.T) {
 	if len(remote.SegmentPaths) != 0 || remote.PathExpressionID != "" {
 		t.Fatalf("remote path expression = id:%q paths:%v, want empty", remote.PathExpressionID, remote.SegmentPaths)
 	}
-	if remote.UnsupportedExpression {
-		t.Fatalf("UnsupportedExpression = true for IP expression")
+	if remote.UnsupportedReason != "" {
+		t.Fatalf("UnsupportedReason = %q for IP expression, want empty", remote.UnsupportedReason)
 	}
 }
 
@@ -577,8 +585,8 @@ func TestRemoteGroupFromNSXGroupSupportsIPOrSegmentExpression(t *testing.T) {
 	if remote.IPAddressExpressionID != "ip-expression" || remote.PathExpressionID != "path-expression" {
 		t.Fatalf("remote expression IDs = ip:%q path:%q", remote.IPAddressExpressionID, remote.PathExpressionID)
 	}
-	if remote.UnsupportedExpression {
-		t.Fatalf("UnsupportedExpression = true for representable expressions")
+	if remote.UnsupportedReason != "" {
+		t.Fatalf("UnsupportedReason = %q for representable expressions, want empty", remote.UnsupportedReason)
 	}
 }
 
@@ -602,14 +610,232 @@ func TestRemoteGroupFromNSXGroupFlagsUnsupportedAndPreservesRepresentableFields(
 		},
 		ExtendedExpression: []json.RawMessage{rawExpression(t, map[string]string{"resource_type": "Extra"})},
 	})
-	if !unsupported.UnsupportedExpression {
-		t.Fatalf("UnsupportedExpression = false, want true for unknown expression: %#v", unsupported)
+	if unsupported.UnsupportedReason != nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression {
+		t.Fatalf("UnsupportedReason = %q, want %q: %#v", unsupported.UnsupportedReason, nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression, unsupported)
 	}
 	if !reflect.DeepEqual(unsupported.CIDRs, []string{"10.52.0.0/24"}) {
 		t.Fatalf("unsupported CIDRs = %#v, want representable IP fields preserved", unsupported.CIDRs)
 	}
 	if !reflect.DeepEqual(unsupported.SegmentPaths, []string{"/infra/segments/first", "/infra/segments/second"}) {
 		t.Fatalf("unsupported segment paths = %#v, want representable paths preserved", unsupported.SegmentPaths)
+	}
+}
+
+func TestRemoteGroupFromNSXGroupClassifiesUnsupportedReasons(t *testing.T) {
+	tests := []struct {
+		name       string
+		group      nsxclient.Group
+		wantReason nsxv1alpha.UnsupportedExpressionReason
+		wantCIDRs  []string
+		wantPaths  []string
+		wantIPID   string
+		wantPathID string
+	}{
+		{
+			name: "extended expression is unsupported nested expression",
+			group: nsxclient.Group{
+				Resource:           nsxclient.Resource{ID: "extended-expression"},
+				ExtendedExpression: []json.RawMessage{rawExpression(t, map[string]string{"resource_type": "NestedExpression"})},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression,
+		},
+		{
+			name: "malformed raw expression has unsupported expression type",
+			group: nsxclient.Group{
+				Resource:   nsxclient.Resource{ID: "malformed"},
+				Expression: []json.RawMessage{json.RawMessage(`{`)},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType,
+		},
+		{
+			name: "missing resource type has unsupported expression type",
+			group: nsxclient.Group{
+				Resource:   nsxclient.Resource{ID: "missing-type"},
+				Expression: []json.RawMessage{rawExpression(t, map[string][]string{"ip_addresses": {"10.0.0.0/24"}})},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType,
+		},
+		{
+			name: "duplicate IP address expression",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "duplicate-ip"},
+				Expression: []json.RawMessage{
+					rawExpression(t, nsxclient.IPAddressExpression{
+						Resource:    nsxclient.Resource{ID: "ip-first", ResourceType: "IPAddressExpression"},
+						IPAddresses: []string{"10.0.0.0/24"},
+					}),
+					rawExpression(t, nsxclient.IPAddressExpression{
+						Resource:    nsxclient.Resource{ID: "ip-second", ResourceType: "IPAddressExpression"},
+						IPAddresses: []string{"10.1.0.0/24"},
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonMultipleIPAddressExpressions,
+			wantCIDRs:  []string{"10.0.0.0/24"},
+			wantIPID:   "ip-first",
+		},
+		{
+			name: "invalid IP address expression",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "invalid-ip"},
+				Expression: []json.RawMessage{
+					rawExpression(t, map[string]any{
+						"resource_type": "IPAddressExpression",
+						"ip_addresses":  []any{12},
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonInvalidIPAddressExpression,
+		},
+		{
+			name: "missing IP addresses field",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "missing-ip-addresses"},
+				Expression: []json.RawMessage{
+					rawExpression(t, map[string]any{
+						"resource_type": "IPAddressExpression",
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonInvalidIPAddressExpression,
+		},
+		{
+			name: "unsupported IP address expression fields",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "unsupported-ip-fields"},
+				Expression: []json.RawMessage{
+					rawExpression(t, map[string]any{
+						"id":            "ip-expression",
+						"resource_type": "IPAddressExpression",
+						"ip_addresses":  []string{"10.2.0.0/24"},
+						"mac_addresses": []string{"00:11:22:33:44:55"},
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonUnsupportedIPAddressExpressionFields,
+			wantCIDRs:  []string{"10.2.0.0/24"},
+			wantIPID:   "ip-expression",
+		},
+		{
+			name: "duplicate path expression",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "duplicate-path"},
+				Expression: []json.RawMessage{
+					rawExpression(t, nsxclient.PathExpression{
+						Resource: nsxclient.Resource{ID: "path-first", ResourceType: "PathExpression"},
+						Paths:    []string{"/infra/segments/first"},
+					}),
+					rawExpression(t, nsxclient.PathExpression{
+						Resource: nsxclient.Resource{ID: "path-second", ResourceType: "PathExpression"},
+						Paths:    []string{"/infra/segments/second"},
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonMultiplePathExpressions,
+			wantPaths:  []string{"/infra/segments/first"},
+			wantPathID: "path-first",
+		},
+		{
+			name: "invalid path expression",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "invalid-path"},
+				Expression: []json.RawMessage{
+					rawExpression(t, map[string]any{
+						"resource_type": "PathExpression",
+						"paths":         []any{12},
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonInvalidPathExpression,
+		},
+		{
+			name: "missing paths field",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "missing-paths"},
+				Expression: []json.RawMessage{
+					rawExpression(t, map[string]any{
+						"resource_type": "PathExpression",
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonInvalidPathExpression,
+		},
+		{
+			name: "unsupported path expression fields",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "unsupported-path-fields"},
+				Expression: []json.RawMessage{
+					rawExpression(t, map[string]any{
+						"id":            "path-expression",
+						"resource_type": "PathExpression",
+						"paths":         []string{"/infra/segments/app"},
+						"external_ids":  []string{"external"},
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonUnsupportedPathExpressionFields,
+			wantPaths:  []string{"/infra/segments/app"},
+			wantPathID: "path-expression",
+		},
+		{
+			name: "invalid conjunction operator",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "invalid-operator"},
+				Expression: []json.RawMessage{
+					rawExpression(t, map[string]any{
+						"resource_type":        "ConjunctionOperator",
+						"conjunction_operator": 12,
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression,
+		},
+		{
+			name: "non OR conjunction operator",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "and-operator"},
+				Expression: []json.RawMessage{
+					rawExpression(t, map[string]string{
+						"resource_type":        "ConjunctionOperator",
+						"conjunction_operator": "AND",
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression,
+		},
+		{
+			name: "unknown resource type",
+			group: nsxclient.Group{
+				Resource: nsxclient.Resource{ID: "unknown-type"},
+				Expression: []json.RawMessage{
+					rawExpression(t, map[string]string{
+						"resource_type": "Condition",
+					}),
+				},
+			},
+			wantReason: nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			remote := stateoperator.RemoteGroupFromNSXGroup("nsx-a.example.test", tt.group)
+			if remote.UnsupportedReason != tt.wantReason {
+				t.Fatalf("UnsupportedReason = %q, want %q for %#v", remote.UnsupportedReason, tt.wantReason, remote)
+			}
+			if !reflect.DeepEqual(remote.CIDRs, tt.wantCIDRs) {
+				t.Fatalf("CIDRs = %#v, want %#v", remote.CIDRs, tt.wantCIDRs)
+			}
+			if !reflect.DeepEqual(remote.SegmentPaths, tt.wantPaths) {
+				t.Fatalf("SegmentPaths = %#v, want %#v", remote.SegmentPaths, tt.wantPaths)
+			}
+			if remote.IPAddressExpressionID != tt.wantIPID {
+				t.Fatalf("IPAddressExpressionID = %q, want %q", remote.IPAddressExpressionID, tt.wantIPID)
+			}
+			if remote.PathExpressionID != tt.wantPathID {
+				t.Fatalf("PathExpressionID = %q, want %q", remote.PathExpressionID, tt.wantPathID)
+			}
+		})
 	}
 }
 
@@ -1136,6 +1362,65 @@ nsx_operator_nsx_groups_observe_total{manager="nsx-a.example.test"} 3
 			t.Fatalf("manager operations = %v, want no NSX delete for Observe sweep", managerRecorder.operations)
 		}
 	}
+}
+
+func TestDefaultManagerSweepLogsUnsupportedRemoteReason(t *testing.T) {
+	typedClient, stop := startStateoperatorKubeAPIClient(t)
+	t.Cleanup(stop)
+	registry := prometheus.NewRegistry()
+	metricsRecorder, err := operatormetrics.NewRecorder(registry, zap.NewNop())
+	if err != nil {
+		t.Fatalf("construct metrics recorder: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	cloud := networkCloud("cloud-unsupported", "nsx-a.example.test")
+	if _, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create typed cloud: %v", err)
+	}
+	controllerClient := fake.NewClientBuilder().
+		WithScheme(newScheme(t)).
+		WithObjects(cloud).
+		Build()
+	managerRecorder := &operationRecorder{listGroups: []*nsxclient.Group{{
+		Resource: nsxclient.Resource{ID: "remote-unsupported", DisplayName: "Remote Unsupported"},
+		Expression: []json.RawMessage{
+			rawExpression(t, map[string]string{"resource_type": "Condition"}),
+		},
+	}}}
+	core, logs := observer.New(zapcore.DebugLevel)
+	operator, err := stateoperator.New(stateoperator.Options{
+		Client:       controllerClient,
+		KubeClient:   typedClient,
+		TickInterval: time.Hour,
+		Logger:       zap.New(core),
+		Recorder:     metricsRecorder,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return managerRecorder, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	operatorErr := make(chan error, 1)
+	operatorCtx, stopOperator := context.WithCancel(ctx)
+	defer stopOperator()
+	go func() {
+		operatorErr <- operator.Start(operatorCtx)
+	}()
+
+	requireTypedGroupCondition(ctx, t, typedClient, "nsx-a.example.test-remote-unsupported", nsxv1alpha.ConditionUnsupportedExpression, metav1.ConditionTrue)
+	stopOperator()
+	if err := <-operatorErr; err != nil {
+		t.Fatalf("operator Start() error = %v", err)
+	}
+
+	requireObservedLogField(t, logs, "default manager remote group has unsupported expression", "networkCloudFQDN", "nsx-a.example.test")
+	requireObservedLogField(t, logs, "default manager remote group has unsupported expression", "groupID", "remote-unsupported")
+	requireObservedLogField(t, logs, "default manager remote group has unsupported expression", "unsupportedReason", string(nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType))
 }
 
 func TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec(t *testing.T) {
@@ -2054,6 +2339,22 @@ func requireTypedCloudCondition(
 		case <-ticker.C:
 		}
 	}
+}
+
+func requireObservedLogField(t *testing.T, logs *observer.ObservedLogs, message string, key string, want string) {
+	t.Helper()
+
+	for _, entry := range logs.All() {
+		if entry.Message != message {
+			continue
+		}
+		fields := entry.ContextMap()
+		got, ok := fields[key]
+		if ok && got == want {
+			return
+		}
+	}
+	t.Fatalf("log %q field %s=%q not found; logs=%#v", message, key, want, logs.All())
 }
 
 func stateoperatorRepoPath(t *testing.T, elements ...string) string {

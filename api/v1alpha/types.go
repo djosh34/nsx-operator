@@ -74,7 +74,8 @@ type NSXGroupSpec struct {
 }
 
 type NSXGroupStatus struct {
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	UnsupportedReason UnsupportedExpressionReason `json:"unsupportedReason,omitempty"`
+	Conditions        []metav1.Condition          `json:"conditions,omitempty"`
 }
 
 const (
@@ -87,6 +88,20 @@ const (
 	ConditionSynced                = "Synced"
 	ConditionApplying              = "Applying"
 	ConditionDeleting              = "Deleting"
+)
+
+type UnsupportedExpressionReason string
+
+const (
+	UnsupportedExpressionReasonSupportedExpression                  UnsupportedExpressionReason = "SupportedExpression"
+	UnsupportedExpressionReasonUnsupportedExpressionType            UnsupportedExpressionReason = "UnsupportedExpressionType"
+	UnsupportedExpressionReasonMultipleIPAddressExpressions         UnsupportedExpressionReason = "MultipleIPAddressExpressions"
+	UnsupportedExpressionReasonMultiplePathExpressions              UnsupportedExpressionReason = "MultiplePathExpressions"
+	UnsupportedExpressionReasonInvalidIPAddressExpression           UnsupportedExpressionReason = "InvalidIPAddressExpression"
+	UnsupportedExpressionReasonInvalidPathExpression                UnsupportedExpressionReason = "InvalidPathExpression"
+	UnsupportedExpressionReasonUnsupportedIPAddressExpressionFields UnsupportedExpressionReason = "UnsupportedIPAddressExpressionFields"
+	UnsupportedExpressionReasonUnsupportedPathExpressionFields      UnsupportedExpressionReason = "UnsupportedPathExpressionFields"
+	UnsupportedExpressionReasonUnsupportedNestedExpression          UnsupportedExpressionReason = "UnsupportedNestedExpression"
 )
 
 var SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)

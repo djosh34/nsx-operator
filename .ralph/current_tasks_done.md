@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 23:36:53 CEST 2026
+Generated: Tue May 19 23:56:47 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -362,6 +362,17 @@ NOW EXECUTE
 
 ```
 ## Task: Support Multiple Segment Paths in NSXGroup Spec <status>done</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/32-story-unsupported-reason-enum/01-task-expose-unsupported-expression-reason-enum.md`
+
+```
+## Task: Expose Unsupported Expression Reason Enum in NSXGroup Status <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

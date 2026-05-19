@@ -93,6 +93,43 @@ func TestBuildGroupStatusUpdatesTransitionTimeWhenStatusChanges(t *testing.T) {
 	}
 }
 
+func TestBuildGroupStatusCarriesUnsupportedReasonWhenConditionIsTrue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 9, 30, 0, 0, time.UTC)
+	status, err := statuscondition.BuildGroupStatus(
+		nsxv1alpha.NSXGroupStatus{},
+		11,
+		now,
+		statuscondition.UnsupportedExpression(
+			metav1.ConditionTrue,
+			string(nsxv1alpha.UnsupportedExpressionReasonInvalidPathExpression),
+			"remote NSX group expression is not fully representable: InvalidPathExpression",
+		),
+	)
+	if err != nil {
+		t.Fatalf("BuildGroupStatus() error = %v", err)
+	}
+	if status.UnsupportedReason != nsxv1alpha.UnsupportedExpressionReasonInvalidPathExpression {
+		t.Fatalf("UnsupportedReason = %q, want %q", status.UnsupportedReason, nsxv1alpha.UnsupportedExpressionReasonInvalidPathExpression)
+	}
+
+	cleared, err := statuscondition.BuildGroupStatus(
+		status,
+		12,
+		now.Add(time.Minute),
+		statuscondition.UnsupportedExpression(
+			metav1.ConditionFalse,
+			string(nsxv1alpha.UnsupportedExpressionReasonSupportedExpression),
+			"remote NSX group expression is representable",
+		),
+	)
+	if err != nil {
+		t.Fatalf("BuildGroupStatus() clearing error = %v", err)
+	}
+	if cleared.UnsupportedReason != "" {
+		t.Fatalf("UnsupportedReason = %q after supported condition, want empty", cleared.UnsupportedReason)
+	}
+}
+
 func TestSyncedDerivesStatusFromRequiredConditionStatuses(t *testing.T) {
 	tests := []struct {
 		name                  string
