@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/djosh34/nsx-operator/internal/names"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -84,6 +85,15 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 	requireSpecBool(ctx, t, clouds, createdWritesDisabled.GetName(), "writesEnabled", false)
 	groupA := createObject(ctx, t, groups, groupObject("group-a", "nsx-a.example.net", "app-a", NSXGroupModeManage, "App A", []string{"10.0.0.0/24"}, nil))
 	createObject(ctx, t, groups, groupObject("group-b", "nsx-b.example.net", "app-b", NSXGroupModeObserve, "App B", []string{"10.1.0.0/24"}, nil))
+	problemGroupID := "App/Web_GROUP"
+	problemGroupName := names.NSXGroupName(names.NSXGroupLogicalID{
+		NetworkCloudFQDN: "NSX-A.Example.Net:8443",
+		GroupID:          problemGroupID,
+	})
+	problemGroup := createObject(ctx, t, groups, groupObject(problemGroupName, "nsx-a.example.net:8443", problemGroupID, NSXGroupModeObserve, "Problem Group", []string{"10.2.0.0/24"}, nil))
+	if problemGroup.GetName() != "nsx-a.example.net-8443-app-web-group" {
+		t.Fatalf("generated problem group name = %q, want Kubernetes-safe generated name", problemGroup.GetName())
+	}
 
 	updateStatusAndRequireSpecUnchanged(ctx, t, clouds, cloudA, "Reachable")
 	updateStatusAndRequireSpecUnchanged(ctx, t, groups, groupA, "Synced")
@@ -92,6 +102,7 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 	requireNames(ctx, t, clouds, "spec.networkCloudId=cloud-b", []string{"cloud-b"})
 	requireNames(ctx, t, groups, "spec.networkCloudFQDN=nsx-a.example.net", []string{"group-a"})
 	requireNames(ctx, t, groups, "spec.groupID=app-b", []string{"group-b"})
+	requireNames(ctx, t, groups, "spec.groupID=App/Web_GROUP", []string{"nsx-a.example.net-8443-app-web-group"})
 	requireNames(ctx, t, groups, "spec.mode=Manage", []string{"group-a"})
 
 	requireCreateRejected(ctx, t, groups, groupObject("invalid-mode", "nsx-a.example.net", "bad-mode", NSXGroupMode("Invalid"), "Invalid", []string{"10.2.0.0/24"}, nil))

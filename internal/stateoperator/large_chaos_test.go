@@ -53,8 +53,8 @@ func TestLargeRemoteGroupsPlanObserveUpserts(t *testing.T) {
 	if len(plan.GroupStatuses) != largeRemoteGroupCount {
 		t.Fatalf("GroupStatuses = %d, want %d", len(plan.GroupStatuses), largeRemoteGroupCount)
 	}
-	requireLargeObserveUpsert(t, plan.ObserveUpserts[0], "nsx-large.example.test--remote-0000", "remote-0000")
-	requireLargeObserveUpsert(t, plan.ObserveUpserts[len(plan.ObserveUpserts)-1], "nsx-large.example.test--remote-1999", "remote-1999")
+	requireLargeObserveUpsert(t, plan.ObserveUpserts[0], "nsx-large.example.test-remote-0000", "remote-0000")
+	requireLargeObserveUpsert(t, plan.ObserveUpserts[len(plan.ObserveUpserts)-1], "nsx-large.example.test-remote-1999", "remote-1999")
 
 	seen := make(map[string]struct{}, len(plan.ObserveUpserts))
 	for _, group := range plan.ObserveUpserts {

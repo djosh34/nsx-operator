@@ -1,6 +1,6 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 21:22:23 CEST 2026
+Generated: Tue May 19 21:49:57 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/25-story-cli-flag-help-errors/01-task-print-help-for-bad-flags.md`
 
@@ -17,17 +17,6 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Add Delete All CRs Script <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/28-story-k8s-safe-names/01-task-make-generated-names-k8s-safe.md`
-
-```
-## Task: Make Generated Names Kubernetes Safe <status>not_started</status> <passes>false</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

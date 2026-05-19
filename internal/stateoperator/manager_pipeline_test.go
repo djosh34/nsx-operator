@@ -31,6 +31,7 @@ import (
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -184,7 +185,7 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 		Cloud:            *networkCloud("cloud-a", "NSX-A.Example.Test:8443"),
 		NetworkCloudFQDN: "nsx-a.example.test:8443",
 		RemoteGroups: []stateoperator.RemoteGroup{{
-			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "NSX-A.Example.Test:8443", GroupID: "app-web"},
+			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "NSX-A.Example.Test:8443", GroupID: "App/Web_GROUP"},
 			DisplayName: "App Web",
 			CIDRs:       []string{"10.20.0.0/24", "10.20.1.0/24"},
 			SegmentPath: &segmentPath,
@@ -197,15 +198,18 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 		t.Fatalf("ObserveUpserts = %#v, want one remote-only import", plan.ObserveUpserts)
 	}
 	upsert := plan.ObserveUpserts[0]
-	if upsert.Name != "nsx-a.example.test-8443--app-web" {
+	if upsert.Name != "nsx-a.example.test-8443-app-web-group" {
 		t.Fatalf("Observe upsert name = %q, want deterministic cloud/group name", upsert.Name)
+	}
+	if errs := validation.IsDNS1123Subdomain(upsert.Name); len(errs) != 0 {
+		t.Fatalf("Observe upsert name = %q, Kubernetes validation errors = %v", upsert.Name, errs)
 	}
 	if len(upsert.Finalizers) != 0 {
 		t.Fatalf("Observe upsert finalizers = %v, want none", upsert.Finalizers)
 	}
 	wantSpec := nsxv1alpha.NSXGroupSpec{
 		NetworkCloudFQDN: "nsx-a.example.test:8443",
-		GroupID:          "app-web",
+		GroupID:          "App/Web_GROUP",
 		DisplayName:      "App Web",
 		Mode:             nsxv1alpha.NSXGroupModeObserve,
 		CIDRs:            []string{"10.20.0.0/24", "10.20.1.0/24"},
@@ -217,7 +221,7 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 	if len(plan.GroupStatuses) != 1 {
 		t.Fatalf("GroupStatuses = %#v, want one status update", plan.GroupStatuses)
 	}
-	if plan.GroupStatuses[0].Name != "nsx-a.example.test-8443--app-web" {
+	if plan.GroupStatuses[0].Name != "nsx-a.example.test-8443-app-web-group" {
 		t.Fatalf("Group status name = %q, want observe upsert name", plan.GroupStatuses[0].Name)
 	}
 	requireConditionTypes(t, plan.GroupStatuses[0].Status.Conditions, []string{
@@ -1068,8 +1072,8 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 		operatorErr <- operator.Start(operatorCtx)
 	}()
 
-	requireTypedGroupCondition(ctx, t, typedClient, "nsx-a.example.test--remote-import", nsxv1alpha.ConditionSynced, metav1.ConditionTrue)
-	imported, err := typedClient.Groups().Get(ctx, "nsx-a.example.test--remote-import", metav1.GetOptions{})
+	requireTypedGroupCondition(ctx, t, typedClient, "nsx-a.example.test-remote-import", nsxv1alpha.ConditionSynced, metav1.ConditionTrue)
+	imported, err := typedClient.Groups().Get(ctx, "nsx-a.example.test-remote-import", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get imported observe group: %v", err)
 	}

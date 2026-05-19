@@ -1,9 +1,15 @@
 package names
 
 import (
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/url"
 	"strings"
+)
+
+const (
+	maxDNS1123SubdomainLength = 253
+	truncatedNameHashLength   = 16
 )
 
 type NSXGroupLogicalID struct {
@@ -28,42 +34,45 @@ func NSXGroupName(id NSXGroupLogicalID) string {
 	cloud := NormalizeNetworkCloudFQDN(id.NetworkCloudFQDN)
 	cloud = strings.ReplaceAll(cloud, ":", "-")
 	groupID := strings.TrimSpace(id.GroupID)
-	return cloud + "--" + groupID
+	candidate := cloud + "--" + groupID
+	return kubernetesMetadataName(candidate)
 }
 
-func ParseNSXGroupName(value string) (NSXGroupLogicalID, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return NSXGroupLogicalID{}, errors.New("nsx group name is empty")
-	}
-	if strings.Count(trimmed, "--") != 1 {
-		return NSXGroupLogicalID{}, errors.New("nsx group name must contain exactly one -- separator")
-	}
-	parts := strings.Split(trimmed, "--")
-	cloud := strings.TrimSpace(parts[0])
-	groupID := strings.TrimSpace(parts[1])
-	if cloud == "" {
-		return NSXGroupLogicalID{}, errors.New("nsx group name cloud segment is empty")
-	}
-	if groupID == "" {
-		return NSXGroupLogicalID{}, errors.New("nsx group name group segment is empty")
-	}
-	return NSXGroupLogicalID{
-		NetworkCloudFQDN: NormalizeNetworkCloudFQDN(restorePort(cloud)),
-		GroupID:          groupID,
-	}, nil
-}
-
-func restorePort(cloud string) string {
-	portSeparator := strings.LastIndex(cloud, "-")
-	if portSeparator <= 0 || portSeparator == len(cloud)-1 {
-		return cloud
-	}
-	port := cloud[portSeparator+1:]
-	for _, char := range port {
-		if char < '0' || char > '9' {
-			return cloud
+func kubernetesMetadataName(value string) string {
+	var builder strings.Builder
+	lastWasSeparator := false
+	for _, char := range strings.ToLower(value) {
+		if isDNS1123SubdomainChar(char) {
+			if (char == '-' || char == '.') && (builder.Len() == 0 || lastWasSeparator) {
+				continue
+			}
+			builder.WriteRune(char)
+			lastWasSeparator = char == '-' || char == '.'
+			continue
 		}
+		if builder.Len() == 0 || lastWasSeparator {
+			continue
+		}
+		builder.WriteByte('-')
+		lastWasSeparator = true
 	}
-	return cloud[:portSeparator] + ":" + port
+	safe := strings.Trim(builder.String(), "-.")
+	if safe == "" {
+		return "nsx-group-" + hashSuffix(value)
+	}
+	if len(safe) > maxDNS1123SubdomainLength {
+		suffix := hashSuffix(value)
+		prefixLength := maxDNS1123SubdomainLength - len(suffix) - 1
+		safe = strings.Trim(safe[:prefixLength], "-.") + "-" + suffix
+	}
+	return safe
+}
+
+func hashSuffix(value string) string {
+	hash := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(hash[:])[:truncatedNameHashLength]
+}
+
+func isDNS1123SubdomainChar(char rune) bool {
+	return char == '-' || char == '.' || char >= '0' && char <= '9' || char >= 'a' && char <= 'z'
 }

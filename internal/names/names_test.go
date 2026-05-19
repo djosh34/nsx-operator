@@ -1,9 +1,11 @@
 package names_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/djosh34/nsx-operator/internal/names"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 func TestNormalizeNetworkCloudFQDNKeepsHostIdentityStable(t *testing.T) {
@@ -40,7 +42,7 @@ func TestNSXGroupNameUsesReadableStableProjection(t *testing.T) {
 				NetworkCloudFQDN: "nsx-a.example.net",
 				GroupID:          "app-foo",
 			},
-			want: "nsx-a.example.net--app-foo",
+			want: "nsx-a.example.net-app-foo",
 		},
 		{
 			name: "fqdn with port",
@@ -48,7 +50,7 @@ func TestNSXGroupNameUsesReadableStableProjection(t *testing.T) {
 				NetworkCloudFQDN: "nsx-a.example.net:8443",
 				GroupID:          "app-foo",
 			},
-			want: "nsx-a.example.net-8443--app-foo",
+			want: "nsx-a.example.net-8443-app-foo",
 		},
 	}
 
@@ -66,7 +68,7 @@ func TestNSXGroupNameIsDeterministicWithoutGeneratedSuffix(t *testing.T) {
 		NetworkCloudFQDN: "NSX-A.Example.Net:8443",
 		GroupID:          "app-foo",
 	}
-	want := "nsx-a.example.net-8443--app-foo"
+	want := "nsx-a.example.net-8443-app-foo"
 
 	for i := 0; i < 20; i++ {
 		if got := names.NSXGroupName(id); got != want {
@@ -75,75 +77,101 @@ func TestNSXGroupNameIsDeterministicWithoutGeneratedSuffix(t *testing.T) {
 	}
 }
 
-func TestParseNSXGroupNameRoundTripsGeneratedNames(t *testing.T) {
+func TestNSXGroupNameMakesCompleteMetadataNameKubernetesSafe(t *testing.T) {
+	id := names.NSXGroupLogicalID{
+		NetworkCloudFQDN: " HTTPS://NSX_A.Example.Net:8443/policy/api/v1 ",
+		GroupID:          " App/Web_GROUP ",
+	}
+
+	got := names.NSXGroupName(id)
+	if got != "nsx-a.example.net-8443-app-web-group" {
+		t.Fatalf("NSXGroupName(%+v) = %q, want full generated name sanitized", id, got)
+	}
+	if errs := validation.IsDNS1123Subdomain(got); len(errs) != 0 {
+		t.Fatalf("NSXGroupName(%+v) = %q, Kubernetes validation errors = %v", id, got, errs)
+	}
+}
+
+func TestNSXGroupNameHandlesBoundaryInputs(t *testing.T) {
 	tests := []struct {
 		name string
 		id   names.NSXGroupLogicalID
-		want names.NSXGroupLogicalID
+		want string
 	}{
 		{
-			name: "plain fqdn",
+			name: "leading and trailing invalid characters are removed",
 			id: names.NSXGroupLogicalID{
-				NetworkCloudFQDN: "nsx-a.example.net",
-				GroupID:          "app-foo",
+				NetworkCloudFQDN: "://NSX-A.example.net/",
+				GroupID:          "_app-web_",
 			},
-			want: names.NSXGroupLogicalID{
-				NetworkCloudFQDN: "nsx-a.example.net",
-				GroupID:          "app-foo",
-			},
+			want: "nsx-a.example.net-app-web",
 		},
 		{
-			name: "fqdn with port",
+			name: "repeated separators collapse",
 			id: names.NSXGroupLogicalID{
-				NetworkCloudFQDN: "nsx-a.example.net:8443",
-				GroupID:          "app-foo",
+				NetworkCloudFQDN: "nsx-a...example.net",
+				GroupID:          "app---web",
 			},
-			want: names.NSXGroupLogicalID{
-				NetworkCloudFQDN: "nsx-a.example.net:8443",
-				GroupID:          "app-foo",
-			},
+			want: "nsx-a.example.net-app-web",
 		},
 		{
-			name: "normalizes input before round trip",
+			name: "empty values get stable fallback",
 			id: names.NSXGroupLogicalID{
-				NetworkCloudFQDN: " HTTPS://NSX-A.Example.Net:8443/policy/api/v1 ",
-				GroupID:          " app-web ",
+				NetworkCloudFQDN: "   ",
+				GroupID:          "",
 			},
-			want: names.NSXGroupLogicalID{
-				NetworkCloudFQDN: "nsx-a.example.net:8443",
-				GroupID:          "app-web",
+			want: "nsx-group-d8156bae0c4243d3",
+		},
+		{
+			name: "all invalid values get stable fallback",
+			id: names.NSXGroupLogicalID{
+				NetworkCloudFQDN: "://",
+				GroupID:          "___",
 			},
+			want: "nsx-group-c4b5e7c67c581862",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			generatedName := names.NSXGroupName(test.id)
-			got, err := names.ParseNSXGroupName(generatedName)
-			if err != nil {
-				t.Fatalf("ParseNSXGroupName(%q) error = %v", generatedName, err)
-			}
+			got := names.NSXGroupName(test.id)
 			if got != test.want {
-				t.Fatalf("ParseNSXGroupName(%q) = %+v, want %+v", generatedName, got, test.want)
+				t.Fatalf("NSXGroupName(%+v) = %q, want %q", test.id, got, test.want)
+			}
+			if errs := validation.IsDNS1123Subdomain(got); len(errs) != 0 {
+				t.Fatalf("NSXGroupName(%+v) = %q, Kubernetes validation errors = %v", test.id, got, errs)
 			}
 		})
 	}
 }
 
-func TestParseNSXGroupNameRejectsMalformedNames(t *testing.T) {
-	tests := []string{
-		"",
-		"cloud-only",
-		"--group",
-		"cloud--",
-		"cloud--group--extra",
+func TestNSXGroupNameTruncatesLongNamesWithDeterministicCollisionResistantSuffix(t *testing.T) {
+	idA := names.NSXGroupLogicalID{
+		NetworkCloudFQDN: "nsx-a.example.net",
+		GroupID:          strings.Repeat("shared-prefix-", 30) + "alpha",
+	}
+	idB := names.NSXGroupLogicalID{
+		NetworkCloudFQDN: "nsx-a.example.net",
+		GroupID:          strings.Repeat("shared-prefix-", 30) + "bravo",
 	}
 
-	for _, test := range tests {
-		t.Run(test, func(t *testing.T) {
-			if got, err := names.ParseNSXGroupName(test); err == nil {
-				t.Fatalf("ParseNSXGroupName(%q) = %+v, want error", test, got)
-			}
-		})
+	gotA := names.NSXGroupName(idA)
+	gotAAgain := names.NSXGroupName(idA)
+	gotB := names.NSXGroupName(idB)
+
+	if len(gotA) > 253 {
+		t.Fatalf("NSXGroupName(%+v) length = %d, want at most 253: %q", idA, len(gotA), gotA)
+	}
+	if errs := validation.IsDNS1123Subdomain(gotA); len(errs) != 0 {
+		t.Fatalf("NSXGroupName(%+v) = %q, Kubernetes validation errors = %v", idA, gotA, errs)
+	}
+	if gotA != gotAAgain {
+		t.Fatalf("NSXGroupName(%+v) produced %q then %q, want deterministic value", idA, gotA, gotAAgain)
+	}
+	if gotA == gotB {
+		t.Fatalf("NSXGroupName values collided for distinct long IDs: %q", gotA)
+	}
+	if !strings.HasPrefix(gotA, "nsx-a.example.net-shared-prefix") {
+		t.Fatalf("NSXGroupName(%+v) = %q, want readable prefix preserved", idA, gotA)
 	}
 }
