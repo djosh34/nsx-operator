@@ -58,6 +58,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Checkout sibling mock API
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Cloning sibling nsx-t-mockapi repository for contract tests"
+          git clone --depth=1 "https://github.com/${GITHUB_REPOSITORY_OWNER}/nsx-t-mockapi.git" ../nsx-t-mockapi
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
