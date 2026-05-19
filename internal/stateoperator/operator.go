@@ -9,6 +9,7 @@ import (
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
 	"github.com/djosh34/nsx-operator/internal/kubeapi"
 	"github.com/djosh34/nsx-operator/internal/logging"
+	"github.com/djosh34/nsx-operator/internal/operatormetrics"
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -44,6 +45,7 @@ type Options struct {
 	ManagerClientFactory ManagerClientFactory
 	Clock                Clock
 	IDGenerator          SweepIDGenerator
+	Recorder             operatormetrics.Recorder
 }
 
 type NSXStateOperator struct {
@@ -67,6 +69,10 @@ func New(options Options) (*NSXStateOperator, error) {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+	recorder := options.Recorder
+	if recorder == nil {
+		recorder = operatormetrics.NopRecorder{}
+	}
 
 	sweepCloud := options.SweepCloud
 	clock := options.Clock
@@ -75,7 +81,7 @@ func New(options Options) (*NSXStateOperator, error) {
 	}
 	if sweepCloud == nil {
 		if options.KubeClient != nil && options.ManagerClientFactory != nil {
-			sweepCloud = defaultManagerSweep(options.KubeClient, options.ManagerClientFactory, logger, clock)
+			sweepCloud = defaultManagerSweep(options.KubeClient, options.ManagerClientFactory, logger, clock, recorder)
 		} else {
 			sweepCloud = func(context.Context, nsxv1alpha.NSXNetworkCloud, SweepContext) error {
 				return nil

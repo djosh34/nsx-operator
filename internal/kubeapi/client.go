@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
+	"github.com/djosh34/nsx-operator/internal/operatormetrics"
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -26,8 +27,9 @@ const (
 )
 
 type Options struct {
-	Config *rest.Config
-	Logger *zap.Logger
+	Config   *rest.Config
+	Logger   *zap.Logger
+	Recorder operatormetrics.Recorder
 }
 
 type Client struct {
@@ -43,6 +45,10 @@ func NewClient(options Options) (*Client, error) {
 	if log == nil {
 		log = zap.NewNop()
 	}
+	recorder := options.Recorder
+	if recorder == nil {
+		recorder = operatormetrics.NopRecorder{}
+	}
 	scheme := runtime.NewScheme()
 	if err := nsxv1alpha.AddToScheme(scheme); err != nil {
 		return nil, fmt.Errorf("register nsx api scheme: %w", err)
@@ -51,6 +57,7 @@ func NewClient(options Options) (*Client, error) {
 	config.GroupVersion = &nsxv1alpha.SchemeGroupVersion
 	config.APIPath = "/apis"
 	config.NegotiatedSerializer = serializer.NewCodecFactory(scheme).WithoutConversion()
+	config.WrapTransport = wrapKubernetesMetricsTransport(config.WrapTransport, recorder, log)
 	if config.UserAgent == "" {
 		config.UserAgent = rest.DefaultKubernetesUserAgent()
 	}

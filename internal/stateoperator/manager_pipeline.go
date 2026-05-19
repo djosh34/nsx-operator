@@ -16,6 +16,7 @@ import (
 	"github.com/djosh34/nsx-operator/internal/logging"
 	"github.com/djosh34/nsx-operator/internal/names"
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
+	"github.com/djosh34/nsx-operator/internal/operatormetrics"
 	"github.com/djosh34/nsx-operator/internal/statuscondition"
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -479,9 +480,13 @@ func defaultManagerSweep(
 	managerClientFactory ManagerClientFactory,
 	logger *zap.Logger,
 	clock Clock,
+	recorder operatormetrics.Recorder,
 ) CloudSweepFunc {
 	if logger == nil {
 		logger = zap.NewNop()
+	}
+	if recorder == nil {
+		recorder = operatormetrics.NopRecorder{}
 	}
 	return func(ctx context.Context, cloud nsxv1alpha.NSXNetworkCloud, sweep SweepContext) error {
 		normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
@@ -518,6 +523,12 @@ func defaultManagerSweep(
 			zap.Int("observeDeleteCount", len(plan.ObserveDeletes)),
 			zap.Bool("cloudStatusPlanned", plan.CloudStatus != nil),
 		)...)
+		metricsSnapshot, err := managerMetricsSnapshot(snapshot, plan)
+		if err != nil {
+			logger.Info("default manager metrics summary failed", append(fields, zap.Error(err))...)
+			return err
+		}
+		recorder.SetManagerGroupSnapshot(normalizedFQDN, metricsSnapshot)
 		var managerClient ManagerClient
 		if len(plan.ManagedWrites) > 0 || len(plan.ManagedDeletes) > 0 {
 			managerClient, err = managerClientFactory(ctx, cloud)
@@ -533,6 +544,44 @@ func defaultManagerSweep(
 		logger.Info("completed default manager sweep", fields...)
 		return nil
 	}
+}
+
+func managerMetricsSnapshot(snapshot ManagerSnapshot, plan ManagerPlan) (operatormetrics.ManagerGroupSnapshot, error) {
+	if snapshot.GatherError != nil {
+		return operatormetrics.ManagerGroupSnapshot{}, nil
+	}
+	bindings, err := BuildBindings(snapshot)
+	if err != nil {
+		return operatormetrics.ManagerGroupSnapshot{}, fmt.Errorf("build manager metrics bindings: %w", err)
+	}
+
+	remoteOnlyCreates := 0
+	for _, remote := range bindings.Remote {
+		if _, exists := bindings.LocalByKey[remote.Key]; !exists {
+			remoteOnlyCreates++
+		}
+	}
+
+	observeGroups := 0
+	manageGroups := 0
+	for _, local := range bindings.Local {
+		switch local.Group.Spec.Mode {
+		case nsxv1alpha.NSXGroupModeObserve:
+			observeGroups++
+		case nsxv1alpha.NSXGroupModeManage:
+			manageGroups++
+		}
+	}
+	observeGroups += remoteOnlyCreates
+
+	return operatormetrics.ManagerGroupSnapshot{
+		ListedGroups:         len(snapshot.RemoteGroups),
+		ObserveGroups:        observeGroups,
+		ManageGroups:         manageGroups,
+		ObserveUpdatesNeeded: len(plan.ObserveUpserts) + len(plan.ObserveDeletes) - remoteOnlyCreates,
+		ManageUpdatesNeeded:  len(plan.ManagedWrites) + len(plan.ManagedDeletes) + len(plan.ManagedFinalizerRemovals),
+		CreatesNeeded:        remoteOnlyCreates,
+	}, nil
 }
 
 type kubeAPIAdapter struct {

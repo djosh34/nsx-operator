@@ -1,5 +1,6 @@
 operator:
   tickInterval: 5s
+  metricsBindAddress: ":8080"
 httpRateLimiter:
   maxRequestsInFlightPerHost: 4
   maxRequestsPerSecondPerHost: 20

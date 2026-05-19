@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/djosh34/nsx-operator/internal/operatormetrics"
 	"go.uber.org/zap"
 )
 
@@ -26,6 +28,7 @@ type Options struct {
 	Password     string
 	Logger       *zap.Logger
 	WriteControl WriteControl
+	Recorder     operatormetrics.Recorder
 }
 
 type WriteControl struct {
@@ -42,6 +45,7 @@ type Client struct {
 	password     string
 	log          *zap.Logger
 	writeControl WriteControl
+	recorder     operatormetrics.Recorder
 }
 
 func NewClient(options Options) (*Client, error) {
@@ -69,6 +73,10 @@ func NewClient(options Options) (*Client, error) {
 	if log == nil {
 		log = zap.NewNop()
 	}
+	recorder := options.Recorder
+	if recorder == nil {
+		recorder = operatormetrics.NopRecorder{}
+	}
 	baseURL.Path = strings.TrimRight(baseURL.Path, "/")
 
 	writeControl := options.WriteControl
@@ -91,6 +99,7 @@ func NewClient(options Options) (*Client, error) {
 		password:     options.Password,
 		log:          log,
 		writeControl: writeControl,
+		recorder:     recorder,
 	}, nil
 }
 
@@ -118,22 +127,32 @@ func (c *Client) do(ctx context.Context, method string, path string, query url.V
 	if err := c.requireWriteEnabled(method, path, query); err != nil {
 		return err
 	}
+	function := nsxFunction(method, path, query)
+	manager := c.metricsManager()
+	c.recorder.ObserveNSXCall(manager, function)
 	req, err := c.newRequest(ctx, method, path, query, payload)
 	if err != nil {
 		return err
 	}
+	requestBytes := requestBodyBytes(req)
 
 	log := c.log.With(
 		zap.String("method", method),
 		zap.String("url", redactedURL(req.URL)),
+		zap.String("function", function),
+		zap.String("manager", manager),
 	)
 	log.Debug("sending nsx request")
+	start := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.recorder.ObserveNSXHTTP(manager, function, requestBytes, 0, time.Since(start))
 		log.Debug("nsx request failed", zap.Error(err))
 		return fmt.Errorf("send nsx request: %w", err)
 	}
+	body := wrapCountingBody(resp)
 	handleErr := c.handleResponse(resp, target)
+	c.recorder.ObserveNSXHTTP(manager, function, requestBytes, body.bytesRead(), time.Since(start))
 	if handleErr != nil {
 		log.Debug("nsx response failed", zap.Error(handleErr))
 		return handleErr
@@ -244,6 +263,9 @@ func (c *Client) handleResponse(resp *http.Response, target any) (retErr error) 
 func listAllTyped[T any](ctx context.Context, c *Client, path string, query url.Values) ([]*T, error) {
 	accumulated := []*T{}
 	cursor := ""
+	function := nsxFunction(http.MethodGet, path, query)
+	manager := c.metricsManager()
+	c.recorder.ObserveNSXCall(manager, function)
 	for {
 		pageQuery := cloneValues(query)
 		if cursor != "" {
@@ -253,18 +275,25 @@ func listAllTyped[T any](ctx context.Context, c *Client, path string, query url.
 		if err != nil {
 			return nil, err
 		}
-		c.log.Debug("sending nsx list request", zap.String("url", redactedURL(req.URL)))
+		requestBytes := requestBodyBytes(req)
+		c.log.Debug("sending nsx list request", zap.String("url", redactedURL(req.URL)), zap.String("function", function), zap.String("manager", manager))
+		start := time.Now()
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			c.recorder.ObserveNSXHTTP(manager, function, requestBytes, 0, time.Since(start))
 			return nil, fmt.Errorf("send nsx list request: %w", err)
 		}
+		body := wrapCountingBody(resp)
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
 			if handleErr := c.handleResponse(resp, nil); handleErr != nil {
+				c.recorder.ObserveNSXHTTP(manager, function, requestBytes, body.bytesRead(), time.Since(start))
 				return nil, handleErr
 			}
+			c.recorder.ObserveNSXHTTP(manager, function, requestBytes, body.bytesRead(), time.Since(start))
 			return nil, fmt.Errorf("nsx list request returned status %d without error", resp.StatusCode)
 		}
 		items, nextCursor, _, err := decodeAndCloseList[T](resp.Body)
+		c.recorder.ObserveNSXHTTP(manager, function, requestBytes, body.bytesRead(), time.Since(start))
 		if err != nil {
 			return nil, err
 		}
@@ -274,6 +303,57 @@ func listAllTyped[T any](ctx context.Context, c *Client, path string, query url.
 		}
 		cursor = nextCursor
 	}
+}
+
+func (c *Client) metricsManager() string {
+	if c.writeControl.NetworkCloudFQDN != "" {
+		return c.writeControl.NetworkCloudFQDN
+	}
+	return c.baseURL.Host
+}
+
+func requestBodyBytes(req *http.Request) int64 {
+	if req == nil || req.ContentLength <= 0 {
+		return 0
+	}
+	return req.ContentLength
+}
+
+func wrapCountingBody(resp *http.Response) *countingReadCloser {
+	if resp == nil || resp.Body == nil {
+		return &countingReadCloser{}
+	}
+	counting := &countingReadCloser{ReadCloser: resp.Body}
+	resp.Body = counting
+	return counting
+}
+
+type countingReadCloser struct {
+	io.ReadCloser
+	count int64
+}
+
+func (body *countingReadCloser) Read(p []byte) (int, error) {
+	if body == nil || body.ReadCloser == nil {
+		return 0, io.EOF
+	}
+	n, err := body.ReadCloser.Read(p)
+	body.count += int64(n)
+	return n, err
+}
+
+func (body *countingReadCloser) Close() error {
+	if body == nil || body.ReadCloser == nil {
+		return nil
+	}
+	return body.ReadCloser.Close()
+}
+
+func (body *countingReadCloser) bytesRead() int64 {
+	if body == nil {
+		return 0
+	}
+	return body.count
 }
 
 func decodeAndCloseList[T any](body io.ReadCloser) ([]*T, string, int, error) {
@@ -335,6 +415,133 @@ func cloneValues(values url.Values) url.Values {
 		cloned[key] = append([]string(nil), entries...)
 	}
 	return cloned
+}
+
+func nsxFunction(method string, path string, query url.Values) string {
+	action := ""
+	if query != nil {
+		action = query.Get("action")
+	}
+	switch {
+	case method == http.MethodGet && path == defaultDomainPath()+"/groups":
+		return "list_groups"
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/groups/") && pathHasSuffix(path, "/members/ip-addresses"):
+		return "list_group_ip_address_members"
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/groups/") && pathHasSuffix(path, "/members/ip-groups"):
+		return "list_group_ip_group_members"
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/groups/") && pathHasSuffix(path, "/members/segments"):
+		return "list_group_segment_members"
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/groups/") && strings.Contains(path, "/ip-address-expressions/"):
+		return methodActionFunction(method, action, "group_ip_address_expression")
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/groups/") && strings.Contains(path, "/path-expressions/"):
+		return methodActionFunction(method, action, "group_path_expression")
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/groups/") && pathHasSuffix(path, "/members/consolidated-effective-ip-addresses"):
+		return "get_global_consolidated_effective_ip_addresses"
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/groups/"):
+		return methodFunction(method, "group")
+	case method == http.MethodGet && path == "/policy/api/v1/eula/acceptance":
+		return "get_eula_acceptance"
+	case path == "/api/v1/search/query":
+		return "search_manager_query"
+	case path == "/api/v1/search/dsl":
+		return "search_manager_dsl"
+	case path == "/policy/api/v1/search/query":
+		return "search_policy_query"
+	case path == "/policy/api/v1/search/dsl":
+		return "search_policy_dsl"
+	case path == "/api/v1/firewall/sections":
+		return methodActionFunction(method, action, "firewall_section")
+	case pathHasPrefixSegments(path, "/api/v1/firewall/sections/") && strings.Contains(path, "/rules/"):
+		return methodActionFunction(method, action, "firewall_rule")
+	case pathHasPrefixSegments(path, "/api/v1/firewall/sections/") && pathHasSuffix(path, "/rules"):
+		return methodActionFunction(method, action, "firewall_rule")
+	case pathHasPrefixSegments(path, "/api/v1/firewall/sections/") && pathHasSuffix(path, "/rules/stats"):
+		return "list_firewall_rule_stats"
+	case pathHasPrefixSegments(path, "/api/v1/firewall/sections/"):
+		return methodActionFunction(method, action, "firewall_section")
+	case path == "/api/v1/ip-sets":
+		return methodFunction(method, "ip_set")
+	case pathHasPrefixSegments(path, "/api/v1/ip-sets/") && pathHasSuffix(path, "/members"):
+		return "list_ip_set_members"
+	case pathHasPrefixSegments(path, "/api/v1/ip-sets/"):
+		return methodActionFunction(method, action, "ip_set")
+	case path == defaultDomainPath()+"/security-policies":
+		return "list_security_policies"
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/security-policies/") && strings.Contains(path, "/rules/"):
+		return methodActionFunction(method, action, "security_rule")
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/security-policies/") && pathHasSuffix(path, "/rules"):
+		return "list_security_rules"
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/security-policies/") && pathHasSuffix(path, "/statistics"):
+		return "list_security_policy_stats"
+	case pathHasPrefixSegments(path, defaultDomainPath()+"/security-policies/"):
+		return methodActionFunction(method, action, "security_policy")
+	case path == "/policy/api/v1/infra/segments":
+		return "list_infra_segments"
+	case path == "/policy/api/v1/infra/segments/state":
+		return "list_infra_segment_states"
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/segments/") && pathHasSuffix(path, "/state"):
+		return "get_infra_segment_state"
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/segments/") && pathHasSuffix(path, "/statistics"):
+		return "get_infra_segment_statistics"
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/segments/"):
+		return methodFunction(method, "infra_segment")
+	case path == "/policy/api/v1/infra/tier-0s":
+		return "list_tier0s"
+	case path == "/policy/api/v1/infra/tier-1s":
+		return "list_tier1s"
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/tier-1s/") && strings.Contains(path, "/segments/") && pathHasSuffix(path, "/state"):
+		return "get_tier1_segment_state"
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/tier-1s/") && strings.Contains(path, "/segments/") && pathHasSuffix(path, "/statistics"):
+		return "get_tier1_segment_statistics"
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/tier-1s/") && pathHasSuffix(path, "/segments/state"):
+		return "list_tier1_segment_states"
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/tier-1s/") && pathHasSuffix(path, "/segments"):
+		return "list_tier1_segments"
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/tier-1s/") && strings.Contains(path, "/segments/"):
+		return methodFunction(method, "tier1_segment")
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/tier-1s/") && pathHasSuffix(path, "/state"):
+		return "get_tier1_state"
+	case pathHasPrefixSegments(path, "/policy/api/v1/infra/tier-1s/"):
+		return methodFunction(method, "tier1")
+	case pathHasPrefixSegments(path, "/policy/api/v1/global-infra/tier-1s/") && pathHasSuffix(path, "/state"):
+		return "get_global_tier1_segment_state"
+	case pathHasPrefixSegments(path, "/policy/api/v1/global-infra/tier-1s/") && pathHasSuffix(path, "/statistics"):
+		return "get_global_tier1_segment_statistics"
+	default:
+		return methodFunction(method, "unknown")
+	}
+}
+
+func methodActionFunction(method string, action string, resource string) string {
+	if action != "" {
+		return action + "_" + resource
+	}
+	return methodFunction(method, resource)
+}
+
+func methodFunction(method string, resource string) string {
+	switch method {
+	case http.MethodGet:
+		return "get_" + resource
+	case http.MethodPost:
+		return "create_" + resource
+	case http.MethodPut:
+		return "put_" + resource
+	case http.MethodPatch:
+		return "patch_" + resource
+	case http.MethodDelete:
+		return "delete_" + resource
+	default:
+		return strings.ToLower(method) + "_" + resource
+	}
+}
+
+func pathHasPrefixSegments(path string, prefix string) bool {
+	return strings.HasPrefix(path, prefix)
+}
+
+func pathHasSuffix(path string, suffix string) bool {
+	return strings.HasSuffix(path, suffix)
 }
 
 func pathEscape(value string) string {

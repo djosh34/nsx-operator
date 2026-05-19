@@ -20,7 +20,8 @@ type Config struct {
 }
 
 type OperatorConfig struct {
-	TickInterval time.Duration
+	TickInterval       time.Duration
+	MetricsBindAddress string
 }
 
 type HTTPRateLimiterConfig struct {
@@ -73,7 +74,8 @@ type rawConfig struct {
 }
 
 type rawOperatorConfig struct {
-	TickInterval string `yaml:"tickInterval"`
+	TickInterval       string `yaml:"tickInterval"`
+	MetricsBindAddress string `yaml:"metricsBindAddress"`
 }
 
 type rawHTTPRateLimiterConfig struct {
@@ -153,7 +155,8 @@ func Load(options Options) (Config, error) {
 
 	return Config{
 		Operator: OperatorConfig{
-			TickInterval: tickInterval,
+			TickInterval:       tickInterval,
+			MetricsBindAddress: parseMetricsBindAddress(raw.Operator.MetricsBindAddress),
 		},
 		HTTPRateLimiter: HTTPRateLimiterConfig{
 			MaxRequestsInFlightPerHost:  raw.HTTPRateLimiter.MaxRequestsInFlightPerHost,
@@ -172,6 +175,13 @@ func Load(options Options) (Config, error) {
 			Level: raw.Logging.Level,
 		},
 	}, nil
+}
+
+func parseMetricsBindAddress(value string) string {
+	if value == "" {
+		return ":8080"
+	}
+	return value
 }
 
 func parsePositiveDuration(field string, value string) (time.Duration, error) {

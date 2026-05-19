@@ -47,6 +47,9 @@ logging:
 	if loaded.Operator.TickInterval != 30*time.Second {
 		t.Fatalf("TickInterval = %s, want 30s", loaded.Operator.TickInterval)
 	}
+	if loaded.Operator.MetricsBindAddress != ":8080" {
+		t.Fatalf("MetricsBindAddress = %q, want :8080", loaded.Operator.MetricsBindAddress)
+	}
 	if loaded.HTTPRateLimiter.MaxRequestsInFlightPerHost != 8 {
 		t.Fatalf("MaxRequestsInFlightPerHost = %d, want 8", loaded.HTTPRateLimiter.MaxRequestsInFlightPerHost)
 	}
@@ -67,6 +70,35 @@ logging:
 	}
 	if loaded.NSX.Auth.Source != config.CredentialSourceConfigValues {
 		t.Fatalf("Source = %q, want %q", loaded.NSX.Auth.Source, config.CredentialSourceConfigValues)
+	}
+}
+
+func TestLoadOperatorMetricsBindAddressAllowsOverride(t *testing.T) {
+	configPath := writeConfig(t, t.TempDir(), `
+operator:
+  tickInterval: 30s
+  metricsBindAddress: "127.0.0.1:9090"
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 8
+  maxRequestsPerSecondPerHost: 20
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: info
+`)
+
+	loaded, err := config.Load(config.Options{
+		Path:    configPath,
+		Environ: map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if loaded.Operator.MetricsBindAddress != "127.0.0.1:9090" {
+		t.Fatalf("MetricsBindAddress = %q, want 127.0.0.1:9090", loaded.Operator.MetricsBindAddress)
 	}
 }
 

@@ -12,6 +12,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/djosh34/nsx-operator/internal/operatormetrics"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -61,6 +65,86 @@ func TestClientAddsBasicAuthToReadAndWriteRequests(t *testing.T) {
 	}
 	if got := seen.Load(); got != 2 {
 		t.Fatalf("requests seen = %d, want 2", got)
+	}
+}
+
+func TestClientRecordsNSXMetricsForPublicCalls(t *testing.T) {
+	t.Parallel()
+
+	registry := prometheus.NewRegistry()
+	recorder, err := operatormetrics.NewRecorder(registry, zap.NewNop())
+	if err != nil {
+		t.Fatalf("construct recorder: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == defaultDomainPath()+"/groups":
+			if _, err := io.WriteString(w, `{"results":[{"id":"web","display_name":"Web"}],"result_count":1}`); err != nil {
+				t.Errorf("write list response: %v", err)
+			}
+		case req.Method == http.MethodPatch && req.URL.Path == defaultDomainPath()+"/groups/web":
+			if _, err := io.Copy(io.Discard, req.Body); err != nil {
+				t.Errorf("read patch body: %v", err)
+			}
+			w.WriteHeader(http.StatusOK)
+			if _, err := io.WriteString(w, `{}`); err != nil {
+				t.Errorf("write patch response: %v", err)
+			}
+		default:
+			t.Errorf("unexpected request %s %s", req.Method, req.URL.RequestURI())
+			w.WriteHeader(http.StatusTeapot)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(Options{
+		BaseURL:  server.URL,
+		Username: "nsx_admin",
+		Password: "nsx_password",
+		Logger:   zap.NewNop(),
+		WriteControl: WriteControl{
+			Enabled:          true,
+			NetworkCloudFQDN: "manager-a.example.test",
+		},
+		Recorder: recorder,
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	if _, err := client.ListGroups(context.Background()); err != nil {
+		t.Fatalf("ListGroups() error = %v", err)
+	}
+	if err := client.PatchGroup(context.Background(), "web", &GroupPatch{DisplayName: "Web"}); err != nil {
+		t.Fatalf("PatchGroup() error = %v", err)
+	}
+
+	expected := `
+# HELP nsx_operator_nsx_client_calls_total Total NSX client calls by manager and function.
+# TYPE nsx_operator_nsx_client_calls_total counter
+nsx_operator_nsx_client_calls_total{function="list_groups",manager="manager-a.example.test"} 1
+nsx_operator_nsx_client_calls_total{function="patch_group",manager="manager-a.example.test"} 1
+# HELP nsx_operator_nsx_http_requests_total Total NSX HTTP requests by manager.
+# TYPE nsx_operator_nsx_http_requests_total counter
+nsx_operator_nsx_http_requests_total{manager="manager-a.example.test"} 2
+`
+	if err := testutil.GatherAndCompare(
+		registry, strings.NewReader(expected),
+		"nsx_operator_nsx_client_calls_total",
+		"nsx_operator_nsx_http_requests_total",
+	); err != nil {
+		t.Fatalf("gather counters: %v", err)
+	}
+	if got := histogramSampleCount(t, registry, "nsx_operator_nsx_http_round_trip_seconds", map[string]string{"manager": "manager-a.example.test"}); got != 2 {
+		t.Fatalf("nsx manager round trip count = %d, want 2", got)
+	}
+	if got := histogramSampleCount(t, registry, "nsx_operator_nsx_http_function_round_trip_seconds", map[string]string{"manager": "manager-a.example.test", "function": "list_groups"}); got != 1 {
+		t.Fatalf("nsx list_groups round trip count = %d, want 1", got)
+	}
+	if got := histogramSampleCount(t, registry, "nsx_operator_nsx_http_function_round_trip_seconds", map[string]string{"manager": "manager-a.example.test", "function": "patch_group"}); got != 1 {
+		t.Fatalf("nsx patch_group round trip count = %d, want 1", got)
 	}
 }
 
@@ -474,6 +558,47 @@ func jsonResponse(req *http.Request, statusCode int, body string) *http.Response
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Request:    req,
 	}
+}
+
+func histogramSampleCount(t *testing.T, registry *prometheus.Registry, name string, labels map[string]string) uint64 {
+	t.Helper()
+
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gather registry: %v", err)
+	}
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			if !metricHasLabels(metric.GetLabel(), labels) {
+				continue
+			}
+			if metric.GetHistogram() == nil {
+				t.Fatalf("metric %s with labels %v is not a histogram", name, labels)
+			}
+			return metric.GetHistogram().GetSampleCount()
+		}
+	}
+	t.Fatalf("missing histogram %s with labels %v", name, labels)
+	return 0
+}
+
+func metricHasLabels(pairs []*dto.LabelPair, labels map[string]string) bool {
+	for key, want := range labels {
+		found := false
+		for _, pair := range pairs {
+			if pair.GetName() == key && pair.GetValue() == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 type closingBody struct {

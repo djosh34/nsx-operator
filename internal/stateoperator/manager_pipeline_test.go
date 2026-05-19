@@ -23,7 +23,10 @@ import (
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
 	"github.com/djosh34/nsx-operator/internal/kubeapi"
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
+	"github.com/djosh34/nsx-operator/internal/operatormetrics"
 	"github.com/djosh34/nsx-operator/internal/stateoperator"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -967,6 +970,11 @@ func TestApplyManagerPlanDeletesExistingPathExpressionWhenManagedSegmentPathIsRe
 func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeAPI(t *testing.T) {
 	typedClient, stop := startStateoperatorKubeAPIClient(t)
 	t.Cleanup(stop)
+	registry := prometheus.NewRegistry()
+	metricsRecorder, err := operatormetrics.NewRecorder(registry, zap.NewNop())
+	if err != nil {
+		t.Fatalf("construct metrics recorder: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
@@ -1009,6 +1017,7 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 		KubeClient:   typedClient,
 		TickInterval: time.Hour,
 		Logger:       zap.NewExample(),
+		Recorder:     metricsRecorder,
 		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
 			return managerRecorder, nil
 		},
@@ -1051,6 +1060,34 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 	stopOperator()
 	if err := <-operatorErr; err != nil {
 		t.Fatalf("operator Start() error = %v", err)
+	}
+	expectedMetrics := `
+# HELP nsx_operator_nsx_group_cr_creates_needed_total Last manager sweep total new group CRs that need to be created.
+# TYPE nsx_operator_nsx_group_cr_creates_needed_total gauge
+nsx_operator_nsx_group_cr_creates_needed_total{manager="nsx-a.example.test"} 1
+# HELP nsx_operator_nsx_group_cr_updates_needed_total Last manager sweep total group CR updates needed by mode.
+# TYPE nsx_operator_nsx_group_cr_updates_needed_total gauge
+nsx_operator_nsx_group_cr_updates_needed_total{manager="nsx-a.example.test",mode="manage"} 0
+nsx_operator_nsx_group_cr_updates_needed_total{manager="nsx-a.example.test",mode="observe"} 2
+# HELP nsx_operator_nsx_groups_listed_total Last manager sweep total groups listed from NSX.
+# TYPE nsx_operator_nsx_groups_listed_total gauge
+nsx_operator_nsx_groups_listed_total{manager="nsx-a.example.test"} 2
+# HELP nsx_operator_nsx_groups_manage_total Last manager sweep total manage groups considered for this manager.
+# TYPE nsx_operator_nsx_groups_manage_total gauge
+nsx_operator_nsx_groups_manage_total{manager="nsx-a.example.test"} 0
+# HELP nsx_operator_nsx_groups_observe_total Last manager sweep total observe groups considered for this manager.
+# TYPE nsx_operator_nsx_groups_observe_total gauge
+nsx_operator_nsx_groups_observe_total{manager="nsx-a.example.test"} 3
+`
+	if err := testutil.GatherAndCompare(
+		registry, strings.NewReader(expectedMetrics),
+		"nsx_operator_nsx_group_cr_creates_needed_total",
+		"nsx_operator_nsx_group_cr_updates_needed_total",
+		"nsx_operator_nsx_groups_listed_total",
+		"nsx_operator_nsx_groups_manage_total",
+		"nsx_operator_nsx_groups_observe_total",
+	); err != nil {
+		t.Fatalf("gather manager sweep metrics: %v", err)
 	}
 	for _, operation := range managerRecorder.operations {
 		if strings.HasPrefix(operation, "delete-group:") {

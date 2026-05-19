@@ -12,6 +12,7 @@ import (
 	"github.com/djosh34/nsx-operator/internal/logging"
 	"github.com/djosh34/nsx-operator/internal/names"
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
+	"github.com/djosh34/nsx-operator/internal/operatormetrics"
 	"github.com/djosh34/nsx-operator/internal/stateoperator"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	controllerconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -61,10 +63,20 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	}
 
 	skipNameValidation := true
+	metricsBindAddress := options.Config.Operator.MetricsBindAddress
+	if metricsBindAddress == "" {
+		metricsBindAddress = "0"
+	}
+	operatorRecorder, err := operatormetrics.NewProcessRecorder(ctrlmetrics.Registry, logger)
+	if err != nil {
+		logger.Info("operator metrics recorder construction failed", logging.Component("startup"), zap.Error(err))
+		return nil, fmt.Errorf("construct operator metrics recorder: %w", err)
+	}
+	logger.Info("configuring metrics endpoint", logging.Component("startup"), zap.String("metricsBindAddress", metricsBindAddress))
 	runtimeManager, err := ctrl.NewManager(restConfig, manager.Options{
 		Scheme: runtimeScheme,
 		Metrics: metricsserver.Options{
-			BindAddress: "0",
+			BindAddress: metricsBindAddress,
 		},
 		Controller: controllerconfig.Controller{
 			SkipNameValidation: &skipNameValidation,
@@ -76,8 +88,9 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	}
 
 	typedKubeClient, err := kubeapi.NewClient(kubeapi.Options{
-		Config: restConfig,
-		Logger: logger,
+		Config:   restConfig,
+		Logger:   logger,
+		Recorder: operatorRecorder,
 	})
 	if err != nil {
 		logger.Info("typed kubernetes crd client construction failed", logging.Component("startup"), zap.Error(err))
@@ -92,6 +105,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 			Username:   options.Config.NSX.Auth.Username,
 			Password:   options.Config.NSX.Auth.Password,
 			Logger:     logger,
+			Recorder:   operatorRecorder,
 			WriteControl: writeControlForCloud(
 				options.Config.NSX,
 				cloud,
@@ -112,6 +126,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		ManagerClientFactory: managerClientFactory,
 		Clock:                options.Clock,
 		IDGenerator:          options.IDGenerator,
+		Recorder:             operatorRecorder,
 	})
 	if err != nil {
 		logger.Info("state operator construction failed", logging.Component("startup"), zap.Error(err))

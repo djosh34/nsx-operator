@@ -99,6 +99,8 @@ services:
     command: ["-config", "/etc/nsx-operator/config.yaml"]
     environment:
       KUBECONFIG: /run/nsx-operator/kubeconfig.yaml
+    ports:
+      - "${NSX_OPERATOR_METRICS_PORT:-18081}:8080"
     depends_on:
       crd-init:
         condition: service_completed_successfully
