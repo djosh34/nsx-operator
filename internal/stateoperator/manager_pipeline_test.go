@@ -727,8 +727,10 @@ func managerGroup(name string, fqdn string, groupID string, mode nsxv1alpha.NSXG
 }
 
 type operationRecorder struct {
-	operations []string
-	listGroups []*nsxclient.Group
+	operations     []string
+	listGroups     []*nsxclient.Group
+	patchGroupErr  error
+	deleteGroupErr error
 }
 
 func (r *operationRecorder) ApplyGroup(_ context.Context, group nsxv1alpha.NSXGroup) error {
@@ -757,7 +759,7 @@ func (r *operationRecorder) ListGroups(context.Context) ([]*nsxclient.Group, err
 
 func (r *operationRecorder) PatchGroup(_ context.Context, groupID string, _ *nsxclient.Group) error {
 	r.operations = append(r.operations, "patch-group:"+groupID)
-	return nil
+	return r.patchGroupErr
 }
 
 func (r *operationRecorder) PatchGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, _ *nsxclient.IPAddressExpression) error {
@@ -782,7 +784,7 @@ func (r *operationRecorder) PatchGroupPathExpression(_ context.Context, groupID 
 
 func (r *operationRecorder) DeleteGroup(_ context.Context, groupID string) error {
 	r.operations = append(r.operations, "delete-group:"+groupID)
-	return nil
+	return r.deleteGroupErr
 }
 
 func rawExpression(t *testing.T, value any) json.RawMessage {

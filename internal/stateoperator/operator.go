@@ -12,7 +12,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type CloudSweepFunc func(ctx context.Context, cloud nsxv1alpha.NSXNetworkCloud, sweep SweepContext) error
@@ -123,14 +122,6 @@ func (o *NSXStateOperator) Start(ctx context.Context) error {
 		case <-timer.C():
 		}
 	}
-}
-
-func (o *NSXStateOperator) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	if err := ctx.Err(); err != nil {
-		return reconcile.Result{}, err
-	}
-	o.logger.Debug("received reconcile request", logging.Component("stateoperator"), logging.ReconcileKey(reconcileKey(req.NamespacedName)))
-	return reconcile.Result{}, nil
 }
 
 func (o *NSXStateOperator) runSweep(ctx context.Context) error {

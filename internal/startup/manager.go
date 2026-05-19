@@ -116,14 +116,22 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	if err := builder.ControllerManagedBy(runtimeManager).
 		Named("nsxnetworkcloud").
 		For(&nsxv1alpha.NSXNetworkCloud{}).
-		Complete(operator); err != nil {
+		Complete(stateoperator.NetworkCloudReconciler{
+			Client: runtimeManager.GetClient(),
+			Logger: logger,
+		}); err != nil {
 		logger.Info("nsx network cloud controller registration failed", logging.Component("startup"), zap.Error(err))
 		return nil, fmt.Errorf("register nsx network cloud controller: %w", err)
 	}
 	if err := builder.ControllerManagedBy(runtimeManager).
 		Named("nsxgroup").
 		For(&nsxv1alpha.NSXGroup{}).
-		Complete(operator); err != nil {
+		Complete(stateoperator.GroupReconciler{
+			Client:               runtimeManager.GetClient(),
+			ManagerClientFactory: managerClientFactory,
+			Logger:               logger,
+			Clock:                options.Clock,
+		}); err != nil {
 		logger.Info("nsx group controller registration failed", logging.Component("startup"), zap.Error(err))
 		return nil, fmt.Errorf("register nsx group controller: %w", err)
 	}

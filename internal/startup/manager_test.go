@@ -185,7 +185,7 @@ func TestNewManagerRegistersControllersAndPeriodicSweeper(t *testing.T) {
 			NetworkCloudFQDN: "nsx-a.example.test",
 			GroupID:          "group-a",
 			DisplayName:      "Group A",
-			Mode:             nsxv1alpha.NSXGroupModeManage,
+			Mode:             nsxv1alpha.NSXGroupModeObserve,
 			CIDRs:            []string{"10.0.0.0/24"},
 		},
 	}); err != nil {
@@ -193,8 +193,8 @@ func TestNewManagerRegistersControllersAndPeriodicSweeper(t *testing.T) {
 	}
 
 	requireSweptCloud(t, sweptClouds, "nsx-a.example.test")
-	requireObservedLogField(ctx, t, logs, "received reconcile request", "reconcileKey", "cloud-a")
-	requireObservedLogField(ctx, t, logs, "received reconcile request", "reconcileKey", "group-a")
+	requireObservedLogField(ctx, t, logs, "reconciled network cloud", "reconcileKey", "cloud-a")
+	requireObservedLogField(ctx, t, logs, "reconciling group", "reconcileKey", "group-a")
 
 	stopManager()
 	if err := <-managerErr; err != nil {

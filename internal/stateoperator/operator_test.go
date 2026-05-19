@@ -3,12 +3,15 @@ package stateoperator_test
 import (
 	"context"
 	"fmt"
+	"net"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
+	"github.com/djosh34/nsx-operator/internal/nsxclient"
 	"github.com/djosh34/nsx-operator/internal/stateoperator"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -16,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -255,20 +259,19 @@ func TestStartLogsSweepAndCloudFields(t *testing.T) {
 	requireLogField(t, logs, "cloud sweep failed", "sweepID", "sweep-123")
 }
 
-func TestReconcileLogsKeyAndDoesNotRequeue(t *testing.T) {
+func TestNetworkCloudReconcileLogsCloudAndDoesNotRequeue(t *testing.T) {
 	scheme := newScheme(t)
-	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(networkCloud("cloud-a", "nsx-a.example.test")).
+		Build()
 	core, logs := observer.New(zapcore.DebugLevel)
-	operator, err := stateoperator.New(stateoperator.Options{
-		Client:       kubeClient,
-		TickInterval: time.Hour,
-		Logger:       zap.New(core),
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
+	reconciler := stateoperator.NetworkCloudReconciler{
+		Client: kubeClient,
+		Logger: zap.New(core),
 	}
 
-	result, err := operator.Reconcile(context.Background(), reconcile.Request{
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: "cloud-a"},
 	})
 	if err != nil {
@@ -277,7 +280,527 @@ func TestReconcileLogsKeyAndDoesNotRequeue(t *testing.T) {
 	if result != (reconcile.Result{}) {
 		t.Fatalf("Reconcile() result = %#v, want empty result", result)
 	}
-	requireLogField(t, logs, "received reconcile request", "reconcileKey", "cloud-a")
+	requireLogField(t, logs, "reconciled network cloud", "networkCloudName", "cloud-a")
+	requireLogField(t, logs, "reconciled network cloud", "networkCloudFQDN", "nsx-a.example.test")
+}
+
+func TestNetworkCloudReconcileMissingCloudDoesNotRequeue(t *testing.T) {
+	scheme := newScheme(t)
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	reconciler := stateoperator.NetworkCloudReconciler{Client: kubeClient}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "missing-cloud"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+}
+
+func TestNetworkCloudReconcileCanceledContextReturnsError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reconciler := stateoperator.NetworkCloudReconciler{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).Build()}
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cloud-a"}})
+	if err == nil {
+		t.Fatal("Reconcile() error = nil, want context cancellation")
+	}
+}
+
+func TestNetworkCloudReconcileRequiresClient(t *testing.T) {
+	reconciler := stateoperator.NetworkCloudReconciler{}
+
+	_, err := reconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "cloud-a"}})
+	if err == nil {
+		t.Fatal("Reconcile() error = nil, want missing client error")
+	}
+}
+
+func TestGroupReconcileObserveDoesNotMutateNSXOrRequeue(t *testing.T) {
+	scheme := newScheme(t)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeObserve)).
+		Build()
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			t.Fatalf("observe reconcile constructed NSX manager client")
+			return nil, nil
+		},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+}
+
+func TestGroupReconcileMissingGroupDoesNotRequeue(t *testing.T) {
+	scheme := newScheme(t)
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	reconciler := stateoperator.GroupReconciler{Client: kubeClient}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "missing-group"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+}
+
+func TestGroupReconcileCanceledContextReturnsError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reconciler := stateoperator.GroupReconciler{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).Build()}
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "group-a"}})
+	if err == nil {
+		t.Fatal("Reconcile() error = nil, want context cancellation")
+	}
+}
+
+func TestGroupReconcileRequiresClient(t *testing.T) {
+	reconciler := stateoperator.GroupReconciler{}
+
+	_, err := reconciler.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "group-a"}})
+	if err == nil {
+		t.Fatal("Reconcile() error = nil, want missing client error")
+	}
+}
+
+func TestGroupReconcileObserveDeletionRemovesFinalizerWithoutNSXMutation(t *testing.T) {
+	deletionTime := metav1.NewTime(time.Date(2026, 5, 19, 1, 0, 0, 0, time.UTC))
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeObserve)
+	group.Finalizers = []string{stateoperator.GroupFinalizer, "example.test/keep"}
+	group.DeletionTimestamp = &deletionTime
+
+	scheme := newScheme(t)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(group).
+		Build()
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			t.Fatalf("observe deletion reconcile constructed NSX manager client")
+			return nil, nil
+		},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	if slices.Contains(updated.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("finalizers = %v, want %q removed", updated.Finalizers, stateoperator.GroupFinalizer)
+	}
+	if !slices.Contains(updated.Finalizers, "example.test/keep") {
+		t.Fatalf("finalizers = %v, want unrelated finalizer kept", updated.Finalizers)
+	}
+}
+
+func TestGroupReconcileManageAppliesNSXStatusFinalizerAndDoesNotRequeue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 1, 15, 0, 0, time.UTC)
+	clock := newManualClock(now)
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
+	group.Generation = 7
+	recorder := &operationRecorder{}
+
+	scheme := newScheme(t)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&nsxv1alpha.NSXGroup{}).
+		WithObjects(cloud, group).
+		Build()
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(_ context.Context, gotCloud nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			if gotCloud.Name != "cloud-a" {
+				t.Fatalf("manager client cloud = %q, want cloud-a", gotCloud.Name)
+			}
+			return recorder, nil
+		},
+		Clock: clock,
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	wantOperations := []string{"patch-group:group-a", "add-ip:group-a:cidrs"}
+	if !reflect.DeepEqual(recorder.operations, wantOperations) {
+		t.Fatalf("NSX operations = %v, want %v", recorder.operations, wantOperations)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	if !slices.Contains(updated.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("finalizers = %v, want %q added", updated.Finalizers, stateoperator.GroupFinalizer)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionTrue, "Applying", "managed NSX group apply was submitted", now)
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "Applying", "managed NSX group apply is awaiting sweep confirmation", now)
+	requireObservedGeneration(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, 7)
+	requireObservedGeneration(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, 7)
+}
+
+func TestGroupReconcileManageDeletionDeletesNSXStatusKeepsFinalizerAndDoesNotRequeue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 1, 30, 0, 0, time.UTC)
+	deletionTime := metav1.NewTime(now)
+	clock := newManualClock(now)
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
+	group.Generation = 8
+	group.Finalizers = []string{stateoperator.GroupFinalizer}
+	group.DeletionTimestamp = &deletionTime
+	recorder := &operationRecorder{}
+
+	scheme := newScheme(t)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&nsxv1alpha.NSXGroup{}).
+		WithObjects(cloud, group).
+		Build()
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: clock,
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	wantOperations := []string{"delete-group:group-a"}
+	if !reflect.DeepEqual(recorder.operations, wantOperations) {
+		t.Fatalf("NSX operations = %v, want %v", recorder.operations, wantOperations)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	if !slices.Contains(updated.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("finalizers = %v, want %q kept", updated.Finalizers, stateoperator.GroupFinalizer)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionTrue, "Deleting", "managed NSX group delete was submitted", now)
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "Deleting", "managed NSX group delete is awaiting sweep confirmation", now)
+	requireObservedGeneration(t, updated.Status.Conditions, nsxv1alpha.ConditionDeleting, 8)
+	requireObservedGeneration(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, 8)
+}
+
+func TestGroupReconcileManageConflictSetsConditionsAndDoesNotRequeue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 1, 45, 0, 0, time.UTC)
+	group, kubeClient, recorder := newManageReconcileFixture(t, now)
+	recorder.patchGroupErr = nsxclient.ConflictError{StatusError: nsxclient.StatusError{StatusCode: 409, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
+
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionFalse, "ApplyConflict", "managed NSX group apply was rejected by NSX concurrency control", now)
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "ApplyConflict", "managed NSX group apply needs a later sweep or Kubernetes event", now)
+}
+
+func TestGroupReconcileManagePreconditionFailedSetsConditionsAndDoesNotRequeue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 2, 0, 0, 0, time.UTC)
+	group, kubeClient, recorder := newManageReconcileFixture(t, now)
+	recorder.patchGroupErr = nsxclient.PreconditionFailedError{StatusError: nsxclient.StatusError{StatusCode: 412, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
+
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionFalse, "ApplyPreconditionFailed", "managed NSX group apply was rejected by NSX precondition checks", now)
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "ApplyPreconditionFailed", "managed NSX group apply needs a later sweep or Kubernetes event", now)
+}
+
+func TestGroupReconcileManageRateLimitedSetsUnknownConditionsAndDoesNotRequeue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 2, 15, 0, 0, time.UTC)
+	group, kubeClient, recorder := newManageReconcileFixture(t, now)
+	recorder.patchGroupErr = nsxclient.RateLimitedError{StatusError: nsxclient.StatusError{StatusCode: 429, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
+
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionUnknown, "ApplyRateLimited", "managed NSX group apply was rate limited by NSX", now)
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "ApplyRateLimited", "managed NSX group apply needs a later sweep or Kubernetes event", now)
+}
+
+func TestGroupReconcileManageUnavailableSetsUnknownConditionsAndDoesNotRequeue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 2, 30, 0, 0, time.UTC)
+	group, kubeClient, recorder := newManageReconcileFixture(t, now)
+	recorder.patchGroupErr = nsxclient.ServiceUnavailableError{StatusError: nsxclient.StatusError{StatusCode: 503, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
+
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionUnknown, "ApplyUnavailable", "managed NSX group apply could not confirm because NSX is unavailable", now)
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "ApplyUnavailable", "managed NSX group apply needs a later sweep or Kubernetes event", now)
+}
+
+func TestGroupReconcileManageNetworkErrorSetsUnknownConditionsAndDoesNotRequeue(t *testing.T) {
+	now := time.Date(2026, 5, 19, 2, 45, 0, 0, time.UTC)
+	group, kubeClient, recorder := newManageReconcileFixture(t, now)
+	recorder.patchGroupErr = &net.DNSError{Err: "timeout", Name: "nsx-a.example.test", IsTimeout: true}
+
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recorder, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionUnknown, "ApplyNetworkError", "managed NSX group apply could not confirm because of a network error", now)
+	requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "ApplyNetworkError", "managed NSX group apply needs a later sweep or Kubernetes event", now)
+}
+
+func TestGroupReconcileManageMissingCloudReturnsError(t *testing.T) {
+	now := time.Date(2026, 5, 19, 3, 0, 0, 0, time.UTC)
+	group := managerGroup("group-a", "missing.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(newScheme(t)).
+		WithStatusSubresource(&nsxv1alpha.NSXGroup{}).
+		WithObjects(group).
+		Build()
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			t.Fatalf("manager client factory called without matching cloud")
+			return nil, nil
+		},
+		Clock: newManualClock(now),
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err == nil {
+		t.Fatal("Reconcile() error = nil, want missing cloud error")
+	}
+}
+
+func TestGroupReconcileManageClientFactoryErrorReturnsError(t *testing.T) {
+	now := time.Date(2026, 5, 19, 3, 15, 0, 0, time.UTC)
+	group, kubeClient, _ := newManageReconcileFixture(t, now)
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return nil, fmt.Errorf("credentials missing")
+		},
+		Clock: newManualClock(now),
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: group.Name},
+	})
+	if err == nil {
+		t.Fatal("Reconcile() error = nil, want manager client factory error")
+	}
+}
+
+func TestGroupReconcileManageDeleteClassifiedErrorsSetConditionsAndDoNotRequeue(t *testing.T) {
+	cases := []struct {
+		name            string
+		err             error
+		deletingStatus  metav1.ConditionStatus
+		reason          string
+		deletingMessage string
+	}{
+		{
+			name:            "conflict",
+			err:             nsxclient.ConflictError{StatusError: nsxclient.StatusError{StatusCode: 409, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
+			deletingStatus:  metav1.ConditionFalse,
+			reason:          "DeleteConflict",
+			deletingMessage: "managed NSX group delete was rejected by NSX concurrency control",
+		},
+		{
+			name:            "precondition failed",
+			err:             nsxclient.PreconditionFailedError{StatusError: nsxclient.StatusError{StatusCode: 412, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
+			deletingStatus:  metav1.ConditionFalse,
+			reason:          "DeletePreconditionFailed",
+			deletingMessage: "managed NSX group delete was rejected by NSX precondition checks",
+		},
+		{
+			name:            "rate limited",
+			err:             nsxclient.RateLimitedError{StatusError: nsxclient.StatusError{StatusCode: 429, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
+			deletingStatus:  metav1.ConditionUnknown,
+			reason:          "DeleteRateLimited",
+			deletingMessage: "managed NSX group delete was rate limited by NSX",
+		},
+		{
+			name:            "unavailable",
+			err:             nsxclient.ServiceUnavailableError{StatusError: nsxclient.StatusError{StatusCode: 503, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
+			deletingStatus:  metav1.ConditionUnknown,
+			reason:          "DeleteUnavailable",
+			deletingMessage: "managed NSX group delete could not confirm because NSX is unavailable",
+		},
+		{
+			name:            "network",
+			err:             &net.DNSError{Err: "timeout", Name: "nsx-a.example.test", IsTimeout: true},
+			deletingStatus:  metav1.ConditionUnknown,
+			reason:          "DeleteNetworkError",
+			deletingMessage: "managed NSX group delete could not confirm because of a network error",
+		},
+	}
+
+	for index, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 5, 19, 3, 30+index, 0, 0, time.UTC)
+			group, kubeClient, recorder := newManageDeleteReconcileFixture(t, now)
+			recorder.deleteGroupErr = tc.err
+			reconciler := stateoperator.GroupReconciler{
+				Client: kubeClient,
+				ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+					return recorder, nil
+				},
+				Clock: newManualClock(now),
+			}
+
+			result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: group.Name},
+			})
+			if err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+			if result != (reconcile.Result{}) {
+				t.Fatalf("Reconcile() result = %#v, want empty result", result)
+			}
+
+			var updated nsxv1alpha.NSXGroup
+			if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+				t.Fatalf("get updated group: %v", err)
+			}
+			requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionDeleting, tc.deletingStatus, tc.reason, tc.deletingMessage, now)
+			requireCondition(t, updated.Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, tc.reason, "managed NSX group delete needs a later sweep or Kubernetes event", now)
+		})
+	}
 }
 
 func newScheme(t *testing.T) *runtime.Scheme {
@@ -288,6 +811,43 @@ func newScheme(t *testing.T) *runtime.Scheme {
 		t.Fatalf("add nsx scheme: %v", err)
 	}
 	return scheme
+}
+
+func newManageReconcileFixture(t *testing.T, now time.Time) (*nsxv1alpha.NSXGroup, client.Client, *operationRecorder) {
+	t.Helper()
+
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
+	group.Generation = 9
+	recorder := &operationRecorder{}
+
+	scheme := newScheme(t)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&nsxv1alpha.NSXGroup{}).
+		WithObjects(cloud, group).
+		Build()
+	_ = now
+	return group, kubeClient, recorder
+}
+
+func newManageDeleteReconcileFixture(t *testing.T, now time.Time) (*nsxv1alpha.NSXGroup, client.Client, *operationRecorder) {
+	t.Helper()
+
+	deletionTime := metav1.NewTime(now)
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
+	group.Generation = 10
+	group.Finalizers = []string{stateoperator.GroupFinalizer}
+	group.DeletionTimestamp = &deletionTime
+	recorder := &operationRecorder{}
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(newScheme(t)).
+		WithStatusSubresource(&nsxv1alpha.NSXGroup{}).
+		WithObjects(cloud, group).
+		Build()
+	return group, kubeClient, recorder
 }
 
 func requireClosed(t *testing.T, ch <-chan struct{}, name string) {
