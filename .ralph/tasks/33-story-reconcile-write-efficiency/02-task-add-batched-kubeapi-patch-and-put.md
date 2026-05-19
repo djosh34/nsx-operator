@@ -1,4 +1,4 @@
-## Task: Add Generic Batched Kube API Operations <status>not_started</status> <passes>false</passes>
+## Task: Add Generic Batched Kube API Operations <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
@@ -206,25 +206,58 @@ Out of scope:
 
 
 <acceptance_criteria>
-- [ ] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
-- [ ] The verification evidence is recorded in the task or linked artifact.
-- [ ] Completion is not based only on a shallow checkbox, assumption, or code inspection.
-- [ ] Config exposes kube-api batch max parallel workers, defaults to `1`, and normal repo config sets it to `20`.
-- [ ] Config exposes top-level `kubeAPI.numParallelWorkers`, `kubeAPI.maxRequestsPerSecond`, and `kubeAPI.maxRequestsInFlight` with explicit high request-rate and in-flight defaults.
-- [ ] One public generic batch executor supports current and future kube-api methods by accepting keyed typed requests and a typed execution function.
-- [ ] Batch APIs accept maps of typed request structs that map directly to existing single-operation arguments.
-- [ ] Batched patch preserves the existing patch/apply semantics.
-- [ ] Batched put/update uses resource versions supplied by the request objects and performs no pre-update get.
-- [ ] Batched finalizer changes use JSON Patch to write the full desired finalizers array.
-- [ ] Batched status update supports the existing PUT `/status` operation.
-- [ ] Batched apply/patch operations execute through the configured worker pool and report per-item success/failure.
-- [ ] Batched put/update operations execute through the configured worker pool and report per-item success/failure.
-- [ ] Batched status update, create, delete, and finalizer patch operations execute through the configured worker pool and report per-item success/failure.
-- [ ] Batch execution gathers all item errors, returns result and error maps, and returns a `BatchError` aggregate exposing `Errors() map[BatchKey]error` for failed batches.
-- [ ] Batch execution performs zero retries.
-- [ ] Context cancellation returns useful errors for unprocessed or canceled items.
-- [ ] Normal `go test ./...` includes 10,000+ resource batch coverage.
-- [ ] Tests cover default worker count, configured worker count `20`, 10,000+ resources, max requests per second, max requests in flight, cancellation, no-retry behavior, and per-item error handling.
-- [ ] `go test -race` is run for the 10,000+ resource batch tests and the command plus result are recorded.
-- [ ] Structured zap logs prove batch start/completion and per-item execution decisions without ignoring any errors.
+- [x] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
+- [x] The verification evidence is recorded in the task or linked artifact.
+- [x] Completion is not based only on a shallow checkbox, assumption, or code inspection.
+- [x] Config exposes kube-api batch max parallel workers, defaults to `1`, and normal repo config sets it to `20`.
+- [x] Config exposes top-level `kubeAPI.numParallelWorkers`, `kubeAPI.maxRequestsPerSecond`, and `kubeAPI.maxRequestsInFlight` with explicit high request-rate and in-flight defaults.
+- [x] One public generic batch executor supports current and future kube-api methods by accepting keyed typed requests and a typed execution function.
+- [x] Batch APIs accept maps of typed request structs that map directly to existing single-operation arguments.
+- [x] Batched patch preserves the existing patch/apply semantics.
+- [x] Batched put/update uses resource versions supplied by the request objects and performs no pre-update get.
+- [x] Batched finalizer changes use JSON Patch to write the full desired finalizers array.
+- [x] Batched status update supports the existing PUT `/status` operation.
+- [x] Batched apply/patch operations execute through the configured worker pool and report per-item success/failure.
+- [x] Batched put/update operations execute through the configured worker pool and report per-item success/failure.
+- [x] Batched status update, create, delete, and finalizer patch operations execute through the configured worker pool and report per-item success/failure.
+- [x] Batch execution gathers all item errors, returns result and error maps, and returns a `BatchError` aggregate exposing `Errors() map[BatchKey]error` for failed batches.
+- [x] Batch execution performs zero retries.
+- [x] Context cancellation returns useful errors for unprocessed or canceled items.
+- [x] Normal `go test ./...` includes 10,000+ resource batch coverage.
+- [x] Tests cover default worker count, configured worker count `20`, 10,000+ resources, max requests per second, max requests in flight, cancellation, no-retry behavior, and per-item error handling.
+- [x] `go test -race` is run for the 10,000+ resource batch tests and the command plus result are recorded.
+- [x] Structured zap logs prove batch start/completion and per-item execution decisions without ignoring any errors.
 </acceptance_criteria>
+
+<verification>
+Completed implementation evidence:
+- Added top-level `kubeAPI` config loading/defaulting/validation and set `config/compose/nsx-operator-config.yaml` to `numParallelWorkers: 20`, `maxRequestsPerSecond: 100`, and `maxRequestsInFlight: 100`.
+- Added public generic `kubeapi.ExecuteBatch` with keyed typed requests, deterministic scheduling, worker-pool execution, `golang.org/x/time/rate` rate limiting, in-flight limiting, structured zap info/debug logs, per-item `BatchItemError`, aggregate `BatchError`, context cancellation reporting, and zero retries.
+- Added public group and network-cloud batch request structs and batch methods for apply/patch, update/PUT, status PUT, create, delete, and JSON Patch finalizer writes.
+- Fake kube-api server tests observed actual HTTP request counts and paths for both resources:
+  - `POST /apis/nsx.ing.com/v1alpha/nsxgroups`
+  - `PUT /apis/nsx.ing.com/v1alpha/nsxgroups/group-update`
+  - `PATCH /apis/nsx.ing.com/v1alpha/nsxgroups/group-apply`
+  - `PUT /apis/nsx.ing.com/v1alpha/nsxgroups/group-status/status`
+  - `PATCH /apis/nsx.ing.com/v1alpha/nsxgroups/group-finalizer`
+  - `DELETE /apis/nsx.ing.com/v1alpha/nsxgroups/group-delete`
+  - matching `nsxnetworkclouds` create/update/apply/status/finalizer/delete paths.
+- Fake kube-api tests decoded update request bodies and verified update batches send the supplied `resourceVersion` without a pre-update GET.
+- Fake kube-api tests decoded status request bodies and verified status batching uses `PUT .../status`.
+- Fake kube-api tests decoded JSON Patch finalizer request bodies and verified the full desired finalizers array plus resourceVersion `test` operation when provided.
+- Batch executor tests cover default worker count `1`, configured worker count `20`, 10,000 items, max requests per second, max requests in flight, cancellation, no-retry behavior, per-item errors, and aggregate errors.
+- Boundary review with `$improve-code-boundaries`: generic batch execution/rate-limit/error-gathering logic is only in `internal/kubeapi/batch.go`; public typed request/method glue is isolated in `internal/kubeapi/batch_methods.go`; config parsing/defaulting/validation stayed in `internal/config`; startup only passes the reduced validated values into `kubeapi.Options`.
+
+Commands run and results:
+- `go test ./internal/config -run 'TestLoadKubeAPIConfig|TestLoadComposeConfigSetsKubeAPIBatchDefaultsForNormalRuntime' -count=1` passed.
+- `go test ./internal/kubeapi -run 'TestExecuteBatch|Test(Group|NetworkCloud)BatchMethodsUseExpectedKubeAPIRequests' -count=1` passed.
+- `go test -race ./internal/kubeapi -run 'TestExecuteBatchHandles10000Items' -count=1` passed.
+- `make check` passed after staticcheck fix; it ran gofumpt, go vet, golangci-lint, normal tests, race tests, mockapi contract tests, large chaos tests, and coverage.
+- `make test` passed.
+- `make test-coverage` passed with total coverage `84.6%`, and `internal/kubeapi` coverage `80.7%`.
+</verification>
+
+<plan>
+.ralph/tasks/33-story-reconcile-write-efficiency/02-task-add-batched-kubeapi-patch-and-put_plans/01-batched-kubeapi-operations-plan.md
+NOW EXECUTE
+</plan>

@@ -102,6 +102,141 @@ logging:
 	}
 }
 
+func TestLoadKubeAPIConfigDefaultsWhenOmitted(t *testing.T) {
+	configPath := writeValidConfig(t, t.TempDir(), `
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+	loaded, err := config.Load(config.Options{
+		Path:    configPath,
+		Environ: map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if loaded.KubeAPI.NumParallelWorkers != 1 {
+		t.Fatalf("KubeAPI.NumParallelWorkers = %d, want 1", loaded.KubeAPI.NumParallelWorkers)
+	}
+	if loaded.KubeAPI.MaxRequestsPerSecond != 100 {
+		t.Fatalf("KubeAPI.MaxRequestsPerSecond = %d, want 100", loaded.KubeAPI.MaxRequestsPerSecond)
+	}
+	if loaded.KubeAPI.MaxRequestsInFlight != 100 {
+		t.Fatalf("KubeAPI.MaxRequestsInFlight = %d, want 100", loaded.KubeAPI.MaxRequestsInFlight)
+	}
+}
+
+func TestLoadKubeAPIConfigAcceptsExplicitValues(t *testing.T) {
+	configPath := writeValidConfig(t, t.TempDir(), `
+kubeAPI:
+  numParallelWorkers: 20
+  maxRequestsPerSecond: 100
+  maxRequestsInFlight: 100
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`)
+
+	loaded, err := config.Load(config.Options{
+		Path:    configPath,
+		Environ: map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if loaded.KubeAPI.NumParallelWorkers != 20 {
+		t.Fatalf("KubeAPI.NumParallelWorkers = %d, want 20", loaded.KubeAPI.NumParallelWorkers)
+	}
+	if loaded.KubeAPI.MaxRequestsPerSecond != 100 {
+		t.Fatalf("KubeAPI.MaxRequestsPerSecond = %d, want 100", loaded.KubeAPI.MaxRequestsPerSecond)
+	}
+	if loaded.KubeAPI.MaxRequestsInFlight != 100 {
+		t.Fatalf("KubeAPI.MaxRequestsInFlight = %d, want 100", loaded.KubeAPI.MaxRequestsInFlight)
+	}
+}
+
+func TestLoadKubeAPIConfigRejectsNegativeValues(t *testing.T) {
+	tests := map[string]struct {
+		configYAML string
+		wantError  string
+	}{
+		"negative workers": {
+			configYAML: `
+kubeAPI:
+  numParallelWorkers: -1
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`,
+			wantError: "kubeAPI.numParallelWorkers",
+		},
+		"negative requests per second": {
+			configYAML: `
+kubeAPI:
+  maxRequestsPerSecond: -1
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`,
+			wantError: "kubeAPI.maxRequestsPerSecond",
+		},
+		"negative in flight": {
+			configYAML: `
+kubeAPI:
+  maxRequestsInFlight: -1
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+`,
+			wantError: "kubeAPI.maxRequestsInFlight",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			configPath := writeValidConfig(t, t.TempDir(), test.configYAML)
+
+			_, err := config.Load(config.Options{
+				Path:    configPath,
+				Environ: map[string]string{},
+			})
+			if err == nil {
+				t.Fatal("Load() error = nil, want kubeAPI validation error")
+			}
+			if !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("Load() error = %v, want field %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestLoadComposeConfigSetsKubeAPIBatchDefaultsForNormalRuntime(t *testing.T) {
+	loaded, err := config.Load(config.Options{
+		Path:    filepath.Join("..", "..", "config", "compose", "nsx-operator-config.yaml"),
+		Environ: map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Load() compose config error = %v", err)
+	}
+
+	if loaded.KubeAPI.NumParallelWorkers != 20 {
+		t.Fatalf("KubeAPI.NumParallelWorkers = %d, want 20", loaded.KubeAPI.NumParallelWorkers)
+	}
+	if loaded.KubeAPI.MaxRequestsPerSecond != 100 {
+		t.Fatalf("KubeAPI.MaxRequestsPerSecond = %d, want 100", loaded.KubeAPI.MaxRequestsPerSecond)
+	}
+	if loaded.KubeAPI.MaxRequestsInFlight != 100 {
+		t.Fatalf("KubeAPI.MaxRequestsInFlight = %d, want 100", loaded.KubeAPI.MaxRequestsInFlight)
+	}
+}
+
 func TestLoadNSXURLSchemeDefaultsToHTTPSAndAllowsHTTP(t *testing.T) {
 	t.Run("default https", func(t *testing.T) {
 		configPath := writeValidConfig(t, t.TempDir(), `

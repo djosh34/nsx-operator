@@ -27,9 +27,10 @@ const (
 )
 
 type Options struct {
-	Config   *rest.Config
-	Logger   *zap.Logger
-	Recorder operatormetrics.Recorder
+	Config      *rest.Config
+	Logger      *zap.Logger
+	Recorder    operatormetrics.Recorder
+	BatchConfig BatchConfig
 }
 
 type Client struct {
@@ -76,6 +77,7 @@ func NewClient(options Options) (*Client, error) {
 				resource:       networkCloudResource,
 				kind:           networkCloudKind,
 				log:            log.With(zap.String("resource", networkCloudResource)),
+				batchConfig:    options.BatchConfig,
 				allowed: allowedFields(
 					FieldNetworkCloudFQDN,
 					FieldNetworkCloudID,
@@ -91,6 +93,7 @@ func NewClient(options Options) (*Client, error) {
 				resource:       groupResource,
 				kind:           groupKind,
 				log:            log.With(zap.String("resource", groupResource)),
+				batchConfig:    options.BatchConfig,
 				allowed: allowedFields(
 					FieldNetworkCloudFQDN,
 					FieldGroupID,
@@ -251,6 +254,7 @@ type typedResource[Object clientObject, List runtime.Object] struct {
 	resource       string
 	kind           string
 	log            *zap.Logger
+	batchConfig    BatchConfig
 	allowed        map[FieldSelectorField]struct{}
 	newObject      func() Object
 	newList        func() List

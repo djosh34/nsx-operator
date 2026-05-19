@@ -71,6 +71,9 @@ func Run(options Options) error {
 		zap.String("operator_metrics_bind_address", loadedConfig.Operator.MetricsBindAddress),
 		zap.Int("http_max_requests_in_flight_per_host", loadedConfig.HTTPRateLimiter.MaxRequestsInFlightPerHost),
 		zap.Int("http_max_requests_per_second_per_host", loadedConfig.HTTPRateLimiter.MaxRequestsPerSecondPerHost),
+		zap.Int("kubeapi_num_parallel_workers", loadedConfig.KubeAPI.NumParallelWorkers),
+		zap.Int("kubeapi_max_requests_per_second", loadedConfig.KubeAPI.MaxRequestsPerSecond),
+		zap.Int("kubeapi_max_requests_in_flight", loadedConfig.KubeAPI.MaxRequestsInFlight),
 	)
 
 	if options.Constructors.Kubernetes != nil {

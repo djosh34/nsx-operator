@@ -90,8 +90,13 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	}
 
 	typedKubeClient, err := kubeapi.NewClient(kubeapi.Options{
-		Config:   restConfig,
-		Logger:   logger,
+		Config: restConfig,
+		Logger: logger,
+		BatchConfig: kubeapi.BatchConfig{
+			NumParallelWorkers:   options.Config.KubeAPI.NumParallelWorkers,
+			MaxRequestsPerSecond: options.Config.KubeAPI.MaxRequestsPerSecond,
+			MaxRequestsInFlight:  options.Config.KubeAPI.MaxRequestsInFlight,
+		},
 		Recorder: operatorRecorder,
 	})
 	if err != nil {

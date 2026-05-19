@@ -4,6 +4,10 @@ operator:
 httpRateLimiter:
   maxRequestsInFlightPerHost: 4
   maxRequestsPerSecondPerHost: 20
+kubeAPI:
+  numParallelWorkers: 20
+  maxRequestsPerSecond: 100
+  maxRequestsInFlight: 100
 nsx:
   urlScheme: http
   writesEnabled: true

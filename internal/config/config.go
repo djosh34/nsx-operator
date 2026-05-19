@@ -19,6 +19,7 @@ import (
 type Config struct {
 	Operator        OperatorConfig
 	HTTPRateLimiter HTTPRateLimiterConfig
+	KubeAPI         KubeAPIConfig
 	NSX             NSXConfig
 	Logging         LoggingConfig
 }
@@ -31,6 +32,12 @@ type OperatorConfig struct {
 type HTTPRateLimiterConfig struct {
 	MaxRequestsInFlightPerHost  int
 	MaxRequestsPerSecondPerHost int
+}
+
+type KubeAPIConfig struct {
+	NumParallelWorkers   int
+	MaxRequestsPerSecond int
+	MaxRequestsInFlight  int
 }
 
 type NSXConfig struct {
@@ -76,6 +83,7 @@ type Options struct {
 type rawConfig struct {
 	Operator        rawOperatorConfig        `yaml:"operator"`
 	HTTPRateLimiter rawHTTPRateLimiterConfig `yaml:"httpRateLimiter"`
+	KubeAPI         rawKubeAPIConfig         `yaml:"kubeAPI"`
 	NSX             rawNSXConfig             `yaml:"nsx"`
 	Logging         rawLoggingConfig         `yaml:"logging"`
 }
@@ -88,6 +96,12 @@ type rawOperatorConfig struct {
 type rawHTTPRateLimiterConfig struct {
 	MaxRequestsInFlightPerHost  int `yaml:"maxRequestsInFlightPerHost"`
 	MaxRequestsPerSecondPerHost int `yaml:"maxRequestsPerSecondPerHost"`
+}
+
+type rawKubeAPIConfig struct {
+	NumParallelWorkers   int `yaml:"numParallelWorkers"`
+	MaxRequestsPerSecond int `yaml:"maxRequestsPerSecond"`
+	MaxRequestsInFlight  int `yaml:"maxRequestsInFlight"`
 }
 
 type rawNSXConfig struct {
@@ -137,6 +151,10 @@ func Load(options Options) (Config, error) {
 	if raw.HTTPRateLimiter.MaxRequestsPerSecondPerHost <= 0 {
 		return Config{}, fmt.Errorf("httpRateLimiter.maxRequestsPerSecondPerHost must be positive")
 	}
+	kubeAPI, err := parseKubeAPIConfig(raw.KubeAPI)
+	if err != nil {
+		return Config{}, err
+	}
 	if !isSupportedLogLevel(raw.Logging.Level) {
 		return Config{}, fmt.Errorf("logging.level must be one of debug, info, warn, or error")
 	}
@@ -174,6 +192,7 @@ func Load(options Options) (Config, error) {
 			MaxRequestsInFlightPerHost:  raw.HTTPRateLimiter.MaxRequestsInFlightPerHost,
 			MaxRequestsPerSecondPerHost: raw.HTTPRateLimiter.MaxRequestsPerSecondPerHost,
 		},
+		KubeAPI: kubeAPI,
 		NSX: NSXConfig{
 			URLScheme:               nsxURLScheme,
 			WritesEnabled:           writesEnabled,
@@ -187,6 +206,29 @@ func Load(options Options) (Config, error) {
 			Level: raw.Logging.Level,
 		},
 	}, nil
+}
+
+func parseKubeAPIConfig(raw rawKubeAPIConfig) (KubeAPIConfig, error) {
+	if raw.NumParallelWorkers < 0 {
+		return KubeAPIConfig{}, fmt.Errorf("kubeAPI.numParallelWorkers must not be negative")
+	}
+	if raw.MaxRequestsPerSecond < 0 {
+		return KubeAPIConfig{}, fmt.Errorf("kubeAPI.maxRequestsPerSecond must not be negative")
+	}
+	if raw.MaxRequestsInFlight < 0 {
+		return KubeAPIConfig{}, fmt.Errorf("kubeAPI.maxRequestsInFlight must not be negative")
+	}
+	cfg := KubeAPIConfig(raw)
+	if cfg.NumParallelWorkers == 0 {
+		cfg.NumParallelWorkers = 1
+	}
+	if cfg.MaxRequestsPerSecond == 0 {
+		cfg.MaxRequestsPerSecond = 100
+	}
+	if cfg.MaxRequestsInFlight == 0 {
+		cfg.MaxRequestsInFlight = 100
+	}
+	return cfg, nil
 }
 
 func parseMetricsBindAddress(value string) string {
