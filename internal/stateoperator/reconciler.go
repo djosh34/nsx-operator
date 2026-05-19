@@ -139,6 +139,12 @@ func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 		}
 		return reconcile.Result{}, nil
 	}
+	if group.Spec.Mode == nsxv1alpha.NSXGroupModeObserve && group.DeletionTimestamp == nil {
+		if err := r.ensureGroupFinalizer(ctx, &group, logger, req); err != nil {
+			return reconcile.Result{}, err
+		}
+		return reconcile.Result{}, nil
+	}
 	if group.Spec.Mode == nsxv1alpha.NSXGroupModeManage && group.DeletionTimestamp == nil {
 		if err := r.ensureGroupFinalizer(ctx, &group, logger, req); err != nil {
 			return reconcile.Result{}, err

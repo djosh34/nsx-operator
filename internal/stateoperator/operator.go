@@ -10,6 +10,7 @@ import (
 	"github.com/djosh34/nsx-operator/internal/kubeapi"
 	"github.com/djosh34/nsx-operator/internal/logging"
 	"go.uber.org/zap"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -151,6 +152,22 @@ func (o *NSXStateOperator) runSweep(ctx context.Context) error {
 
 func (o *NSXStateOperator) runCloudSweep(ctx context.Context, cloud nsxv1alpha.NSXNetworkCloud, sweep SweepContext) {
 	fields := []zap.Field{
+		logging.Component("stateoperator"),
+		logging.SweepID(sweep.ID),
+		logging.NetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN),
+		zap.String("networkCloudName", cloud.Name),
+	}
+	var current nsxv1alpha.NSXNetworkCloud
+	if err := o.client.Get(ctx, client.ObjectKey{Name: cloud.Name}, &current); err != nil {
+		if apierrors.IsNotFound(err) {
+			o.logger.Debug("skipping cloud sweep for missing cloud", fields...)
+			return
+		}
+		o.logger.Info("cloud sweep cloud refresh failed", append(fields, zap.Error(err))...)
+		return
+	}
+	cloud = current
+	fields = []zap.Field{
 		logging.Component("stateoperator"),
 		logging.SweepID(sweep.ID),
 		logging.NetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN),

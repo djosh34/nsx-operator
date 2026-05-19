@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -259,6 +260,92 @@ func TestStartLogsSweepAndCloudFields(t *testing.T) {
 	requireLogField(t, logs, "cloud sweep failed", "sweepID", "sweep-123")
 }
 
+func TestStartSkipsCloudDeletedAfterGlobalList(t *testing.T) {
+	scheme := newScheme(t)
+	baseClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(networkCloud("cloud-a", "nsx-a.example.test")).
+		Build()
+	kubeClient := &deleteCloudAfterListClient{
+		Client:    baseClient,
+		cloudName: "cloud-a",
+	}
+	clock := newManualClock(time.Date(2026, 5, 19, 0, 0, 0, 0, time.UTC))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sweepCalled := make(chan struct{}, 1)
+
+	operator, err := stateoperator.New(stateoperator.Options{
+		Client:       kubeClient,
+		TickInterval: time.Hour,
+		Clock:        clock,
+		SweepCloud: func(context.Context, nsxv1alpha.NSXNetworkCloud, stateoperator.SweepContext) error {
+			sweepCalled <- struct{}{}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- operator.Start(ctx)
+	}()
+
+	_ = clock.RequireNextTimerDuration(t)
+	requireNotClosed(t, sweepCalled, "SweepCloud called for cloud deleted after global list")
+	cancel()
+	err = <-errCh
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+}
+
+func TestStartSkipsCloudWhenRefreshFails(t *testing.T) {
+	scheme := newScheme(t)
+	baseClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(networkCloud("cloud-a", "nsx-a.example.test")).
+		Build()
+	kubeClient := &getCloudErrorClient{
+		Client: baseClient,
+		err:    fmt.Errorf("api unavailable"),
+	}
+	clock := newManualClock(time.Date(2026, 5, 19, 0, 0, 0, 0, time.UTC))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sweepCalled := make(chan struct{}, 1)
+
+	operator, err := stateoperator.New(stateoperator.Options{
+		Client:       kubeClient,
+		TickInterval: time.Hour,
+		Clock:        clock,
+		SweepCloud: func(context.Context, nsxv1alpha.NSXNetworkCloud, stateoperator.SweepContext) error {
+			sweepCalled <- struct{}{}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- operator.Start(ctx)
+	}()
+
+	_ = clock.RequireNextTimerDuration(t)
+	requireNotClosed(t, sweepCalled, "SweepCloud called after cloud refresh failure")
+	cancel()
+	err = <-errCh
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+}
+
 func TestNetworkCloudReconcileLogsCloudAndDoesNotRequeue(t *testing.T) {
 	scheme := newScheme(t)
 	kubeClient := fake.NewClientBuilder().
@@ -322,9 +409,10 @@ func TestNetworkCloudReconcileRequiresClient(t *testing.T) {
 
 func TestGroupReconcileObserveDoesNotMutateNSXOrRequeue(t *testing.T) {
 	scheme := newScheme(t)
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeObserve)
 	kubeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeObserve)).
+		WithObjects(group).
 		Build()
 	reconciler := stateoperator.GroupReconciler{
 		Client: kubeClient,
@@ -342,6 +430,13 @@ func TestGroupReconcileObserveDoesNotMutateNSXOrRequeue(t *testing.T) {
 	}
 	if result != (reconcile.Result{}) {
 		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	if !slices.Contains(updated.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("finalizers = %v, want %q added", updated.Finalizers, stateoperator.GroupFinalizer)
 	}
 }
 
@@ -935,6 +1030,44 @@ type fixedSweepIDGenerator struct {
 
 func (g fixedSweepIDGenerator) NewSweepID() string {
 	return g.id
+}
+
+type deleteCloudAfterListClient struct {
+	client.Client
+	cloudName string
+	once      sync.Once
+}
+
+func (c *deleteCloudAfterListClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if err := c.Client.List(ctx, list, opts...); err != nil {
+		return err
+	}
+	if _, ok := list.(*nsxv1alpha.NSXNetworkCloudList); !ok {
+		return nil
+	}
+	var deleteErr error
+	c.once.Do(func() {
+		cloud := &nsxv1alpha.NSXNetworkCloud{
+			ObjectMeta: metav1.ObjectMeta{Name: c.cloudName},
+		}
+		err := c.Delete(ctx, cloud)
+		if err != nil && !apierrors.IsNotFound(err) {
+			deleteErr = fmt.Errorf("delete cloud after list: %w", err)
+		}
+	})
+	return deleteErr
+}
+
+type getCloudErrorClient struct {
+	client.Client
+	err error
+}
+
+func (c *getCloudErrorClient) Get(ctx context.Context, key client.ObjectKey, object client.Object, opts ...client.GetOption) error {
+	if _, ok := object.(*nsxv1alpha.NSXNetworkCloud); ok {
+		return c.err
+	}
+	return c.Client.Get(ctx, key, object, opts...)
 }
 
 func requireLogField(t *testing.T, logs *observer.ObservedLogs, message string, key string, want string) {

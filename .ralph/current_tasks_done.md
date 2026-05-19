@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 04:02:23 CEST 2026
+Generated: Tue May 19 04:19:42 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -138,6 +138,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Implement Status Condition Model <status>done</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/13-story-object-lifecycle/01-task-implement-finalizer-and-lifecycle-rules.md`
+
+```
+## Task: Implement Finalizer And Object Lifecycle Rules <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
