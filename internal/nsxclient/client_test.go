@@ -2,10 +2,12 @@ package nsxclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -157,6 +159,66 @@ func TestListMethodsFollowPaginationUntilCursorIsEmpty(t *testing.T) {
 	}
 	if len(seenCursors) != 2 || seenCursors[0] != "" || seenCursors[1] != "page-2" {
 		t.Fatalf("seen cursors = %#v, want [\"\", \"page-2\"]", seenCursors)
+	}
+}
+
+func TestGroupPathExpressionRoutesUsePolicyExpressionEndpoints(t *testing.T) {
+	t.Parallel()
+
+	var requests []string
+	var addPayload PathExpression
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, req.Method+" "+req.URL.RequestURI())
+		switch len(requests) {
+		case 1:
+			if req.Method != http.MethodPost {
+				t.Errorf("add method = %s, want POST", req.Method)
+			}
+			if req.URL.Path != "/policy/api/v1/infra/domains/default/groups/web/path-expressions/segment" {
+				t.Errorf("add path = %q, want group path expression endpoint", req.URL.Path)
+			}
+			if req.URL.Query().Get("action") != "add" {
+				t.Errorf("add action query = %q, want add", req.URL.Query().Get("action"))
+			}
+			if err := json.NewDecoder(req.Body).Decode(&addPayload); err != nil {
+				t.Errorf("decode add payload: %v", err)
+			}
+			w.WriteHeader(http.StatusOK)
+		case 2:
+			if req.Method != http.MethodDelete {
+				t.Errorf("delete method = %s, want DELETE", req.Method)
+			}
+			if req.URL.Path != "/policy/api/v1/infra/domains/default/groups/web/path-expressions/old-segment" {
+				t.Errorf("delete path = %q, want group path expression endpoint", req.URL.Path)
+			}
+			if req.URL.RawQuery != "" {
+				t.Errorf("delete query = %q, want empty", req.URL.RawQuery)
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request %d: %s %s", len(requests), req.Method, req.URL.RequestURI())
+			w.WriteHeader(http.StatusTeapot)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := newTestClient(t, server.URL)
+	err := client.AddGroupPathExpression(context.Background(), "web", "segment", &PathExpression{
+		Resource: Resource{ID: "segment", ResourceType: "PathExpression"},
+		Paths:    []string{"/infra/segments/web"},
+	})
+	if err != nil {
+		t.Fatalf("AddGroupPathExpression() error = %v", err)
+	}
+	err = client.DeleteGroupPathExpression(context.Background(), "web", "old-segment")
+	if err != nil {
+		t.Fatalf("DeleteGroupPathExpression() error = %v", err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("requests = %v, want add and delete", requests)
+	}
+	if addPayload.ID != "segment" || addPayload.ResourceType != "PathExpression" || !reflect.DeepEqual(addPayload.Paths, []string{"/infra/segments/web"}) {
+		t.Fatalf("add payload = %#v, want path expression payload", addPayload)
 	}
 }
 

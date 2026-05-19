@@ -281,6 +281,14 @@ func (c *Client) PatchGroupPathExpression(ctx context.Context, groupID string, e
 	return c.do(ctx, http.MethodPatch, groupExpressionPath(groupID, "path-expressions", expressionID), nil, expression, nil)
 }
 
+func (c *Client) AddGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *PathExpression) error {
+	return c.do(ctx, http.MethodPost, groupExpressionPath(groupID, "path-expressions", expressionID), actionQuery("add"), expression, nil)
+}
+
+func (c *Client) DeleteGroupPathExpression(ctx context.Context, groupID string, expressionID string) error {
+	return c.do(ctx, http.MethodDelete, groupExpressionPath(groupID, "path-expressions", expressionID), nil, nil, nil)
+}
+
 func (c *Client) ListGroupIPAddressMembers(ctx context.Context, groupID string) ([]string, error) {
 	items, err := listAllTyped[string](ctx, c, groupPath(groupID)+"/members/ip-addresses", nil)
 	if err != nil {

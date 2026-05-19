@@ -11,3 +11,4 @@
 .ralph/tasks/09-story-reconcile-behavior/01-task-implement-controller-reconcile-behavior.md
 .ralph/tasks/16-story-names-and-keys/01-task-implement-names-and-keys.md
 .ralph/tasks/10-story-observe-reconciliation/01-task-implement-observe-reconciliation.md
+.ralph/tasks/11-story-manage-reconciliation/01-task-implement-manage-reconciliation.md

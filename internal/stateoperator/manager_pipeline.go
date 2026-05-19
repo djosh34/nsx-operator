@@ -47,6 +47,8 @@ type ManagerClient interface {
 	AddGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpression) error
 	DeleteGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string) error
 	PatchGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.PathExpression) error
+	AddGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.PathExpression) error
+	DeleteGroupPathExpression(ctx context.Context, groupID string, expressionID string) error
 	DeleteGroup(ctx context.Context, groupID string) error
 }
 
@@ -56,6 +58,7 @@ type ManagerKubeApplier interface {
 	ApplyGroup(ctx context.Context, group nsxv1alpha.NSXGroup) error
 	UpdateGroupStatus(ctx context.Context, name string, status nsxv1alpha.NSXGroupStatus) error
 	DeleteGroupCR(ctx context.Context, name string) error
+	RemoveGroupFinalizer(ctx context.Context, name string, finalizer string) error
 	UpdateCloudStatus(ctx context.Context, name string, status nsxv1alpha.NSXNetworkCloudStatus) error
 }
 
@@ -68,12 +71,13 @@ type ManagerSnapshot struct {
 }
 
 type ManagerPlan struct {
-	ObserveUpserts []nsxv1alpha.NSXGroup
-	ManagedWrites  []ManagedGroupWrite
-	ManagedDeletes []ManagedGroupDelete
-	GroupStatuses  []GroupStatusPlan
-	ObserveDeletes []string
-	CloudStatus    *CloudStatusPlan
+	ObserveUpserts           []nsxv1alpha.NSXGroup
+	ManagedWrites            []ManagedGroupWrite
+	ManagedDeletes           []ManagedGroupDelete
+	ManagedFinalizerRemovals []string
+	GroupStatuses            []GroupStatusPlan
+	ObserveDeletes           []string
+	CloudStatus              *CloudStatusPlan
 }
 
 type ManagerBindings struct {
@@ -347,6 +351,32 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 				Status: status,
 			})
 		case nsxv1alpha.NSXGroupModeManage:
+			if localBinding.Group.DeletionTimestamp != nil {
+				if exists {
+					plan.ManagedDeletes = append(plan.ManagedDeletes, ManagedGroupDelete{GroupID: localBinding.Key.GroupID})
+					status, err := deletingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, remote, now)
+					if err != nil {
+						return ManagerPlan{}, fmt.Errorf("build deleting managed status %q: %w", localBinding.Group.Name, err)
+					}
+					plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
+						Name:   localBinding.Group.Name,
+						Status: status,
+					})
+					continue
+				}
+				if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
+					plan.ManagedFinalizerRemovals = append(plan.ManagedFinalizerRemovals, localBinding.Group.Name)
+				}
+				status, err := deletedManageStatus(localBinding.Group.Status, localBinding.Group.Generation, now)
+				if err != nil {
+					return ManagerPlan{}, fmt.Errorf("build deleted managed status %q: %w", localBinding.Group.Name, err)
+				}
+				plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
+					Name:   localBinding.Group.Name,
+					Status: status,
+				})
+				continue
+			}
 			if !exists {
 				plan.ManagedWrites = append(plan.ManagedWrites, managedWriteFromLocal(localBinding.Group, RemoteGroup{}))
 				status, err := missingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, now)
@@ -411,6 +441,11 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 			return fmt.Errorf("update group status %q: %w", status.Name, err)
 		}
 	}
+	for _, name := range plan.ManagedFinalizerRemovals {
+		if err := kubeApplier.RemoveGroupFinalizer(ctx, name, GroupFinalizer); err != nil {
+			return fmt.Errorf("remove managed group finalizer %q: %w", name, err)
+		}
+	}
 	for _, name := range plan.ObserveDeletes {
 		if err := kubeApplier.DeleteGroupCR(ctx, name); err != nil {
 			return fmt.Errorf("delete observe group cr %q: %w", name, err)
@@ -463,6 +498,7 @@ func defaultManagerSweep(
 			zap.Int("observeUpsertCount", len(plan.ObserveUpserts)),
 			zap.Int("managedWriteCount", len(plan.ManagedWrites)),
 			zap.Int("managedDeleteCount", len(plan.ManagedDeletes)),
+			zap.Int("managedFinalizerRemovalCount", len(plan.ManagedFinalizerRemovals)),
 			zap.Int("groupStatusCount", len(plan.GroupStatuses)),
 			zap.Int("observeDeleteCount", len(plan.ObserveDeletes)),
 			zap.Bool("cloudStatusPlanned", plan.CloudStatus != nil),
@@ -529,6 +565,27 @@ func (a kubeAPIAdapter) DeleteGroupCR(ctx context.Context, name string) error {
 	return a.client.Groups().Delete(ctx, name, metav1.DeleteOptions{})
 }
 
+func (a kubeAPIAdapter) RemoveGroupFinalizer(ctx context.Context, name string, finalizer string) error {
+	current, err := a.client.Groups().Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(current.Finalizers, finalizer) {
+		return nil
+	}
+	current.Finalizers = slices.DeleteFunc(current.Finalizers, func(existing string) bool {
+		return existing == finalizer
+	})
+	_, err = a.client.Groups().Update(ctx, current, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (a kubeAPIAdapter) UpdateCloudStatus(ctx context.Context, name string, status nsxv1alpha.NSXNetworkCloudStatus) error {
 	current, err := a.client.NetworkClouds().Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -567,6 +624,16 @@ func applyManagedWrite(ctx context.Context, managerClient ManagerClient, write M
 	if err := managerClient.PatchGroup(ctx, write.Key.GroupID, group); err != nil {
 		return fmt.Errorf("patch managed nsx group %q: %w", write.Key.GroupID, err)
 	}
+	if err := applyManagedIPAddressExpression(ctx, managerClient, write); err != nil {
+		return err
+	}
+	if err := applyManagedPathExpression(ctx, managerClient, write); err != nil {
+		return err
+	}
+	return nil
+}
+
+func applyManagedIPAddressExpression(ctx context.Context, managerClient ManagerClient, write ManagedGroupWrite) error {
 	if len(write.CIDRs) == 0 {
 		if write.IPAddressExpressionID != "" {
 			if err := managerClient.DeleteGroupIPAddressExpression(ctx, write.Key.GroupID, write.IPAddressExpressionID); err != nil {
@@ -592,6 +659,18 @@ func applyManagedWrite(ctx context.Context, managerClient ManagerClient, write M
 			}
 		}
 	}
+	return nil
+}
+
+func applyManagedPathExpression(ctx context.Context, managerClient ManagerClient, write ManagedGroupWrite) error {
+	if write.SegmentPath == nil {
+		if write.PathExpressionID != "" {
+			if err := managerClient.DeleteGroupPathExpression(ctx, write.Key.GroupID, write.PathExpressionID); err != nil {
+				return fmt.Errorf("delete managed nsx group %q path expression %q: %w", write.Key.GroupID, write.PathExpressionID, err)
+			}
+		}
+		return nil
+	}
 	if write.SegmentPath != nil && write.PathExpressionID != "" {
 		expression := &nsxclient.PathExpression{
 			Resource: nsxclient.Resource{
@@ -602,6 +681,18 @@ func applyManagedWrite(ctx context.Context, managerClient ManagerClient, write M
 		}
 		if err := managerClient.PatchGroupPathExpression(ctx, write.Key.GroupID, write.PathExpressionID, expression); err != nil {
 			return fmt.Errorf("patch managed nsx group %q path expression %q: %w", write.Key.GroupID, write.PathExpressionID, err)
+		}
+	}
+	if write.SegmentPath != nil && write.PathExpressionID == "" {
+		expression := &nsxclient.PathExpression{
+			Resource: nsxclient.Resource{
+				ID:           "segment",
+				ResourceType: "PathExpression",
+			},
+			Paths: []string{*write.SegmentPath},
+		}
+		if err := managerClient.AddGroupPathExpression(ctx, write.Key.GroupID, expression.ID, expression); err != nil {
+			return fmt.Errorf("add managed nsx group %q path expression %q: %w", write.Key.GroupID, expression.ID, err)
 		}
 	}
 	return nil
@@ -712,6 +803,38 @@ func matchingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration
 		statuscondition.Synced(metav1.ConditionTrue, metav1.ConditionTrue, metav1.ConditionFalse, realizedStatus, syncedReason, syncedMessage),
 		statuscondition.Applying(metav1.ConditionFalse, "NotApplying", "no NSX write is planned"),
 		statuscondition.Deleting(metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned"),
+	)
+}
+
+func deletingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote RemoteGroup, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+	unsupportedStatus, unsupportedReason, unsupportedMessage := unsupportedExpressionCondition(remote)
+	realizedStatus, realizedReason, realizedMessage := realizedCondition(remote)
+	return statuscondition.BuildGroupStatus(
+		previous,
+		observedGeneration,
+		now,
+		statuscondition.RemotePresent(metav1.ConditionTrue, "RemoteFound", "remote NSX group is present"),
+		statuscondition.SpecMatchesRemote(metav1.ConditionUnknown, "Deleting", "managed NSX group is being deleted"),
+		statuscondition.UnsupportedExpression(unsupportedStatus, unsupportedReason, unsupportedMessage),
+		statuscondition.Realized(realizedStatus, realizedReason, realizedMessage),
+		statuscondition.Synced(metav1.ConditionUnknown, metav1.ConditionUnknown, unsupportedStatus, realizedStatus, "Deleting", "managed NSX group delete is planned"),
+		statuscondition.Applying(metav1.ConditionFalse, "NotApplying", "no NSX write is planned"),
+		statuscondition.Deleting(metav1.ConditionTrue, "Deleting", "managed NSX group delete is planned"),
+	)
+}
+
+func deletedManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+	return statuscondition.BuildGroupStatus(
+		previous,
+		observedGeneration,
+		now,
+		statuscondition.RemotePresent(metav1.ConditionFalse, "RemoteDeleted", "remote NSX group deletion is confirmed"),
+		statuscondition.SpecMatchesRemote(metav1.ConditionTrue, "Deleted", "managed NSX group deletion is confirmed"),
+		statuscondition.UnsupportedExpression(metav1.ConditionFalse, "SupportedExpression", "no unsupported remote expression is present"),
+		statuscondition.Realized(metav1.ConditionTrue, "Deleted", "managed NSX group deletion is confirmed"),
+		statuscondition.ConditionUpdate{Type: nsxv1alpha.ConditionSynced, Status: metav1.ConditionTrue, Reason: "Deleted", Message: "managed NSX group deletion is confirmed"},
+		statuscondition.Applying(metav1.ConditionFalse, "NotApplying", "no NSX write is planned"),
+		statuscondition.Deleting(metav1.ConditionFalse, "Deleted", "managed NSX group deletion is confirmed"),
 	)
 }
 

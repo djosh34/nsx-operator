@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 03:41:39 CEST 2026
+Generated: Tue May 19 04:02:23 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -116,6 +116,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Implement Observe Mode Reconciliation <status>done</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/11-story-manage-reconciliation/01-task-implement-manage-reconciliation.md`
+
+```
+## Task: Implement Manage Mode Reconciliation <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

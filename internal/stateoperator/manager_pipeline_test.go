@@ -397,6 +397,64 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-missing").Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned", now)
 }
 
+func TestProcessManagerSnapshotDeletingManageGroupPlansFinalizerRemovalAfterRemoteAbsence(t *testing.T) {
+	now := time.Date(2026, 5, 19, 13, 45, 0, 0, time.UTC)
+	deletionTime := metav1.NewTime(now.Add(-time.Minute))
+	deleting := managerGroup("manage-deleting", "nsx-a.example.test", "app-deleting", nsxv1alpha.NSXGroupModeManage)
+	deleting.Finalizers = []string{stateoperator.GroupFinalizer, "example.test/keep"}
+	deleting.DeletionTimestamp = &deletionTime
+
+	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
+		Cloud:            *networkCloud("cloud-a", "nsx-a.example.test"),
+		NetworkCloudFQDN: "nsx-a.example.test",
+		LocalGroups:      []nsxv1alpha.NSXGroup{*deleting},
+	}, now)
+	if err != nil {
+		t.Fatalf("ProcessManagerSnapshot() error = %v", err)
+	}
+	if len(plan.ManagedDeletes) != 0 {
+		t.Fatalf("ManagedDeletes = %#v, want no repeat delete after remote absence confirmed", plan.ManagedDeletes)
+	}
+	if !reflect.DeepEqual(plan.ManagedFinalizerRemovals, []string{"manage-deleting"}) {
+		t.Fatalf("ManagedFinalizerRemovals = %#v, want manage-deleting", plan.ManagedFinalizerRemovals)
+	}
+	status := statusFor(t, plan.GroupStatuses, "manage-deleting")
+	requireCondition(t, status.Conditions, nsxv1alpha.ConditionRemotePresent, metav1.ConditionFalse, "RemoteDeleted", "remote NSX group deletion is confirmed", now)
+	requireCondition(t, status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionTrue, "Deleted", "managed NSX group deletion is confirmed", now)
+	requireCondition(t, status.Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionFalse, "Deleted", "managed NSX group deletion is confirmed", now)
+}
+
+func TestProcessManagerSnapshotDeletingManageGroupPlansDeleteWhileRemoteExists(t *testing.T) {
+	now := time.Date(2026, 5, 19, 14, 0, 0, 0, time.UTC)
+	deletionTime := metav1.NewTime(now.Add(-time.Minute))
+	deleting := managerGroup("manage-deleting", "nsx-a.example.test", "app-deleting", nsxv1alpha.NSXGroupModeManage)
+	deleting.Finalizers = []string{stateoperator.GroupFinalizer}
+	deleting.DeletionTimestamp = &deletionTime
+
+	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
+		Cloud:            *networkCloud("cloud-a", "nsx-a.example.test"),
+		NetworkCloudFQDN: "nsx-a.example.test",
+		LocalGroups:      []nsxv1alpha.NSXGroup{*deleting},
+		RemoteGroups: []stateoperator.RemoteGroup{{
+			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-deleting"},
+			DisplayName: "Deleting",
+		}},
+	}, now)
+	if err != nil {
+		t.Fatalf("ProcessManagerSnapshot() error = %v", err)
+	}
+	if !reflect.DeepEqual(plan.ManagedDeletes, []stateoperator.ManagedGroupDelete{{GroupID: "app-deleting"}}) {
+		t.Fatalf("ManagedDeletes = %#v, want app-deleting delete", plan.ManagedDeletes)
+	}
+	if len(plan.ManagedFinalizerRemovals) != 0 {
+		t.Fatalf("ManagedFinalizerRemovals = %#v, want none while remote exists", plan.ManagedFinalizerRemovals)
+	}
+	status := statusFor(t, plan.GroupStatuses, "manage-deleting")
+	requireCondition(t, status.Conditions, nsxv1alpha.ConditionRemotePresent, metav1.ConditionTrue, "RemoteFound", "remote NSX group is present", now)
+	requireCondition(t, status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "Deleting", "managed NSX group delete is planned", now)
+	requireCondition(t, status.Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionTrue, "Deleting", "managed NSX group delete is planned", now)
+}
+
 func TestRemoteGroupFromNSXGroupSupportsEmptyExpression(t *testing.T) {
 	remote := stateoperator.RemoteGroupFromNSXGroup("nsx-a.example.test", nsxclient.Group{
 		Resource: nsxclient.Resource{ID: "empty", DisplayName: "Empty"},
@@ -728,6 +786,30 @@ func TestApplyManagerPlanAllowsObserveOnlyPlanWithoutManagerClient(t *testing.T)
 	}
 }
 
+func TestApplyManagerPlanRemovesManagedFinalizersAfterStatusUpdates(t *testing.T) {
+	recorder := &operationRecorder{}
+	plan := stateoperator.ManagerPlan{
+		ManagedFinalizerRemovals: []string{"manage-deleted"},
+		GroupStatuses: []stateoperator.GroupStatusPlan{
+			{Name: "manage-deleted"},
+		},
+		CloudStatus: &stateoperator.CloudStatusPlan{Name: "cloud-a"},
+	}
+
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, nil, plan)
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	want := []string{
+		"group-status:manage-deleted",
+		"remove-finalizer:manage-deleted:nsx.ing.com/finalizer",
+		"cloud-status:cloud-a",
+	}
+	if !reflect.DeepEqual(recorder.operations, want) {
+		t.Fatalf("operations = %v, want %v", recorder.operations, want)
+	}
+}
+
 func TestApplyManagerPlanDeletesExistingIPAddressExpressionWhenManagedCIDRsAreEmpty(t *testing.T) {
 	recorder := &operationRecorder{}
 	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
@@ -741,6 +823,50 @@ func TestApplyManagerPlanDeletesExistingIPAddressExpressionWhenManagedCIDRsAreEm
 		t.Fatalf("ApplyManagerPlan() error = %v", err)
 	}
 	want := []string{"patch-group:empty-cidrs", "delete-ip:empty-cidrs:ip-expression"}
+	if !reflect.DeepEqual(recorder.operations, want) {
+		t.Fatalf("operations = %v, want %v", recorder.operations, want)
+	}
+}
+
+func TestApplyManagerPlanAddsMissingPathExpressionWhenManagedSegmentPathIsSet(t *testing.T) {
+	segmentPath := "/infra/segments/web"
+	recorder := &operationRecorder{}
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
+		ManagedWrites: []stateoperator.ManagedGroupWrite{{
+			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "missing-segment"},
+			DisplayName: "Missing Segment",
+			SegmentPath: &segmentPath,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	want := []string{"patch-group:missing-segment", "add-path:missing-segment:segment"}
+	if !reflect.DeepEqual(recorder.operations, want) {
+		t.Fatalf("operations = %v, want %v", recorder.operations, want)
+	}
+	expression := recorder.pathExpressions["missing-segment:segment"]
+	if expression == nil {
+		t.Fatalf("recorded path expression is nil, want payload for missing-segment:segment")
+	}
+	if expression.ID != "segment" || expression.ResourceType != "PathExpression" || !reflect.DeepEqual(expression.Paths, []string{segmentPath}) {
+		t.Fatalf("path expression = %#v, want id segment with desired segment path", expression)
+	}
+}
+
+func TestApplyManagerPlanDeletesExistingPathExpressionWhenManagedSegmentPathIsRemoved(t *testing.T) {
+	recorder := &operationRecorder{}
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
+		ManagedWrites: []stateoperator.ManagedGroupWrite{{
+			Key:              stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "removed-segment"},
+			DisplayName:      "Removed Segment",
+			PathExpressionID: "existing-segment",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	want := []string{"patch-group:removed-segment", "delete-path:removed-segment:existing-segment"}
 	if !reflect.DeepEqual(recorder.operations, want) {
 		t.Fatalf("operations = %v, want %v", recorder.operations, want)
 	}
@@ -841,6 +967,158 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 	}
 }
 
+func TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec(t *testing.T) {
+	typedClient, stop := startStateoperatorKubeAPIClient(t)
+	t.Cleanup(stop)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	cloud := networkCloud("cloud-manage", "nsx-a.example.test")
+	if _, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create typed cloud: %v", err)
+	}
+	desiredSegment := "/infra/segments/desired"
+	localManage := managerGroup("manage-drifted", "nsx-a.example.test", "app-drifted", nsxv1alpha.NSXGroupModeManage)
+	localManage.Spec.DisplayName = "Desired App"
+	localManage.Spec.CIDRs = []string{"10.80.0.0/24"}
+	localManage.Spec.SegmentPath = &desiredSegment
+	localManage.Generation = 6
+	if _, err := typedClient.Groups().Create(ctx, localManage, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create typed managed group: %v", err)
+	}
+
+	remoteSegment := "/infra/segments/remote"
+	managerRecorder := &operationRecorder{listGroups: []*nsxclient.Group{{
+		Resource: nsxclient.Resource{ID: "app-drifted", DisplayName: "Remote App"},
+		Expression: []json.RawMessage{
+			rawExpression(t, nsxclient.IPAddressExpression{
+				Resource:    nsxclient.Resource{ID: "remote-ip", ResourceType: "IPAddressExpression"},
+				IPAddresses: []string{"10.99.0.0/24"},
+			}),
+			rawExpression(t, nsxclient.PathExpression{
+				Resource: nsxclient.Resource{ID: "remote-path", ResourceType: "PathExpression"},
+				Paths:    []string{remoteSegment},
+			}),
+		},
+	}}}
+	controllerClient := fake.NewClientBuilder().
+		WithScheme(newScheme(t)).
+		WithObjects(cloud).
+		Build()
+	operator, err := stateoperator.New(stateoperator.Options{
+		Client:       controllerClient,
+		KubeClient:   typedClient,
+		TickInterval: time.Hour,
+		Logger:       zap.NewNop(),
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return managerRecorder, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	operatorErr := make(chan error, 1)
+	operatorCtx, stopOperator := context.WithCancel(ctx)
+	defer stopOperator()
+	go func() {
+		operatorErr <- operator.Start(operatorCtx)
+	}()
+
+	requireTypedGroupCondition(ctx, t, typedClient, "manage-drifted", nsxv1alpha.ConditionApplying, metav1.ConditionTrue)
+	updated, err := typedClient.Groups().Get(ctx, "manage-drifted", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get managed group after sweep: %v", err)
+	}
+	if !reflect.DeepEqual(updated.Spec, localManage.Spec) {
+		t.Fatalf("managed spec = %#v, want desired spec preserved %#v", updated.Spec, localManage.Spec)
+	}
+	groupPatch := managerRecorder.groupPatches["app-drifted"]
+	if groupPatch == nil {
+		t.Fatalf("patched group missing; operations = %v", managerRecorder.operations)
+	}
+	if groupPatch.DisplayName != "Desired App" {
+		t.Fatalf("patched group = %#v, want desired display name", groupPatch)
+	}
+	ipExpression := managerRecorder.ipExpressions["app-drifted:remote-ip"]
+	if ipExpression == nil {
+		t.Fatalf("patched IP expression missing; operations = %v", managerRecorder.operations)
+	}
+	if got := ipExpression.IPAddresses; !reflect.DeepEqual(got, []string{"10.80.0.0/24"}) {
+		t.Fatalf("patched IP expression addresses = %v, want desired CIDRs", got)
+	}
+	pathExpression := managerRecorder.pathExpressions["app-drifted:remote-path"]
+	if pathExpression == nil {
+		t.Fatalf("patched path expression missing; operations = %v", managerRecorder.operations)
+	}
+	if got := pathExpression.Paths; !reflect.DeepEqual(got, []string{desiredSegment}) {
+		t.Fatalf("patched path expression paths = %v, want desired segment path", got)
+	}
+
+	stopOperator()
+	if err := <-operatorErr; err != nil {
+		t.Fatalf("operator Start() error = %v", err)
+	}
+}
+
+func TestDefaultManagerSweepRemovesManagedFinalizerAfterConfirmedRemoteAbsence(t *testing.T) {
+	typedClient, stop := startStateoperatorKubeAPIClient(t)
+	t.Cleanup(stop)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	cloud := networkCloud("cloud-delete", "nsx-a.example.test")
+	if _, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create typed cloud: %v", err)
+	}
+	localManage := managerGroup("manage-deleted", "nsx-a.example.test", "app-deleted", nsxv1alpha.NSXGroupModeManage)
+	localManage.Finalizers = []string{stateoperator.GroupFinalizer, "example.test/keep"}
+	if _, err := typedClient.Groups().Create(ctx, localManage, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create typed managed group: %v", err)
+	}
+	if err := typedClient.Groups().Delete(ctx, localManage.Name, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete typed managed group: %v", err)
+	}
+
+	managerRecorder := &operationRecorder{}
+	controllerClient := fake.NewClientBuilder().
+		WithScheme(newScheme(t)).
+		WithObjects(cloud).
+		Build()
+	operator, err := stateoperator.New(stateoperator.Options{
+		Client:       controllerClient,
+		KubeClient:   typedClient,
+		TickInterval: time.Hour,
+		Logger:       zap.NewNop(),
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return managerRecorder, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	operatorErr := make(chan error, 1)
+	operatorCtx, stopOperator := context.WithCancel(ctx)
+	defer stopOperator()
+	go func() {
+		operatorErr <- operator.Start(operatorCtx)
+	}()
+
+	requireTypedGroupFinalizerRemoved(ctx, t, typedClient, "manage-deleted", stateoperator.GroupFinalizer)
+	stopOperator()
+	if err := <-operatorErr; err != nil {
+		t.Fatalf("operator Start() error = %v", err)
+	}
+	for _, operation := range managerRecorder.operations {
+		if strings.HasPrefix(operation, "delete-group:") {
+			t.Fatalf("manager operations = %v, want no NSX delete after absence confirmation", managerRecorder.operations)
+		}
+	}
+}
+
 func TestDefaultManagerSweepUpdatesCloudStatusWhenGatherFails(t *testing.T) {
 	typedClient, stop := startStateoperatorKubeAPIClient(t)
 	t.Cleanup(stop)
@@ -897,10 +1175,13 @@ func managerGroup(name string, fqdn string, groupID string, mode nsxv1alpha.NSXG
 }
 
 type operationRecorder struct {
-	operations     []string
-	listGroups     []*nsxclient.Group
-	patchGroupErr  error
-	deleteGroupErr error
+	operations      []string
+	listGroups      []*nsxclient.Group
+	groupPatches    map[string]*nsxclient.Group
+	ipExpressions   map[string]*nsxclient.IPAddressExpression
+	pathExpressions map[string]*nsxclient.PathExpression
+	patchGroupErr   error
+	deleteGroupErr  error
 }
 
 func (r *operationRecorder) ApplyGroup(_ context.Context, group nsxv1alpha.NSXGroup) error {
@@ -918,6 +1199,11 @@ func (r *operationRecorder) DeleteGroupCR(_ context.Context, name string) error 
 	return nil
 }
 
+func (r *operationRecorder) RemoveGroupFinalizer(_ context.Context, name string, finalizer string) error {
+	r.operations = append(r.operations, "remove-finalizer:"+name+":"+finalizer)
+	return nil
+}
+
 func (r *operationRecorder) UpdateCloudStatus(_ context.Context, name string, _ nsxv1alpha.NSXNetworkCloudStatus) error {
 	r.operations = append(r.operations, "cloud-status:"+name)
 	return nil
@@ -927,18 +1213,25 @@ func (r *operationRecorder) ListGroups(context.Context) ([]*nsxclient.Group, err
 	return r.listGroups, nil
 }
 
-func (r *operationRecorder) PatchGroup(_ context.Context, groupID string, _ *nsxclient.Group) error {
+func (r *operationRecorder) PatchGroup(_ context.Context, groupID string, group *nsxclient.Group) error {
 	r.operations = append(r.operations, "patch-group:"+groupID)
+	if r.groupPatches == nil {
+		r.groupPatches = map[string]*nsxclient.Group{}
+	}
+	copied := *group
+	r.groupPatches[groupID] = &copied
 	return r.patchGroupErr
 }
 
-func (r *operationRecorder) PatchGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, _ *nsxclient.IPAddressExpression) error {
+func (r *operationRecorder) PatchGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpression) error {
 	r.operations = append(r.operations, "patch-ip:"+groupID+":"+expressionID)
+	r.recordIPAddressExpression(groupID, expressionID, expression)
 	return nil
 }
 
-func (r *operationRecorder) AddGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, _ *nsxclient.IPAddressExpression) error {
+func (r *operationRecorder) AddGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpression) error {
 	r.operations = append(r.operations, "add-ip:"+groupID+":"+expressionID)
+	r.recordIPAddressExpression(groupID, expressionID, expression)
 	return nil
 }
 
@@ -947,14 +1240,44 @@ func (r *operationRecorder) DeleteGroupIPAddressExpression(_ context.Context, gr
 	return nil
 }
 
-func (r *operationRecorder) PatchGroupPathExpression(_ context.Context, groupID string, expressionID string, _ *nsxclient.PathExpression) error {
+func (r *operationRecorder) PatchGroupPathExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.PathExpression) error {
 	r.operations = append(r.operations, "patch-path:"+groupID+":"+expressionID)
+	r.recordPathExpression(groupID, expressionID, expression)
+	return nil
+}
+
+func (r *operationRecorder) AddGroupPathExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.PathExpression) error {
+	r.operations = append(r.operations, "add-path:"+groupID+":"+expressionID)
+	r.recordPathExpression(groupID, expressionID, expression)
+	return nil
+}
+
+func (r *operationRecorder) DeleteGroupPathExpression(_ context.Context, groupID string, expressionID string) error {
+	r.operations = append(r.operations, "delete-path:"+groupID+":"+expressionID)
 	return nil
 }
 
 func (r *operationRecorder) DeleteGroup(_ context.Context, groupID string) error {
 	r.operations = append(r.operations, "delete-group:"+groupID)
 	return r.deleteGroupErr
+}
+
+func (r *operationRecorder) recordPathExpression(groupID string, expressionID string, expression *nsxclient.PathExpression) {
+	if r.pathExpressions == nil {
+		r.pathExpressions = map[string]*nsxclient.PathExpression{}
+	}
+	copied := *expression
+	copied.Paths = append([]string(nil), expression.Paths...)
+	r.pathExpressions[groupID+":"+expressionID] = &copied
+}
+
+func (r *operationRecorder) recordIPAddressExpression(groupID string, expressionID string, expression *nsxclient.IPAddressExpression) {
+	if r.ipExpressions == nil {
+		r.ipExpressions = map[string]*nsxclient.IPAddressExpression{}
+	}
+	copied := *expression
+	copied.IPAddresses = append([]string(nil), expression.IPAddresses...)
+	r.ipExpressions[groupID+":"+expressionID] = &copied
 }
 
 func rawExpression(t *testing.T, value any) json.RawMessage {
@@ -1042,6 +1365,27 @@ func requireTypedGroupDeleted(ctx context.Context, t *testing.T, typedClient *ku
 		select {
 		case <-ctx.Done():
 			t.Fatalf("timed out waiting for group %q to be deleted", name)
+		case <-ticker.C:
+		}
+	}
+}
+
+func requireTypedGroupFinalizerRemoved(ctx context.Context, t *testing.T, typedClient *kubeapi.Client, name string, finalizer string) {
+	t.Helper()
+
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		group, err := typedClient.Groups().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get typed group %q: %v", name, err)
+		}
+		if !slices.Contains(group.Finalizers, finalizer) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for group %q finalizers to remove %q; finalizers = %v", name, finalizer, group.Finalizers)
 		case <-ticker.C:
 		}
 	}
