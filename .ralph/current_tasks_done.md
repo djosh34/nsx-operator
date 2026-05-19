@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 04:50:18 AM CEST 2026
+Generated: Tue May 19 05:05:34 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -160,6 +160,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Enforce NSX Client And Write Semantics <status>done</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/15-story-http-concurrency-model/01-task-validate-http-concurrency-model.md`
+
+```
+## Task: Validate HTTP Concurrency Model Across Manager Goroutines <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

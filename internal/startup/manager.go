@@ -3,9 +3,11 @@ package startup
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
 	"github.com/djosh34/nsx-operator/internal/config"
+	"github.com/djosh34/nsx-operator/internal/httpratelimit"
 	"github.com/djosh34/nsx-operator/internal/kubeapi"
 	"github.com/djosh34/nsx-operator/internal/logging"
 	"github.com/djosh34/nsx-operator/internal/names"
@@ -81,13 +83,15 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		logger.Info("typed kubernetes crd client construction failed", logging.Component("startup"), zap.Error(err))
 		return nil, fmt.Errorf("construct typed kubernetes crd client: %w", err)
 	}
+	nsxHTTPClient := newNSXHTTPClient(options.Config.HTTPRateLimiter, logger)
 	managerClientFactory := func(_ context.Context, cloud nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
 		normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
 		client, err := nsxclient.NewClient(nsxclient.Options{
-			BaseURL:  "https://" + normalizedFQDN,
-			Username: options.Config.NSX.Auth.Username,
-			Password: options.Config.NSX.Auth.Password,
-			Logger:   logger,
+			BaseURL:    "https://" + normalizedFQDN,
+			HTTPClient: nsxHTTPClient,
+			Username:   options.Config.NSX.Auth.Username,
+			Password:   options.Config.NSX.Auth.Password,
+			Logger:     logger,
 		})
 		if err != nil {
 			return nil, err
@@ -139,4 +143,20 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 
 	logger.Info("constructed controller runtime manager", logging.Component("startup"))
 	return runtimeManager, nil
+}
+
+func newNSXHTTPClient(cfg config.HTTPRateLimiterConfig, logger *zap.Logger) *http.Client {
+	limiterConfig := httpratelimit.Config{
+		MaxRequestsInFlightPerHost:  cfg.MaxRequestsInFlightPerHost,
+		MaxRequestsPerSecondPerHost: cfg.MaxRequestsPerSecondPerHost,
+	}
+	logger.Info(
+		"constructing shared nsx manager http client",
+		logging.Component("startup"),
+		zap.Int("http_max_requests_in_flight_per_host", limiterConfig.MaxRequestsInFlightPerHost),
+		zap.Int("http_max_requests_per_second_per_host", limiterConfig.MaxRequestsPerSecondPerHost),
+	)
+	return &http.Client{
+		Transport: httpratelimit.NewRoundTripper(http.DefaultTransport, limiterConfig, logger),
+	}
 }

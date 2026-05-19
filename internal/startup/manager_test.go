@@ -2,10 +2,15 @@ package startup_test
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -265,6 +270,173 @@ func TestNewManagerDefaultSweepUpdatesCloudStatusWithoutCustomSweep(t *testing.T
 	}
 }
 
+func TestNewManagerSharesRateLimitedTransportAcrossCloudSweeps(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Fatalf("KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	gate := newNSXListGate(t, "nsx-a.example.net", "nsx-a.example.net:8443")
+	server := httptest.NewTLSServer(http.HandlerFunc(gate.handleListGroups))
+	t.Cleanup(server.Close)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse httptest server URL: %v", err)
+	}
+	previousDefaultTransport := http.DefaultTransport
+	http.DefaultTransport = routingTransport{
+		target: serverURL,
+		base:   server.Client().Transport,
+	}
+	t.Cleanup(func() {
+		http.DefaultTransport = previousDefaultTransport
+		gate.releaseSameHost()
+	})
+
+	testEnvironment := &envtest.Environment{
+		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: true,
+	}
+	restConfig, err := testEnvironment.Start()
+	if err != nil {
+		t.Fatalf("start envtest API server: %v", err)
+	}
+	defer func() {
+		if err := testEnvironment.Stop(); err != nil {
+			t.Errorf("stop envtest API server: %v", err)
+		}
+	}()
+
+	manager, err := startup.NewManager(startup.ManagerOptions{
+		Config: config.Config{
+			NSX: config.NSXConfig{Auth: config.BasicAuth{
+				Username: "nsx-admin",
+				Password: "nsx-password",
+			}},
+			Operator: config.OperatorConfig{TickInterval: time.Minute},
+			HTTPRateLimiter: config.HTTPRateLimiterConfig{
+				MaxRequestsInFlightPerHost:  1,
+				MaxRequestsPerSecondPerHost: 100,
+			},
+		},
+		RestConfig: restConfig,
+		Logger:     zap.NewNop(),
+	})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	apiClient, err := client.New(restConfig, client.Options{Scheme: manager.GetScheme()})
+	if err != nil {
+		t.Fatalf("create direct client: %v", err)
+	}
+	createNetworkCloud(ctx, t, apiClient, "cloud-a", "nsx-a.example.net")
+	createNetworkCloud(ctx, t, apiClient, "cloud-b", "nsx-a.example.net")
+	createNetworkCloud(ctx, t, apiClient, "cloud-c", "nsx-a.example.net:8443")
+
+	managerCtx, stopManager := context.WithCancel(ctx)
+	defer stopManager()
+	managerErr := make(chan error, 1)
+	go func() {
+		managerErr <- manager.Start(managerCtx)
+	}()
+
+	gate.requireFirstSameHostRequest(ctx)
+	gate.requireDifferentPortRequest(ctx)
+	gate.requireNoSecondSameHostRequestBeforeRelease(250 * time.Millisecond)
+	gate.releaseSameHost()
+	gate.requireSecondSameHostRequest(ctx)
+
+	stopManager()
+	if err := <-managerErr; err != nil {
+		t.Fatalf("manager Start() error = %v", err)
+	}
+}
+
+func TestNewManagerUsesConfiguredHTTPRateLimiterLimits(t *testing.T) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		t.Fatalf("KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	gate := newNSXListGate(t, "nsx-b.example.net", "")
+	server := httptest.NewTLSServer(http.HandlerFunc(gate.handleListGroups))
+	t.Cleanup(server.Close)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse httptest server URL: %v", err)
+	}
+	previousDefaultTransport := http.DefaultTransport
+	http.DefaultTransport = routingTransport{
+		target: serverURL,
+		base:   server.Client().Transport,
+	}
+	t.Cleanup(func() {
+		http.DefaultTransport = previousDefaultTransport
+		gate.releaseSameHost()
+	})
+
+	testEnvironment := &envtest.Environment{
+		CRDDirectoryPaths:     []string{repoPath(t, "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: true,
+	}
+	restConfig, err := testEnvironment.Start()
+	if err != nil {
+		t.Fatalf("start envtest API server: %v", err)
+	}
+	defer func() {
+		if err := testEnvironment.Stop(); err != nil {
+			t.Errorf("stop envtest API server: %v", err)
+		}
+	}()
+
+	manager, err := startup.NewManager(startup.ManagerOptions{
+		Config: config.Config{
+			NSX: config.NSXConfig{Auth: config.BasicAuth{
+				Username: "nsx-admin",
+				Password: "nsx-password",
+			}},
+			Operator: config.OperatorConfig{TickInterval: time.Minute},
+			HTTPRateLimiter: config.HTTPRateLimiterConfig{
+				MaxRequestsInFlightPerHost:  2,
+				MaxRequestsPerSecondPerHost: 100,
+			},
+		},
+		RestConfig: restConfig,
+		Logger:     zap.NewNop(),
+	})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	apiClient, err := client.New(restConfig, client.Options{Scheme: manager.GetScheme()})
+	if err != nil {
+		t.Fatalf("create direct client: %v", err)
+	}
+	createNetworkCloud(ctx, t, apiClient, "cloud-d", "nsx-b.example.net")
+	createNetworkCloud(ctx, t, apiClient, "cloud-e", "nsx-b.example.net")
+
+	managerCtx, stopManager := context.WithCancel(ctx)
+	defer stopManager()
+	managerErr := make(chan error, 1)
+	go func() {
+		managerErr <- manager.Start(managerCtx)
+	}()
+
+	gate.requireFirstSameHostRequest(ctx)
+	gate.requireSecondSameHostRequest(ctx)
+	gate.releaseSameHost()
+
+	stopManager()
+	if err := <-managerErr; err != nil {
+		t.Fatalf("manager Start() error = %v", err)
+	}
+}
+
 func requireSweptCloud(t *testing.T, sweptClouds <-chan string, want string) {
 	t.Helper()
 
@@ -279,6 +451,166 @@ func requireSweptCloud(t *testing.T, sweptClouds <-chan string, want string) {
 			t.Fatalf("timed out waiting for swept cloud %q", want)
 		}
 	}
+}
+
+func createNetworkCloud(ctx context.Context, t *testing.T, apiClient client.Client, name string, fqdn string) {
+	t.Helper()
+
+	if err := apiClient.Create(ctx, &nsxv1alpha.NSXNetworkCloud{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: nsxv1alpha.NSXNetworkCloudSpec{
+			NetworkCloudFQDN: fqdn,
+			NetworkCloudID:   name,
+			Name:             name,
+		},
+	}); err != nil {
+		t.Fatalf("create NSXNetworkCloud %q: %v", name, err)
+	}
+}
+
+type routingTransport struct {
+	target *url.URL
+	base   http.RoundTripper
+}
+
+func (transport routingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if transport.target == nil {
+		return nil, fmt.Errorf("routing transport target URL is required")
+	}
+	if transport.base == nil {
+		return nil, fmt.Errorf("routing transport base RoundTripper is required")
+	}
+
+	routed := req.Clone(req.Context())
+	routedURL := *req.URL
+	routedURL.Scheme = transport.target.Scheme
+	routedURL.Host = transport.target.Host
+	routed.URL = &routedURL
+	routed.Host = req.URL.Host
+	return transport.base.RoundTrip(routed)
+}
+
+type nsxListGate struct {
+	t             *testing.T
+	sameHost      string
+	differentPort string
+	releaseOnce   sync.Once
+	release       chan struct{}
+	firstSame     chan struct{}
+	secondSame    chan struct{}
+	different     chan struct{}
+	mu            sync.Mutex
+	hostCounts    map[string]int
+}
+
+func newNSXListGate(t *testing.T, sameHost string, differentPort string) *nsxListGate {
+	t.Helper()
+
+	return &nsxListGate{
+		t:             t,
+		sameHost:      sameHost,
+		differentPort: differentPort,
+		release:       make(chan struct{}),
+		firstSame:     make(chan struct{}, 1),
+		secondSame:    make(chan struct{}, 1),
+		different:     make(chan struct{}, 1),
+		hostCounts:    map[string]int{},
+	}
+}
+
+func (gate *nsxListGate) handleListGroups(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "unexpected method", http.StatusMethodNotAllowed)
+		return
+	}
+	if req.URL.Path != "/policy/api/v1/infra/domains/default/groups" {
+		http.Error(w, "unexpected path", http.StatusNotFound)
+		return
+	}
+
+	hostCount := gate.recordHost(req.Host)
+	switch req.Host {
+	case gate.sameHost:
+		if hostCount == 1 {
+			gate.signal(gate.firstSame)
+			select {
+			case <-gate.release:
+			case <-req.Context().Done():
+				return
+			}
+		}
+		if hostCount == 2 {
+			gate.signal(gate.secondSame)
+		}
+	case gate.differentPort:
+		gate.signal(gate.different)
+	default:
+		http.Error(w, "unexpected host", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write([]byte(`{"results":[],"result_count":0}`)); err != nil {
+		gate.t.Errorf("write NSX list response: %v", err)
+	}
+}
+
+func (gate *nsxListGate) recordHost(host string) int {
+	gate.mu.Lock()
+	defer gate.mu.Unlock()
+
+	gate.hostCounts[host]++
+	return gate.hostCounts[host]
+}
+
+func (gate *nsxListGate) signal(ch chan<- struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func (gate *nsxListGate) requireFirstSameHostRequest(ctx context.Context) {
+	gate.t.Helper()
+	gate.requireSignal(ctx, gate.firstSame, "first same host request")
+}
+
+func (gate *nsxListGate) requireDifferentPortRequest(ctx context.Context) {
+	gate.t.Helper()
+	gate.requireSignal(ctx, gate.different, "different port request")
+}
+
+func (gate *nsxListGate) requireNoSecondSameHostRequestBeforeRelease(duration time.Duration) {
+	gate.t.Helper()
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-gate.secondSame:
+		gate.t.Fatalf("second same host request reached NSX server before first same host response was released")
+	case <-timer.C:
+	}
+}
+
+func (gate *nsxListGate) requireSecondSameHostRequest(ctx context.Context) {
+	gate.t.Helper()
+	gate.requireSignal(ctx, gate.secondSame, "second same host request")
+}
+
+func (gate *nsxListGate) requireSignal(ctx context.Context, ch <-chan struct{}, description string) {
+	gate.t.Helper()
+
+	select {
+	case <-ch:
+	case <-ctx.Done():
+		gate.t.Fatalf("timed out waiting for %s: %v", description, ctx.Err())
+	}
+}
+
+func (gate *nsxListGate) releaseSameHost() {
+	gate.releaseOnce.Do(func() {
+		close(gate.release)
+	})
 }
 
 func requireCloudCondition(

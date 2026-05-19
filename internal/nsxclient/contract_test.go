@@ -8,15 +8,18 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/djosh34/nsx-operator/internal/httpratelimit"
 	"go.uber.org/zap"
 )
 
@@ -302,6 +305,51 @@ func TestTypedClientContractsAgainstMockAPI(t *testing.T) {
 	}
 }
 
+func TestSharedRateLimitedClientConcurrencyAgainstMockAPI(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	mock := startMockAPI(t, ctx)
+	mockURL, err := url.Parse(mock.baseURL)
+	if err != nil {
+		t.Fatalf("parse mockapi base URL: %v", err)
+	}
+	gate := newMockAPIRateLimitGate(t, "nsx-mock-a.example.net", "nsx-mock-a.example.net:8080")
+	sharedHTTPClient := &http.Client{
+		Transport: httpratelimit.NewRoundTripper(mockAPIRoutingTransport{
+			target: mockURL,
+			base:   http.DefaultTransport,
+			gate:   gate,
+		}, httpratelimit.Config{
+			MaxRequestsInFlightPerHost:  1,
+			MaxRequestsPerSecondPerHost: 100,
+		}, zap.NewNop()),
+	}
+
+	firstSame := newMockAPINSXClient(t, "http://nsx-mock-a.example.net", sharedHTTPClient)
+	secondSame := newMockAPINSXClient(t, "http://nsx-mock-a.example.net", sharedHTTPClient)
+	differentPort := newMockAPINSXClient(t, "http://nsx-mock-a.example.net:8080", sharedHTTPClient)
+	errs := make(chan error, 3)
+
+	go listGroupsAsync(ctx, firstSame, "first same host", errs)
+	gate.requireFirstSameHostRequest(ctx)
+
+	go listGroupsAsync(ctx, secondSame, "second same host", errs)
+	go listGroupsAsync(ctx, differentPort, "different port", errs)
+
+	gate.requireDifferentPortRequest(ctx)
+	gate.requireNoSecondSameHostRequestBeforeRelease(250 * time.Millisecond)
+	gate.releaseSameHost()
+	gate.requireSecondSameHostRequest(ctx)
+
+	for range 3 {
+		if err := <-errs; err != nil {
+			t.Fatalf("%v\nmockapi logs:\n%s", err, mock.logs())
+		}
+	}
+	t.Logf("mockapi concurrency evidence: same logical host nsx-mock-a.example.net:80 shared one in-flight slot; nsx-mock-a.example.net:8080 reached mockapi while :80 was blocked")
+}
+
 type mockAPIProcess struct {
 	baseURL string
 	cmd     *exec.Cmd
@@ -395,6 +443,168 @@ func (process mockAPIProcess) logs() string {
 		return ""
 	}
 	return process.stderr.String()
+}
+
+func newMockAPINSXClient(t *testing.T, baseURL string, httpClient *http.Client) *Client {
+	t.Helper()
+
+	client, err := NewClient(Options{
+		BaseURL:    baseURL,
+		HTTPClient: httpClient,
+		Username:   mockAPIUsername,
+		Password:   mockAPIPassword,
+		Logger:     zap.NewNop(),
+	})
+	if err != nil {
+		t.Fatalf("NewClient(%q) error = %v", baseURL, err)
+	}
+	return client
+}
+
+func listGroupsAsync(ctx context.Context, client *Client, label string, errs chan<- error) {
+	_, err := client.ListGroups(ctx)
+	if err != nil {
+		errs <- fmt.Errorf("%s ListGroups: %w", label, err)
+		return
+	}
+	errs <- nil
+}
+
+type mockAPIRoutingTransport struct {
+	target *url.URL
+	base   http.RoundTripper
+	gate   *mockAPIRateLimitGate
+}
+
+func (transport mockAPIRoutingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if transport.target == nil {
+		return nil, fmt.Errorf("mockapi routing transport target URL is required")
+	}
+	if transport.base == nil {
+		return nil, fmt.Errorf("mockapi routing transport base RoundTripper is required")
+	}
+	if transport.gate != nil {
+		if err := transport.gate.beforeRoundTrip(req); err != nil {
+			return nil, err
+		}
+	}
+
+	routed := req.Clone(req.Context())
+	routedURL := *req.URL
+	routedURL.Scheme = transport.target.Scheme
+	routedURL.Host = transport.target.Host
+	routed.URL = &routedURL
+	routed.Host = req.URL.Host
+	return transport.base.RoundTrip(routed)
+}
+
+type mockAPIRateLimitGate struct {
+	t             *testing.T
+	sameHost      string
+	differentPort string
+	releaseOnce   sync.Once
+	release       chan struct{}
+	firstSame     chan struct{}
+	secondSame    chan struct{}
+	different     chan struct{}
+	mu            sync.Mutex
+	hostCounts    map[string]int
+}
+
+func newMockAPIRateLimitGate(t *testing.T, sameHost string, differentPort string) *mockAPIRateLimitGate {
+	t.Helper()
+
+	return &mockAPIRateLimitGate{
+		t:             t,
+		sameHost:      sameHost,
+		differentPort: differentPort,
+		release:       make(chan struct{}),
+		firstSame:     make(chan struct{}, 1),
+		secondSame:    make(chan struct{}, 1),
+		different:     make(chan struct{}, 1),
+		hostCounts:    map[string]int{},
+	}
+}
+
+func (gate *mockAPIRateLimitGate) beforeRoundTrip(req *http.Request) error {
+	hostCount := gate.recordHost(req.URL.Host)
+	switch req.URL.Host {
+	case gate.sameHost:
+		if hostCount == 1 {
+			gate.signal(gate.firstSame)
+			select {
+			case <-gate.release:
+			case <-req.Context().Done():
+				return req.Context().Err()
+			}
+		}
+		if hostCount == 2 {
+			gate.signal(gate.secondSame)
+		}
+	case gate.differentPort:
+		gate.signal(gate.different)
+	default:
+		return fmt.Errorf("unexpected mockapi logical host %q", req.URL.Host)
+	}
+	return nil
+}
+
+func (gate *mockAPIRateLimitGate) recordHost(host string) int {
+	gate.mu.Lock()
+	defer gate.mu.Unlock()
+
+	gate.hostCounts[host]++
+	return gate.hostCounts[host]
+}
+
+func (gate *mockAPIRateLimitGate) signal(ch chan<- struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func (gate *mockAPIRateLimitGate) requireFirstSameHostRequest(ctx context.Context) {
+	gate.t.Helper()
+	gate.requireSignal(ctx, gate.firstSame, "first same host request")
+}
+
+func (gate *mockAPIRateLimitGate) requireDifferentPortRequest(ctx context.Context) {
+	gate.t.Helper()
+	gate.requireSignal(ctx, gate.different, "different port request")
+}
+
+func (gate *mockAPIRateLimitGate) requireNoSecondSameHostRequestBeforeRelease(duration time.Duration) {
+	gate.t.Helper()
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-gate.secondSame:
+		gate.t.Fatalf("second same host request reached mockapi transport before first same host response was released")
+	case <-timer.C:
+	}
+}
+
+func (gate *mockAPIRateLimitGate) requireSecondSameHostRequest(ctx context.Context) {
+	gate.t.Helper()
+	gate.requireSignal(ctx, gate.secondSame, "second same host request")
+}
+
+func (gate *mockAPIRateLimitGate) requireSignal(ctx context.Context, ch <-chan struct{}, description string) {
+	gate.t.Helper()
+
+	select {
+	case <-ch:
+	case <-ctx.Done():
+		gate.t.Fatalf("timed out waiting for %s: %v", description, ctx.Err())
+	}
+}
+
+func (gate *mockAPIRateLimitGate) releaseSameHost() {
+	gate.releaseOnce.Do(func() {
+		close(gate.release)
+	})
 }
 
 func freeTCPPort(t *testing.T) int {
