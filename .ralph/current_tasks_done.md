@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 08:58:08 AM CEST 2026
+Generated: Tue May 19 09:19:16 AM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -226,6 +226,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Document Docker Compose API Usage <status>completed</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/21-story-github-cicd/01-task-add-github-cicd-ghcr-publish.md`
+
+```
+## Task: Add GitHub CI/CD Workflow for Parallel Build, Test, and GHCR Publish <status>done</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

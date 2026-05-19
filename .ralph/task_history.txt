@@ -20,3 +20,4 @@
 NONE
 .ralph/tasks/19-story-scratch-compose-stack/01-task-create-scratch-docker-compose-stack.md
 .ralph/tasks/20-story-compose-api-docs/01-task-document-compose-api-usage.md
+.ralph/tasks/21-story-github-cicd/01-task-add-github-cicd-ghcr-publish.md
