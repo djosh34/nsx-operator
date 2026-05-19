@@ -179,15 +179,14 @@ func TestProcessManagerSnapshotSuccessfulGatherPlansCloudStatus(t *testing.T) {
 
 func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testing.T) {
 	now := time.Date(2026, 5, 19, 12, 30, 0, 0, time.UTC)
-	segmentPath := "/infra/segments/web"
 	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
 		Cloud:            *networkCloud("cloud-a", "NSX-A.Example.Test:8443"),
 		NetworkCloudFQDN: "nsx-a.example.test:8443",
 		RemoteGroups: []stateoperator.RemoteGroup{{
-			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "NSX-A.Example.Test:8443", GroupID: "App/Web_GROUP"},
-			DisplayName: "App Web",
-			CIDRs:       []string{"10.20.0.0/24", "10.20.1.0/24"},
-			SegmentPath: &segmentPath,
+			Key:          stateoperator.BindingKey{NetworkCloudFQDN: "NSX-A.Example.Test:8443", GroupID: "App/Web_GROUP"},
+			DisplayName:  "App Web",
+			CIDRs:        []string{"10.20.0.0/24", "10.20.1.0/24"},
+			SegmentPaths: []string{"/infra/segments/web", "/infra/segments/db"},
 		}},
 	}, now)
 	if err != nil {
@@ -212,7 +211,7 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 		DisplayName:      "App Web",
 		Mode:             nsxv1alpha.NSXGroupModeObserve,
 		CIDRs:            []string{"10.20.0.0/24", "10.20.1.0/24"},
-		SegmentPath:      &segmentPath,
+		SegmentPaths:     []string{"/infra/segments/web", "/infra/segments/db"},
 	}
 	if !reflect.DeepEqual(upsert.Spec, wantSpec) {
 		t.Fatalf("Observe upsert spec = %#v, want %#v", upsert.Spec, wantSpec)
@@ -306,6 +305,7 @@ func TestProcessManagerSnapshotObserveGroupWithLegacyFinalizerPlansFinalizerRemo
 	now := time.Date(2026, 5, 19, 13, 15, 0, 0, time.UTC)
 	observe := managerGroup("observe-legacy", "nsx-a.example.test", "app-legacy", nsxv1alpha.NSXGroupModeObserve)
 	observe.Spec.DisplayName = "Legacy App"
+	observe.Spec.SegmentPaths = []string{"/infra/segments/web", "/infra/segments/db"}
 	observe.Finalizers = []string{stateoperator.GroupFinalizer, "example.test/keep"}
 
 	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
@@ -316,6 +316,10 @@ func TestProcessManagerSnapshotObserveGroupWithLegacyFinalizerPlansFinalizerRemo
 			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-legacy"},
 			DisplayName: "Legacy App",
 			CIDRs:       []string{"10.0.0.0/24"},
+			SegmentPaths: []string{
+				"/infra/segments/db",
+				"/infra/segments/web",
+			},
 		}},
 	}, now)
 	if err != nil {
@@ -341,6 +345,7 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 	matching := managerGroup("manage-matching", "nsx-a.example.test", "app-matching", nsxv1alpha.NSXGroupModeManage)
 	matching.Spec.DisplayName = "Matching"
 	matching.Spec.CIDRs = []string{"10.41.0.0/24"}
+	matching.Spec.SegmentPaths = []string{"/infra/segments/web", "/infra/segments/db"}
 	matching.Generation = 8
 	matching.Status = nsxv1alpha.NSXGroupStatus{Conditions: []metav1.Condition{{
 		Type:               nsxv1alpha.ConditionRemotePresent,
@@ -376,7 +381,9 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 				Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-matching"},
 				DisplayName:           "Matching",
 				CIDRs:                 []string{"10.41.0.0/24"},
+				SegmentPaths:          []string{"/infra/segments/db", "/infra/segments/web"},
 				IPAddressExpressionID: "matching-ip-expression",
+				PathExpressionID:      "matching-path-expression",
 			},
 			{
 				Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-matching-pending"},
@@ -507,8 +514,8 @@ func TestRemoteGroupFromNSXGroupSupportsEmptyExpression(t *testing.T) {
 	if remote.DisplayName != "Empty" {
 		t.Fatalf("remote display name = %q, want Empty", remote.DisplayName)
 	}
-	if len(remote.CIDRs) != 0 || remote.SegmentPath != nil {
-		t.Fatalf("remote represented spec = cidrs:%v segment:%v, want empty", remote.CIDRs, remote.SegmentPath)
+	if len(remote.CIDRs) != 0 || len(remote.SegmentPaths) != 0 {
+		t.Fatalf("remote represented spec = cidrs:%v segments:%v, want empty", remote.CIDRs, remote.SegmentPaths)
 	}
 	if remote.UnsupportedExpression {
 		t.Fatalf("UnsupportedExpression = true for empty expression")
@@ -531,8 +538,8 @@ func TestRemoteGroupFromNSXGroupSupportsIPAddressExpression(t *testing.T) {
 	if remote.IPAddressExpressionID != "ip-expression" {
 		t.Fatalf("remote IP expression ID = %q, want ip-expression", remote.IPAddressExpressionID)
 	}
-	if remote.SegmentPath != nil || remote.PathExpressionID != "" {
-		t.Fatalf("remote path expression = id:%q path:%v, want empty", remote.PathExpressionID, remote.SegmentPath)
+	if len(remote.SegmentPaths) != 0 || remote.PathExpressionID != "" {
+		t.Fatalf("remote path expression = id:%q paths:%v, want empty", remote.PathExpressionID, remote.SegmentPaths)
 	}
 	if remote.UnsupportedExpression {
 		t.Fatalf("UnsupportedExpression = true for IP expression")
@@ -540,7 +547,7 @@ func TestRemoteGroupFromNSXGroupSupportsIPAddressExpression(t *testing.T) {
 }
 
 func TestRemoteGroupFromNSXGroupSupportsIPOrSegmentExpression(t *testing.T) {
-	segmentPath := "/infra/segments/web"
+	segmentPaths := []string{"/infra/segments/web", "/infra/segments/db"}
 	remote := stateoperator.RemoteGroupFromNSXGroup("nsx-a.example.test", nsxclient.Group{
 		Resource: nsxclient.Resource{ID: "app-web", DisplayName: "App Web"},
 		Expression: []json.RawMessage{
@@ -554,7 +561,7 @@ func TestRemoteGroupFromNSXGroupSupportsIPOrSegmentExpression(t *testing.T) {
 			}),
 			rawExpression(t, nsxclient.PathExpression{
 				Resource: nsxclient.Resource{ID: "path-expression", ResourceType: "PathExpression"},
-				Paths:    []string{segmentPath},
+				Paths:    segmentPaths,
 			}),
 		},
 	})
@@ -564,8 +571,8 @@ func TestRemoteGroupFromNSXGroupSupportsIPOrSegmentExpression(t *testing.T) {
 	if remote.DisplayName != "App Web" || !reflect.DeepEqual(remote.CIDRs, []string{"10.50.0.0/24"}) {
 		t.Fatalf("remote parsed values = %#v", remote)
 	}
-	if remote.SegmentPath == nil || *remote.SegmentPath != segmentPath {
-		t.Fatalf("remote segment path = %#v, want %q", remote.SegmentPath, segmentPath)
+	if !reflect.DeepEqual(remote.SegmentPaths, segmentPaths) {
+		t.Fatalf("remote segment paths = %#v, want %v", remote.SegmentPaths, segmentPaths)
 	}
 	if remote.IPAddressExpressionID != "ip-expression" || remote.PathExpressionID != "path-expression" {
 		t.Fatalf("remote expression IDs = ip:%q path:%q", remote.IPAddressExpressionID, remote.PathExpressionID)
@@ -601,8 +608,8 @@ func TestRemoteGroupFromNSXGroupFlagsUnsupportedAndPreservesRepresentableFields(
 	if !reflect.DeepEqual(unsupported.CIDRs, []string{"10.52.0.0/24"}) {
 		t.Fatalf("unsupported CIDRs = %#v, want representable IP fields preserved", unsupported.CIDRs)
 	}
-	if unsupported.SegmentPath == nil || *unsupported.SegmentPath != "/infra/segments/first" {
-		t.Fatalf("unsupported segment path = %#v, want first representable path preserved", unsupported.SegmentPath)
+	if !reflect.DeepEqual(unsupported.SegmentPaths, []string{"/infra/segments/first", "/infra/segments/second"}) {
+		t.Fatalf("unsupported segment paths = %#v, want representable paths preserved", unsupported.SegmentPaths)
 	}
 }
 
@@ -718,7 +725,6 @@ func TestGatherManagerSnapshotListsLocalGroupsByNormalizedFQDNAndUsesNSXPaginati
 }
 
 func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
-	segmentPath := "/infra/segments/web"
 	recorder := &operationRecorder{}
 	plan := stateoperator.ManagerPlan{
 		ObserveUpserts: []nsxv1alpha.NSXGroup{
@@ -730,7 +736,7 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 				Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-drifted"},
 				DisplayName:           "Drifted",
 				CIDRs:                 []string{"10.60.0.0/24"},
-				SegmentPath:           &segmentPath,
+				SegmentPaths:          []string{"/infra/segments/web", "/infra/segments/db"},
 				IPAddressExpressionID: "ip-expression",
 				PathExpressionID:      "path-expression",
 			},
@@ -773,7 +779,6 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 }
 
 func TestApplyManagerPlanWriteDisabledSkipsRemainingNSXWritesButAppliesStatuses(t *testing.T) {
-	segmentPath := "/infra/segments/web"
 	recorder := &operationRecorder{
 		patchGroupErr: nsxclient.WriteDisabledError{
 			Method:           "PATCH",
@@ -789,7 +794,7 @@ func TestApplyManagerPlanWriteDisabledSkipsRemainingNSXWritesButAppliesStatuses(
 			Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-write"},
 			DisplayName:           "Managed Write",
 			CIDRs:                 []string{"10.42.0.0/24"},
-			SegmentPath:           &segmentPath,
+			SegmentPaths:          []string{"/infra/segments/web"},
 			IPAddressExpressionID: "selected-ip",
 			PathExpressionID:      "selected-path",
 		}},
@@ -813,14 +818,13 @@ func TestApplyManagerPlanWriteDisabledSkipsRemainingNSXWritesButAppliesStatuses(
 }
 
 func TestApplyManagerPlanPatchesOnlyRepresentedGroupWriteFields(t *testing.T) {
-	segmentPath := "/infra/segments/web"
 	recorder := &operationRecorder{}
 	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
 		ManagedWrites: []stateoperator.ManagedGroupWrite{{
 			Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-write"},
 			DisplayName:           "Managed Write",
 			CIDRs:                 []string{"10.42.0.0/24"},
-			SegmentPath:           &segmentPath,
+			SegmentPaths:          []string{"/infra/segments/web"},
 			IPAddressExpressionID: "selected-ip",
 			PathExpressionID:      "selected-path",
 		}},
@@ -959,14 +963,14 @@ func TestApplyManagerPlanDeletesExistingIPAddressExpressionWhenManagedCIDRsAreEm
 	}
 }
 
-func TestApplyManagerPlanAddsMissingPathExpressionWhenManagedSegmentPathIsSet(t *testing.T) {
-	segmentPath := "/infra/segments/web"
+func TestApplyManagerPlanAddsMissingPathExpressionWhenManagedSegmentPathsAreSet(t *testing.T) {
+	segmentPaths := []string{"/infra/segments/web", "/infra/segments/db"}
 	recorder := &operationRecorder{}
 	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
 		ManagedWrites: []stateoperator.ManagedGroupWrite{{
-			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "missing-segment"},
-			DisplayName: "Missing Segment",
-			SegmentPath: &segmentPath,
+			Key:          stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "missing-segment"},
+			DisplayName:  "Missing Segment",
+			SegmentPaths: segmentPaths,
 		}},
 	})
 	if err != nil {
@@ -980,12 +984,12 @@ func TestApplyManagerPlanAddsMissingPathExpressionWhenManagedSegmentPathIsSet(t 
 	if expression == nil {
 		t.Fatalf("recorded path expression is nil, want payload for missing-segment:segment")
 	}
-	if expression.ID != "segment" || expression.ResourceType != "PathExpression" || !reflect.DeepEqual(expression.Paths, []string{segmentPath}) {
-		t.Fatalf("path expression = %#v, want id segment with desired segment path", expression)
+	if expression.ID != "segment" || expression.ResourceType != "PathExpression" || !reflect.DeepEqual(expression.Paths, segmentPaths) {
+		t.Fatalf("path expression = %#v, want id segment with desired segment paths", expression)
 	}
 }
 
-func TestApplyManagerPlanDeletesExistingPathExpressionWhenManagedSegmentPathIsRemoved(t *testing.T) {
+func TestApplyManagerPlanDeletesExistingPathExpressionWhenManagedSegmentPathsAreRemoved(t *testing.T) {
 	recorder := &operationRecorder{}
 	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
 		ManagedWrites: []stateoperator.ManagedGroupWrite{{
@@ -1145,11 +1149,11 @@ func TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec(t *testing.T
 	if _, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("create typed cloud: %v", err)
 	}
-	desiredSegment := "/infra/segments/desired"
+	desiredSegments := []string{"/infra/segments/desired", "/infra/segments/extra"}
 	localManage := managerGroup("manage-drifted", "nsx-a.example.test", "app-drifted", nsxv1alpha.NSXGroupModeManage)
 	localManage.Spec.DisplayName = "Desired App"
 	localManage.Spec.CIDRs = []string{"10.80.0.0/24"}
-	localManage.Spec.SegmentPath = &desiredSegment
+	localManage.Spec.SegmentPaths = desiredSegments
 	localManage.Generation = 6
 	if _, err := typedClient.Groups().Create(ctx, localManage, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("create typed managed group: %v", err)
@@ -1219,8 +1223,8 @@ func TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec(t *testing.T
 	if pathExpression == nil {
 		t.Fatalf("patched path expression missing; operations = %v", managerRecorder.operations)
 	}
-	if got := pathExpression.Paths; !reflect.DeepEqual(got, []string{desiredSegment}) {
-		t.Fatalf("patched path expression paths = %v, want desired segment path", got)
+	if got := pathExpression.Paths; !reflect.DeepEqual(got, desiredSegments) {
+		t.Fatalf("patched path expression paths = %v, want desired segment paths", got)
 	}
 
 	stopOperator()

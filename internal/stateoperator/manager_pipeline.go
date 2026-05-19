@@ -32,7 +32,7 @@ type RemoteGroup struct {
 	Key                   BindingKey
 	DisplayName           string
 	CIDRs                 []string
-	SegmentPath           *string
+	SegmentPaths          []string
 	IPAddressExpressionID string
 	PathExpressionID      string
 	UnsupportedExpression bool
@@ -104,7 +104,7 @@ type ManagedGroupWrite struct {
 	Key                   BindingKey
 	DisplayName           string
 	CIDRs                 []string
-	SegmentPath           *string
+	SegmentPaths          []string
 	IPAddressExpressionID string
 	PathExpressionID      string
 }
@@ -205,13 +205,7 @@ func RemoteGroupFromNSXGroup(networkCloudFQDN string, group nsxclient.Group) Rem
 				remote.UnsupportedExpression = true
 				continue
 			}
-			if len(expression.Paths) != 1 {
-				remote.UnsupportedExpression = true
-				if len(expression.Paths) == 0 {
-					continue
-				}
-			}
-			remote.SegmentPath = copyStringPointer(&expression.Paths[0])
+			remote.SegmentPaths = copyStringSlice(expression.Paths)
 			remote.PathExpressionID = expression.ID
 		case "ConjunctionOperator":
 			var expression struct {
@@ -736,7 +730,7 @@ func applyManagedIPAddressExpression(ctx context.Context, managerClient ManagerC
 }
 
 func applyManagedPathExpression(ctx context.Context, managerClient ManagerClient, write ManagedGroupWrite) error {
-	if write.SegmentPath == nil {
+	if len(write.SegmentPaths) == 0 {
 		if write.PathExpressionID != "" {
 			if err := managerClient.DeleteGroupPathExpression(ctx, write.Key.GroupID, write.PathExpressionID); err != nil {
 				return fmt.Errorf("delete managed nsx group %q path expression %q: %w", write.Key.GroupID, write.PathExpressionID, err)
@@ -744,21 +738,21 @@ func applyManagedPathExpression(ctx context.Context, managerClient ManagerClient
 		}
 		return nil
 	}
-	if write.SegmentPath != nil && write.PathExpressionID != "" {
+	if write.PathExpressionID != "" {
 		expression := &nsxclient.PathExpressionPatch{
 			ID:           write.PathExpressionID,
 			ResourceType: "PathExpression",
-			Paths:        []string{*write.SegmentPath},
+			Paths:        copyStringSlice(write.SegmentPaths),
 		}
 		if err := managerClient.PatchGroupPathExpression(ctx, write.Key.GroupID, write.PathExpressionID, expression); err != nil {
 			return fmt.Errorf("patch managed nsx group %q path expression %q: %w", write.Key.GroupID, write.PathExpressionID, err)
 		}
 	}
-	if write.SegmentPath != nil && write.PathExpressionID == "" {
+	if write.PathExpressionID == "" {
 		expression := &nsxclient.PathExpressionPatch{
 			ID:           "segment",
 			ResourceType: "PathExpression",
-			Paths:        []string{*write.SegmentPath},
+			Paths:        copyStringSlice(write.SegmentPaths),
 		}
 		if err := managerClient.AddGroupPathExpression(ctx, write.Key.GroupID, expression.ID, expression); err != nil {
 			return fmt.Errorf("add managed nsx group %q path expression %q: %w", write.Key.GroupID, expression.ID, err)
@@ -783,7 +777,7 @@ func observeSpecFromRemote(remote RemoteGroup) nsxv1alpha.NSXGroupSpec {
 		DisplayName:      remote.DisplayName,
 		Mode:             nsxv1alpha.NSXGroupModeObserve,
 		CIDRs:            copyStringSlice(remote.CIDRs),
-		SegmentPath:      copyStringPointer(remote.SegmentPath),
+		SegmentPaths:     copyStringSlice(remote.SegmentPaths),
 	}
 }
 
@@ -793,7 +787,7 @@ func groupSpecsEqual(left nsxv1alpha.NSXGroupSpec, right nsxv1alpha.NSXGroupSpec
 		left.DisplayName == right.DisplayName &&
 		left.Mode == right.Mode &&
 		reflect.DeepEqual(left.CIDRs, right.CIDRs) &&
-		reflect.DeepEqual(left.SegmentPath, right.SegmentPath)
+		stringSetEqual(left.SegmentPaths, right.SegmentPaths)
 }
 
 func managedSpecMatchesRemote(local nsxv1alpha.NSXGroupSpec, remote RemoteGroup) bool {
@@ -801,7 +795,7 @@ func managedSpecMatchesRemote(local nsxv1alpha.NSXGroupSpec, remote RemoteGroup)
 		local.GroupID == remote.Key.GroupID &&
 		local.DisplayName == remote.DisplayName &&
 		reflect.DeepEqual(local.CIDRs, remote.CIDRs) &&
-		reflect.DeepEqual(local.SegmentPath, remote.SegmentPath)
+		stringSetEqual(local.SegmentPaths, remote.SegmentPaths)
 }
 
 func managedWriteFromLocal(group nsxv1alpha.NSXGroup, remote RemoteGroup) ManagedGroupWrite {
@@ -810,7 +804,7 @@ func managedWriteFromLocal(group nsxv1alpha.NSXGroup, remote RemoteGroup) Manage
 		Key:                   BindingKey{NetworkCloudFQDN: group.Spec.NetworkCloudFQDN, GroupID: group.Spec.GroupID},
 		DisplayName:           group.Spec.DisplayName,
 		CIDRs:                 copyStringSlice(group.Spec.CIDRs),
-		SegmentPath:           copyStringPointer(group.Spec.SegmentPath),
+		SegmentPaths:          copyStringSlice(group.Spec.SegmentPaths),
 		IPAddressExpressionID: remote.IPAddressExpressionID,
 		PathExpressionID:      remote.PathExpressionID,
 	}
@@ -955,17 +949,34 @@ func realizedCondition(remote RemoteGroup) (metav1.ConditionStatus, string, stri
 	}
 }
 
-func copyStringPointer(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	copied := *value
-	return &copied
-}
-
 func copyStringSlice(values []string) []string {
 	if values == nil {
 		return []string{}
 	}
 	return append([]string(nil), values...)
+}
+
+func stringSetEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	if len(left) == 0 {
+		return true
+	}
+	counts := make(map[string]int, len(left))
+	for _, value := range left {
+		counts[value]++
+	}
+	for _, value := range right {
+		count, ok := counts[value]
+		if !ok {
+			return false
+		}
+		if count == 1 {
+			delete(counts, value)
+			continue
+		}
+		counts[value] = count - 1
+	}
+	return len(counts) == 0
 }

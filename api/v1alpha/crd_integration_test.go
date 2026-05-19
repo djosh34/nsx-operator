@@ -85,6 +85,10 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 	requireSpecBool(ctx, t, clouds, createdWritesDisabled.GetName(), "writesEnabled", false)
 	groupA := createObject(ctx, t, groups, groupObject("group-a", "nsx-a.example.net", "app-a", NSXGroupModeManage, "App A", []string{"10.0.0.0/24"}, nil))
 	createObject(ctx, t, groups, groupObject("group-b", "nsx-b.example.net", "app-b", NSXGroupModeObserve, "App B", []string{"10.1.0.0/24"}, nil))
+	groupSingleSegment := createObject(ctx, t, groups, groupObject("group-single-segment", "nsx-segments.example.net", "app-single-segment", NSXGroupModeObserve, "App Single Segment", []string{"10.3.0.0/24"}, []string{"/infra/segments/app"}))
+	requireSpecStringSlice(ctx, t, groups, groupSingleSegment.GetName(), "segment_paths", []string{"/infra/segments/app"})
+	groupMultiSegment := createObject(ctx, t, groups, groupObject("group-multi-segment", "nsx-segments.example.net", "app-multi-segment", NSXGroupModeObserve, "App Multi Segment", []string{"10.4.0.0/24"}, []string{"/infra/segments/app", "/infra/segments/db"}))
+	requireSpecStringSlice(ctx, t, groups, groupMultiSegment.GetName(), "segment_paths", []string{"/infra/segments/app", "/infra/segments/db"})
 	problemGroupID := "App/Web_GROUP"
 	problemGroupName := names.NSXGroupName(names.NSXGroupLogicalID{
 		NetworkCloudFQDN: "NSX-A.Example.Net:8443",
@@ -118,9 +122,35 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 			"display_name":     "Invalid Segment Path",
 			"mode":             string(NSXGroupModeManage),
 			"cidrs":            []any{"10.3.0.0/24"},
-			"segment_path":     12,
+			"segment_paths":    12,
 		},
 	})
+	requireCreateRejected(ctx, t, groups, map[string]any{
+		"apiVersion": SchemeGroupVersion.String(),
+		"kind":       "NSXGroup",
+		"metadata": map[string]any{
+			"name": "invalid-segment-path-item",
+		},
+		"spec": map[string]any{
+			"networkCloudFQDN": "nsx-a.example.net",
+			"groupID":          "invalid-segment-path-item",
+			"display_name":     "Invalid Segment Path Item",
+			"mode":             string(NSXGroupModeManage),
+			"cidrs":            []any{"10.5.0.0/24"},
+			"segment_paths":    []any{12},
+		},
+	})
+	legacySegmentField := "segment" + "_path"
+	legacySegmentGroup := groupObject("old-segment-field", "nsx-a.example.net", "old-segment-field", NSXGroupModeManage, "Old Segment Field", []string{"10.6.0.0/24"}, nil)
+	if err := unstructured.SetNestedField(legacySegmentGroup, "/infra/segments/old", "spec", legacySegmentField); err != nil {
+		t.Fatalf("set old %s field: %v", legacySegmentField, err)
+	}
+	createdLegacySegment, err := groups.Create(ctx, &unstructured.Unstructured{Object: legacySegmentGroup}, metav1.CreateOptions{})
+	if err != nil {
+		t.Logf("old %s field rejected: %v", legacySegmentField, err)
+	} else {
+		requireSpecFieldAbsent(t, createdLegacySegment, legacySegmentField)
+	}
 	requireCreateRejected(ctx, t, groups, map[string]any{
 		"apiVersion": SchemeGroupVersion.String(),
 		"kind":       "NSXGroup",
@@ -368,6 +398,37 @@ func requireSpecBool(ctx context.Context, t *testing.T, client resourceClient, n
 	t.Logf("spec.%s for %s stored as %t", field, name, got)
 }
 
+func requireSpecStringSlice(ctx context.Context, t *testing.T, client resourceClient, name string, field string, want []string) {
+	t.Helper()
+	current, err := client.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get %s: %v", name, err)
+	}
+	got, found, err := unstructured.NestedStringSlice(current.Object, "spec", field)
+	if err != nil {
+		t.Fatalf("read spec.%s from %s: %v", field, name, err)
+	}
+	if !found {
+		t.Fatalf("spec.%s missing from %s", field, name)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("spec.%s for %s = %v, want %v", field, name, got, want)
+	}
+	t.Logf("spec.%s for %s stored as %v", field, name, got)
+}
+
+func requireSpecFieldAbsent(t *testing.T, object *unstructured.Unstructured, field string) {
+	t.Helper()
+	_, found, err := unstructured.NestedFieldNoCopy(object.Object, "spec", field)
+	if err != nil {
+		t.Fatalf("read spec.%s from %s: %v", field, object.GetName(), err)
+	}
+	if found {
+		t.Fatalf("spec.%s should be absent from %s after create: %#v", field, object.GetName(), object.Object)
+	}
+	t.Logf("spec.%s absent from %s", field, object.GetName())
+}
+
 func requireCreateRejected(ctx context.Context, t *testing.T, client resourceClient, object map[string]any) {
 	t.Helper()
 	created, err := client.Create(ctx, &unstructured.Unstructured{Object: object}, metav1.CreateOptions{})
@@ -392,14 +453,16 @@ func networkCloudObject(name string, fqdn string, cloudID string, displayName st
 	}
 }
 
-func groupObject(name string, fqdn string, groupID string, mode NSXGroupMode, displayName string, cidrs []string, segmentPath *string) map[string]any {
+func groupObject(name string, fqdn string, groupID string, mode NSXGroupMode, displayName string, cidrs []string, segmentPaths []string) map[string]any {
 	spec := map[string]any{
 		"networkCloudFQDN": fqdn,
 		"groupID":          groupID,
 		"display_name":     displayName,
 		"mode":             string(mode),
 		"cidrs":            stringSliceToAny(cidrs),
-		"segment_path":     segmentPath,
+	}
+	if len(segmentPaths) > 0 {
+		spec["segment_paths"] = stringSliceToAny(segmentPaths)
 	}
 	return map[string]any{
 		"apiVersion": SchemeGroupVersion.String(),

@@ -62,13 +62,13 @@ func TestManagedWriteUsesSelectedPatchEndpointsAndPreservesUnrelatedMockAPIExpre
 	}
 	recorder.Reset()
 
-	segmentPath := "/infra/segments/new"
+	segmentPaths := []string{"/infra/segments/new", "/infra/segments/extra"}
 	err := stateoperator.ApplyManagerPlan(ctx, &operationRecorder{}, managerClient, stateoperator.ManagerPlan{
 		ManagedWrites: []stateoperator.ManagedGroupWrite{{
 			Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-write-mock"},
 			DisplayName:           "Managed Write Mock",
 			CIDRs:                 []string{"10.42.0.0/24"},
-			SegmentPath:           &segmentPath,
+			SegmentPaths:          segmentPaths,
 			IPAddressExpressionID: "selected-ip",
 			PathExpressionID:      "selected-path",
 		}},
@@ -92,7 +92,7 @@ func TestManagedWriteUsesSelectedPatchEndpointsAndPreservesUnrelatedMockAPIExpre
 	if err != nil {
 		t.Fatalf("list segment members: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
-	requireMemberPaths(t, segmentMembers, "/infra/segments/unrelated", "/infra/segments/new")
+	requireMemberPaths(t, segmentMembers, "/infra/segments/unrelated", "/infra/segments/new", "/infra/segments/extra")
 
 	wantRequests := []recordedHTTPRequest{
 		{
@@ -119,7 +119,7 @@ func TestManagedWriteUsesSelectedPatchEndpointsAndPreservesUnrelatedMockAPIExpre
 			body: map[string]any{
 				"id":            "selected-path",
 				"resource_type": "PathExpression",
-				"paths":         []any{"/infra/segments/new"},
+				"paths":         []any{"/infra/segments/new", "/infra/segments/extra"},
 			},
 		},
 	}

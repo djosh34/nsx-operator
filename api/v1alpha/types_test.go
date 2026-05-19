@@ -55,7 +55,6 @@ func TestAddToSchemeRegistersNetworkCloudAndGroupTypes(t *testing.T) {
 
 func TestDeepCopyObjectKeepsNetworkCloudAndGroupIndependent(t *testing.T) {
 	writesEnabled := false
-	segmentPath := "/infra/segments/app"
 	group := &NSXGroup{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: SchemeGroupVersion.String(),
@@ -71,7 +70,7 @@ func TestDeepCopyObjectKeepsNetworkCloudAndGroupIndependent(t *testing.T) {
 			DisplayName:      "App",
 			Mode:             NSXGroupModeManage,
 			CIDRs:            []string{"10.0.0.0/24"},
-			SegmentPath:      &segmentPath,
+			SegmentPaths:     []string{"/infra/segments/app", "/infra/segments/db"},
 		},
 		Status: NSXGroupStatus{
 			Conditions: []metav1.Condition{{
@@ -90,7 +89,7 @@ func TestDeepCopyObjectKeepsNetworkCloudAndGroupIndependent(t *testing.T) {
 	}
 	groupCopy.Labels["app"] = "changed"
 	groupCopy.Spec.CIDRs[0] = "10.1.0.0/24"
-	*groupCopy.Spec.SegmentPath = "/infra/segments/other"
+	groupCopy.Spec.SegmentPaths[0] = "/infra/segments/other"
 	groupCopy.Status.Conditions[0].Message = "changed"
 
 	if group.Labels["app"] != "demo" {
@@ -99,8 +98,8 @@ func TestDeepCopyObjectKeepsNetworkCloudAndGroupIndependent(t *testing.T) {
 	if group.Spec.CIDRs[0] != "10.0.0.0/24" {
 		t.Fatalf("original group CIDR mutated to %q", group.Spec.CIDRs[0])
 	}
-	if *group.Spec.SegmentPath != "/infra/segments/app" {
-		t.Fatalf("original group segment path mutated to %q", *group.Spec.SegmentPath)
+	if !slices.Equal(group.Spec.SegmentPaths, []string{"/infra/segments/app", "/infra/segments/db"}) {
+		t.Fatalf("original group segment paths mutated to %v", group.Spec.SegmentPaths)
 	}
 	if group.Status.Conditions[0].Message != "remote matches spec" {
 		t.Fatalf("original group condition message mutated to %q", group.Status.Conditions[0].Message)
@@ -192,7 +191,6 @@ func TestDeepCopyObjectKeepsNetworkCloudAndGroupListsIndependent(t *testing.T) {
 		t.Fatalf("original network cloud list condition status mutated to %q", clouds.Items[0].Status.Conditions[0].Status)
 	}
 
-	segmentPath := "/infra/segments/app"
 	groups := &NSXGroupList{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: SchemeGroupVersion.String(),
@@ -204,8 +202,8 @@ func TestDeepCopyObjectKeepsNetworkCloudAndGroupListsIndependent(t *testing.T) {
 				Labels: map[string]string{"group": "a"},
 			},
 			Spec: NSXGroupSpec{
-				CIDRs:       []string{"10.0.0.0/24"},
-				SegmentPath: &segmentPath,
+				CIDRs:        []string{"10.0.0.0/24"},
+				SegmentPaths: []string{"/infra/segments/app", "/infra/segments/db"},
 			},
 		}},
 	}
@@ -216,15 +214,15 @@ func TestDeepCopyObjectKeepsNetworkCloudAndGroupListsIndependent(t *testing.T) {
 	}
 	groupsCopy.Items[0].Labels["group"] = "changed"
 	groupsCopy.Items[0].Spec.CIDRs[0] = "10.1.0.0/24"
-	*groupsCopy.Items[0].Spec.SegmentPath = "/infra/segments/other"
+	groupsCopy.Items[0].Spec.SegmentPaths[0] = "/infra/segments/other"
 	if groups.Items[0].Labels["group"] != "a" {
 		t.Fatalf("original group list item label mutated to %q", groups.Items[0].Labels["group"])
 	}
 	if groups.Items[0].Spec.CIDRs[0] != "10.0.0.0/24" {
 		t.Fatalf("original group list CIDR mutated to %q", groups.Items[0].Spec.CIDRs[0])
 	}
-	if *groups.Items[0].Spec.SegmentPath != "/infra/segments/app" {
-		t.Fatalf("original group list segment path mutated to %q", *groups.Items[0].Spec.SegmentPath)
+	if !slices.Equal(groups.Items[0].Spec.SegmentPaths, []string{"/infra/segments/app", "/infra/segments/db"}) {
+		t.Fatalf("original group list segment paths mutated to %v", groups.Items[0].Spec.SegmentPaths)
 	}
 }
 
@@ -248,7 +246,6 @@ func TestNilDeepCopyReturnsNil(t *testing.T) {
 }
 
 func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
-	segmentPath := "/infra/segments/app"
 	group := NSXGroup{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: SchemeGroupVersion.String(),
@@ -260,7 +257,7 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 			DisplayName:      "App",
 			Mode:             NSXGroupModeObserve,
 			CIDRs:            []string{"10.0.0.0/24"},
-			SegmentPath:      &segmentPath,
+			SegmentPaths:     []string{"/infra/segments/app", "/infra/segments/db"},
 		},
 		Status: NSXGroupStatus{
 			Conditions: []metav1.Condition{{
@@ -284,10 +281,14 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 	if !ok {
 		t.Fatalf("group spec decoded as %T, want object", groupMap["spec"])
 	}
-	for _, field := range []string{"networkCloudFQDN", "groupID", "display_name", "mode", "cidrs", "segment_path"} {
+	for _, field := range []string{"networkCloudFQDN", "groupID", "display_name", "mode", "cidrs", "segment_paths"} {
 		if _, ok := groupSpec[field]; !ok {
 			t.Fatalf("group spec missing JSON field %q in %s", field, string(groupJSON))
 		}
+	}
+	legacySegmentField := "segment" + "_path"
+	if _, ok := groupSpec[legacySegmentField]; ok {
+		t.Fatalf("group spec unexpectedly exposes %s in %s", legacySegmentField, string(groupJSON))
 	}
 	if _, ok := groupSpec["domainId"]; ok {
 		t.Fatalf("group spec unexpectedly exposes domainId in %s", string(groupJSON))
@@ -300,8 +301,8 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 	if decodedGroup.Spec.DisplayName != group.Spec.DisplayName {
 		t.Fatalf("decoded display_name = %q, want %q", decodedGroup.Spec.DisplayName, group.Spec.DisplayName)
 	}
-	if decodedGroup.Spec.SegmentPath == nil || *decodedGroup.Spec.SegmentPath != segmentPath {
-		t.Fatalf("decoded segment_path = %v, want %q", decodedGroup.Spec.SegmentPath, segmentPath)
+	if !slices.Equal(decodedGroup.Spec.SegmentPaths, group.Spec.SegmentPaths) {
+		t.Fatalf("decoded segment_paths = %v, want %v", decodedGroup.Spec.SegmentPaths, group.Spec.SegmentPaths)
 	}
 	if len(decodedGroup.Status.Conditions) != 1 || decodedGroup.Status.Conditions[0].Type != ConditionRemotePresent {
 		t.Fatalf("decoded conditions = %#v, want RemotePresent condition", decodedGroup.Status.Conditions)
@@ -339,10 +340,10 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 		t.Fatalf("network cloud spec unexpectedly exposes domainId in %s", string(networkCloudJSON))
 	}
 
-	groupWithoutSegment := NSXGroup{Spec: NSXGroupSpec{SegmentPath: nil}}
+	groupWithoutSegment := NSXGroup{Spec: NSXGroupSpec{SegmentPaths: nil}}
 	groupWithoutSegmentJSON, err := json.Marshal(groupWithoutSegment)
 	if err != nil {
-		t.Fatalf("marshal group without segment path: %v", err)
+		t.Fatalf("marshal group without segment paths: %v", err)
 	}
 	var groupWithoutSegmentMap map[string]any
 	if err := json.Unmarshal(groupWithoutSegmentJSON, &groupWithoutSegmentMap); err != nil {
@@ -350,9 +351,26 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 	}
 	groupWithoutSegmentSpec, ok := groupWithoutSegmentMap["spec"].(map[string]any)
 	if !ok {
-		t.Fatalf("group without segment path spec decoded as %T, want object", groupWithoutSegmentMap["spec"])
+		t.Fatalf("group without segment paths spec decoded as %T, want object", groupWithoutSegmentMap["spec"])
 	}
-	if _, ok := groupWithoutSegmentSpec["segment_path"]; ok {
-		t.Fatalf("nil segment_path should be absent from JSON, got %s", string(groupWithoutSegmentJSON))
+	if _, ok := groupWithoutSegmentSpec["segment_paths"]; ok {
+		t.Fatalf("nil segment_paths should be absent from JSON, got %s", string(groupWithoutSegmentJSON))
+	}
+
+	groupWithEmptySegments := NSXGroup{Spec: NSXGroupSpec{SegmentPaths: []string{}}}
+	groupWithEmptySegmentsJSON, err := json.Marshal(groupWithEmptySegments)
+	if err != nil {
+		t.Fatalf("marshal group with empty segment paths: %v", err)
+	}
+	var groupWithEmptySegmentsMap map[string]any
+	if err := json.Unmarshal(groupWithEmptySegmentsJSON, &groupWithEmptySegmentsMap); err != nil {
+		t.Fatalf("unmarshal group with empty segment paths as map: %v", err)
+	}
+	groupWithEmptySegmentsSpec, ok := groupWithEmptySegmentsMap["spec"].(map[string]any)
+	if !ok {
+		t.Fatalf("group with empty segment paths spec decoded as %T, want object", groupWithEmptySegmentsMap["spec"])
+	}
+	if _, ok := groupWithEmptySegmentsSpec["segment_paths"]; ok {
+		t.Fatalf("empty segment_paths should be absent from JSON, got %s", string(groupWithEmptySegmentsJSON))
 	}
 }

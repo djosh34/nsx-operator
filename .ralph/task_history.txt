@@ -32,3 +32,4 @@ NONE
 .ralph/tasks/29-story-networkcloud-ingest-script/01-task-add-networkcloud-ingest-script.md
 .ralph/tasks/30-story-networkcloud-live-lifecycle/01-task-test-networkcloud-addition-and-removal.md
 .ralph/tasks/27-story-cr-cleanup-script/01-task-add-delete-all-crs-script.md
+.ralph/tasks/31-story-multiple-segment-paths/01-task-support-multiple-segment-paths-in-nsxgroup-spec.md

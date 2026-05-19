@@ -566,8 +566,8 @@ func TestGroupReconcileManageAppliesNSXStatusFinalizerAndDoesNotRequeue(t *testi
 	cloud := networkCloud("cloud-a", "nsx-a.example.test")
 	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeManage)
 	group.Generation = 7
-	segmentPath := "/infra/segments/web"
-	group.Spec.SegmentPath = &segmentPath
+	segmentPaths := []string{"/infra/segments/web", "/infra/segments/db"}
+	group.Spec.SegmentPaths = segmentPaths
 	recorder := &operationRecorder{}
 
 	scheme := newScheme(t)
@@ -600,8 +600,8 @@ func TestGroupReconcileManageAppliesNSXStatusFinalizerAndDoesNotRequeue(t *testi
 	if !reflect.DeepEqual(recorder.operations, wantOperations) {
 		t.Fatalf("NSX operations = %v, want %v", recorder.operations, wantOperations)
 	}
-	if got := recorder.pathExpressions["group-a:segment"].Paths; !reflect.DeepEqual(got, []string{segmentPath}) {
-		t.Fatalf("path expression paths = %v, want desired segment path", got)
+	if got := recorder.pathExpressions["group-a:segment"].Paths; !reflect.DeepEqual(got, segmentPaths) {
+		t.Fatalf("path expression paths = %v, want desired segment paths", got)
 	}
 
 	var updated nsxv1alpha.NSXGroup

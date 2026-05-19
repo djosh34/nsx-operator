@@ -70,7 +70,7 @@ type NSXGroupSpec struct {
 	DisplayName      string       `json:"display_name"`
 	Mode             NSXGroupMode `json:"mode"`
 	CIDRs            []string     `json:"cidrs"`
-	SegmentPath      *string      `json:"segment_path,omitempty"`
+	SegmentPaths     []string     `json:"segment_paths,omitempty"`
 }
 
 type NSXGroupStatus struct {

@@ -121,9 +121,9 @@ func (in *NSXGroupSpec) DeepCopyInto(out *NSXGroupSpec) {
 		out.CIDRs = make([]string, len(in.CIDRs))
 		copy(out.CIDRs, in.CIDRs)
 	}
-	if in.SegmentPath != nil {
-		out.SegmentPath = new(string)
-		*out.SegmentPath = *in.SegmentPath
+	if in.SegmentPaths != nil {
+		out.SegmentPaths = make([]string, len(in.SegmentPaths))
+		copy(out.SegmentPaths, in.SegmentPaths)
 	}
 }
 

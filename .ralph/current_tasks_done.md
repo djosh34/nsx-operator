@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 11:12:42 PM CEST 2026
+Generated: Tue May 19 23:36:53 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -354,5 +354,16 @@ NOW EXECUTE
 <plan>
 .ralph/tasks/30-story-networkcloud-live-lifecycle/01-task-test-networkcloud-addition-and-removal_plans/01-networkcloud-add-remove-lifecycle-plan.md
 NOW EXECUTE
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/31-story-multiple-segment-paths/01-task-support-multiple-segment-paths-in-nsxgroup-spec.md`
+
+```
+## Task: Support Multiple Segment Paths in NSXGroup Spec <status>done</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
 ```
 

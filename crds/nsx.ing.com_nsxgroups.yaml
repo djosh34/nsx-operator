@@ -84,10 +84,12 @@ spec:
                   x-kubernetes-list-type: set
                   items:
                     type: string
-                segment_path:
-                  type: string
-                  nullable: true
-                  description: Nullable NSX segment policy path. When set, it maps to one NSX PathExpression with one segment path. Valid only together with non-empty cidrs.
+                segment_paths:
+                  type: array
+                  description: Optional NSX segment policy paths. Each item maps unchanged into the paths array of one NSX PathExpression. Valid only together with non-empty cidrs.
+                  x-kubernetes-list-type: set
+                  items:
+                    type: string
             status:
               type: object
               properties:
