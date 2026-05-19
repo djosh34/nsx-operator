@@ -1,22 +1,11 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 10:25:36 PM CEST 2026
+Generated: Tue May 19 10:57:29 PM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/27-story-cr-cleanup-script/01-task-add-delete-all-crs-script.md`
 
 ```
 ## Task: Add Delete All CRs Script <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/30-story-networkcloud-live-lifecycle/01-task-test-networkcloud-addition-and-removal.md`
-
-```
-## Task: Test NetworkCloud Addition And Removal <status>not_started</status> <passes>false</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

@@ -1,17 +1,14 @@
 package stateoperator_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -23,9 +20,11 @@ import (
 
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
 	"github.com/djosh34/nsx-operator/internal/kubeapi"
+	"github.com/djosh34/nsx-operator/internal/names"
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
 	"github.com/djosh34/nsx-operator/internal/operatormetrics"
 	"github.com/djosh34/nsx-operator/internal/stateoperator"
+	"github.com/djosh34/nsx-operator/internal/testsupport/mockapi"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"go.uber.org/zap"
@@ -1334,12 +1333,12 @@ func TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI(t *testing.T) {
 	t.Cleanup(cancel)
 
 	mock := startStateoperatorMockAPI(t, ctx)
-	managerClient := newStateoperatorMockAPIClient(t, mock.baseURL)
+	managerClient := newStateoperatorMockAPIClient(t, mock.BaseURL())
 	if err := managerClient.PatchGroup(ctx, "observe-remote", &nsxclient.GroupPatch{DisplayName: "Observe Remote", ResourceType: "Group"}); err != nil {
-		t.Fatalf("seed observe remote group: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("seed observe remote group: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	if err := managerClient.PatchGroup(ctx, "manage-remote", &nsxclient.GroupPatch{DisplayName: "Manage Remote", ResourceType: "Group"}); err != nil {
-		t.Fatalf("seed manage remote group: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("seed manage remote group: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 
 	clients, stopClients := startStateoperatorClients(t)
@@ -1386,7 +1385,7 @@ func TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI(t *testing.T) {
 		Clock: newManualClock(time.Date(2026, 5, 19, 5, 0, 0, 0, time.UTC)),
 	}
 	if _, err := manageReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: crclient.ObjectKey{Name: manage.Name}}); err != nil {
-		t.Fatalf("reconcile manage deletion: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("reconcile manage deletion: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	deletingManage, err := clients.typed.Groups().Get(ctx, manage.Name, metav1.GetOptions{})
 	if err != nil {
@@ -1428,13 +1427,13 @@ func TestLifecycleObserveMissingRemoteDeletesCRAgainstMockAPIWithoutNSXDelete(t 
 	t.Cleanup(cancel)
 
 	mock := startStateoperatorMockAPI(t, ctx)
-	managerClient := newStateoperatorMockAPIClient(t, mock.baseURL)
+	managerClient := newStateoperatorMockAPIClient(t, mock.BaseURL())
 	if err := managerClient.PatchGroup(ctx, "observe-missing-remote", &nsxclient.GroupPatch{DisplayName: "Observe Missing Remote", ResourceType: "Group"}); err != nil {
-		t.Fatalf("seed observe remote group: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("seed observe remote group: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	requireMockAPIGroupPresent(ctx, t, managerClient, "observe-missing-remote")
 	if err := managerClient.DeleteGroup(ctx, "observe-missing-remote"); err != nil {
-		t.Fatalf("delete observe remote outside operator: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("delete observe remote outside operator: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	requireMockAPIGroupAbsent(ctx, t, managerClient, "observe-missing-remote")
 
@@ -1478,6 +1477,105 @@ func TestLifecycleObserveMissingRemoteDeletesCRAgainstMockAPIWithoutNSXDelete(t 
 		t.Fatalf("operator NSX deletes = %v, want none for missing Observe remote", calls)
 	}
 	requireMockAPIGroupAbsent(ctx, t, managerClient, "observe-missing-remote")
+}
+
+func TestNetworkCloudAddAndRemoveLifecycleAgainstPublicMockAPI(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	t.Cleanup(cancel)
+
+	mock := startStateoperatorMockAPI(t, ctx)
+	managerClient := newStateoperatorMockAPIClient(t, mock.BaseURL())
+	if err := managerClient.PatchGroup(ctx, "networkcloud-live-remote", &nsxclient.GroupPatch{
+		ID:           "networkcloud-live-remote",
+		DisplayName:  "NetworkCloud Live Remote",
+		ResourceType: "Group",
+	}); err != nil {
+		t.Fatalf("seed networkcloud remote group: %v\nmockapi logs:\n%s", err, mock.Logs())
+	}
+
+	clients, stopClients := startStateoperatorClients(t)
+	t.Cleanup(stopClients)
+	cloud := networkCloud("cloud-public-mockapi", mock.BaseURL())
+	if _, err := clients.typed.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create public mockapi cloud: %v", err)
+	}
+
+	constructed := make(chan string, 4)
+	operator, err := stateoperator.New(stateoperator.Options{
+		Client:       clients.controller,
+		KubeClient:   clients.typed,
+		TickInterval: time.Hour,
+		Logger:       zap.NewNop(),
+		ManagerClientFactory: func(_ context.Context, gotCloud nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			constructed <- names.NormalizeNetworkCloudFQDN(gotCloud.Spec.NetworkCloudFQDN)
+			return managerClient, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	operatorErr := make(chan error, 1)
+	operatorCtx, stopOperator := context.WithCancel(ctx)
+	go func() {
+		operatorErr <- operator.Start(operatorCtx)
+	}()
+	requireTypedCloudCondition(ctx, t, clients.typed, cloud.Name, nsxv1alpha.ConditionSwept, metav1.ConditionTrue)
+	normalizedFQDN := names.NormalizeNetworkCloudFQDN(mock.BaseURL())
+	select {
+	case gotFQDN := <-constructed:
+		if gotFQDN != normalizedFQDN {
+			t.Fatalf("constructed manager client for FQDN %q, want %q", gotFQDN, normalizedFQDN)
+		}
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for manager client construction: %v", ctx.Err())
+	}
+	imported := requireTypedGroupByRemoteID(ctx, t, clients.typed, "networkcloud-live-remote")
+	if imported.Spec.NetworkCloudFQDN != normalizedFQDN {
+		t.Fatalf("imported group networkCloudFQDN = %q, want %q", imported.Spec.NetworkCloudFQDN, normalizedFQDN)
+	}
+	if imported.Spec.Mode != nsxv1alpha.NSXGroupModeObserve {
+		t.Fatalf("imported group mode = %q, want Observe", imported.Spec.Mode)
+	}
+	stopOperator()
+	if err := <-operatorErr; err != nil {
+		t.Fatalf("operator Start() error = %v", err)
+	}
+
+	if err := clients.typed.NetworkClouds().Delete(ctx, cloud.Name, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete public mockapi cloud: %v", err)
+	}
+	if _, err := clients.typed.NetworkClouds().Get(ctx, cloud.Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("get deleted public mockapi cloud error = %v, want NotFound", err)
+	}
+	if _, err := clients.typed.Groups().Get(ctx, imported.Name, metav1.GetOptions{}); err != nil {
+		t.Fatalf("get imported group after cloud deletion: %v", err)
+	}
+
+	sweepAfterDeleteCalled := make(chan struct{}, 1)
+	secondOperator, err := stateoperator.New(stateoperator.Options{
+		Client:       clients.controller,
+		KubeClient:   clients.typed,
+		TickInterval: time.Hour,
+		Logger:       zap.NewNop(),
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			sweepAfterDeleteCalled <- struct{}{}
+			return managerClient, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() second operator error = %v", err)
+	}
+	secondErr := make(chan error, 1)
+	secondCtx, stopSecond := context.WithCancel(ctx)
+	go func() {
+		secondErr <- secondOperator.Start(secondCtx)
+	}()
+	requireNotClosed(t, sweepAfterDeleteCalled, "default manager sweep after public mockapi cloud deletion")
+	stopSecond()
+	if err := <-secondErr; err != nil {
+		t.Fatalf("second operator Start() error = %v", err)
+	}
 }
 
 func TestLifecycleCloudDeletionLeavesChildGroupsAndStopsDefaultSweepThroughTypedKubeAPI(t *testing.T) {
@@ -1763,105 +1861,13 @@ func startStateoperatorClients(t *testing.T) (stateoperatorClients, func()) {
 }
 
 const (
-	stateoperatorMockAPIUsername = "nsx_admin"
-	stateoperatorMockAPIPassword = "nsx_password"
+	stateoperatorMockAPIUsername = mockapi.Username
+	stateoperatorMockAPIPassword = mockapi.Password
 )
 
-type stateoperatorMockAPIProcess struct {
-	baseURL string
-	cmd     *exec.Cmd
-	stderr  *bytes.Buffer
-}
-
-func startStateoperatorMockAPI(t *testing.T, ctx context.Context) stateoperatorMockAPIProcess {
+func startStateoperatorMockAPI(t *testing.T, ctx context.Context) mockapi.Process {
 	t.Helper()
-
-	port := freeStateoperatorTCPPort(t)
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-	databasePath := filepath.Join(tempDir, "nsx-t-mockapi.db")
-	binaryPath := filepath.Join(tempDir, "nsx-t-mockapi")
-	config := fmt.Sprintf(`server:
-  listen_addr: "127.0.0.1:%d"
-database:
-  path: %q
-realization:
-  default_delay_ms: 0
-  create_delay_ms: 0
-  update_delay_ms: 0
-  delete_delay_ms: 0
-  kind_delay_ms: {}
-search:
-  default_page_size: 1000
-  max_page_size: 1000
-`, port, databasePath)
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-		t.Fatalf("write mockapi config: %v", err)
-	}
-
-	var stderr bytes.Buffer
-	build := exec.CommandContext(ctx, "go", "build", "-o", binaryPath, "./cmd/nsx-t-mockapi")
-	build.Dir = stateoperatorMockAPIRoot(t)
-	build.Stdout = io.Discard
-	build.Stderr = &stderr
-	if err := build.Run(); err != nil {
-		t.Fatalf("build mockapi: %v\n%s", err, stderr.String())
-	}
-	stderr.Reset()
-
-	cmd := exec.CommandContext(ctx, binaryPath, "serve", "-config", configPath)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start mockapi: %v", err)
-	}
-	process := stateoperatorMockAPIProcess{
-		baseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
-		cmd:     cmd,
-		stderr:  &stderr,
-	}
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-				t.Errorf("kill mockapi: %v", err)
-			}
-		}
-		if err := cmd.Wait(); err != nil && ctx.Err() == nil {
-			var exitErr *exec.ExitError
-			if !errors.As(err, &exitErr) {
-				t.Errorf("wait mockapi: %v", err)
-			}
-		}
-	})
-
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, process.baseURL+"/policy/api/v1/eula/acceptance", nil)
-		if err != nil {
-			t.Fatalf("create mockapi readiness request: %v", err)
-		}
-		req.SetBasicAuth(stateoperatorMockAPIUsername, stateoperatorMockAPIPassword)
-		resp, err := http.DefaultClient.Do(req)
-		if err == nil {
-			closeErr := resp.Body.Close()
-			if closeErr != nil {
-				t.Fatalf("close mockapi readiness body: %v", closeErr)
-			}
-			if resp.StatusCode == http.StatusOK {
-				return process
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("mockapi did not become ready; logs:\n%s", process.logs())
-	return process
-}
-
-func (process stateoperatorMockAPIProcess) logs() string {
-	if process.stderr == nil {
-		return ""
-	}
-	return process.stderr.String()
+	return mockapi.Start(t, ctx)
 }
 
 func newStateoperatorMockAPIClient(t *testing.T, baseURL string) *nsxclient.Client {
@@ -1920,40 +1926,27 @@ func requireMockAPIGroupPresence(ctx context.Context, t *testing.T, client state
 	}
 }
 
-func freeStateoperatorTCPPort(t *testing.T) int {
+func requireTypedGroupByRemoteID(ctx context.Context, t *testing.T, typedClient *kubeapi.Client, groupID string) nsxv1alpha.NSXGroup {
 	t.Helper()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen on free tcp port: %v", err)
-	}
-	defer func() {
-		if err := listener.Close(); err != nil {
-			t.Fatalf("close free tcp listener: %v", err)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		groups, err := typedClient.Groups().List(ctx, kubeapi.ListOptions{})
+		if err != nil {
+			t.Fatalf("list typed groups: %v", err)
 		}
-	}()
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("listener addr = %T, want *net.TCPAddr", listener.Addr())
-	}
-	return addr.Port
-}
-
-func stateoperatorMockAPIRoot(t *testing.T) string {
-	t.Helper()
-
-	workingDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get working directory: %v", err)
-	}
-	for dir := workingDir; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		candidate := filepath.Join(filepath.Dir(dir), "nsx-t-mockapi")
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			return candidate
+		for _, group := range groups.Items {
+			if group.Spec.GroupID == groupID {
+				return group
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for typed group with groupID %q; groups = %#v", groupID, groups.Items)
+		case <-ticker.C:
 		}
 	}
-	t.Fatalf("could not find sibling nsx-t-mockapi from %s", workingDir)
-	return ""
 }
 
 func requireTypedGroupCondition(

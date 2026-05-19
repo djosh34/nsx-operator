@@ -41,16 +41,14 @@ services:
         read_only: true
 
   nsx-t-mockapi:
-    image: nsx-t-mockapi:scratch
-    build:
-      context: ../nsx-t-mockapi
-      dockerfile: Dockerfile
+    image: ghcr.io/djosh34/nsx-t-mockapi:latest
+    platform: linux/amd64
     command: ["serve", "-config", "/config/config.yaml"]
     ports:
       - "${NSX_T_MOCKAPI_PORT:-18080}:8080"
     volumes:
       - type: bind
-        source: ../nsx-t-mockapi/config/config.yaml
+        source: ./config/compose/mockapi-config.yaml
         target: /config/config.yaml
         read_only: true
       - type: volume

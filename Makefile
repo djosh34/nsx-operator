@@ -34,7 +34,7 @@ test-race: $(SETUP_ENVTEST)
 
 test-contract: $(SETUP_ENVTEST)
 	go test ./internal/nsxclient -run 'Test(MockAPIRouteInventoryIsSupportedAndContracted|TypedClientContractsAgainstMockAPI|SharedRateLimitedClientConcurrencyAgainstMockAPI)' -count=1
-	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./internal/stateoperator -run 'TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI' -count=1
+	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./internal/stateoperator -run 'Test(NetworkCloudAddAndRemoveLifecycleAgainstPublicMockAPI|LifecycleObserveAndManageDeletionDifferAgainstMockAPI)' -count=1
 
 test-e2e: $(SETUP_ENVTEST)
 	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./api/v1alpha ./internal/kubeapi ./internal/startup ./internal/stateoperator ./cmd/nsx-operator -count=1

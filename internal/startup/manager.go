@@ -14,6 +14,7 @@ import (
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
 	"github.com/djosh34/nsx-operator/internal/operatormetrics"
 	"github.com/djosh34/nsx-operator/internal/stateoperator"
+	"github.com/go-logr/zapr"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -40,6 +41,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+	ctrl.SetLogger(zapr.NewLogger(logger))
 	logger.Info("constructing controller runtime manager", logging.Component("startup"))
 
 	restConfig := options.RestConfig

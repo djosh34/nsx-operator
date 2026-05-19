@@ -5,14 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -20,12 +17,13 @@ import (
 	"time"
 
 	"github.com/djosh34/nsx-operator/internal/httpratelimit"
+	"github.com/djosh34/nsx-operator/internal/testsupport/mockapi"
 	"go.uber.org/zap"
 )
 
 const (
-	mockAPIUsername = "nsx_admin"
-	mockAPIPassword = "nsx_password"
+	mockAPIUsername = mockapi.Username
+	mockAPIPassword = mockapi.Password
 )
 
 type routeCoverage struct {
@@ -69,9 +67,9 @@ func TestTypedClientContractsAgainstMockAPI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	mock := startMockAPI(t, ctx)
+	mock := mockapi.Start(t, ctx)
 	client, err := NewClient(Options{
-		BaseURL:    mock.baseURL,
+		BaseURL:    mock.BaseURL(),
 		HTTPClient: &http.Client{Timeout: 5 * time.Second},
 		Username:   mockAPIUsername,
 		Password:   mockAPIPassword,
@@ -84,7 +82,7 @@ func TestTypedClientContractsAgainstMockAPI(t *testing.T) {
 	cover := func(routeName string, err error) {
 		t.Helper()
 		if err != nil {
-			t.Fatalf("%s contract call failed: %v\nmockapi logs:\n%s", routeName, err, mock.logs())
+			t.Fatalf("%s contract call failed: %v\nmockapi logs:\n%s", routeName, err, mock.Logs())
 		}
 		covered[routeName] = true
 	}
@@ -309,8 +307,8 @@ func TestSharedRateLimitedClientConcurrencyAgainstMockAPI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	mock := startMockAPI(t, ctx)
-	mockURL, err := url.Parse(mock.baseURL)
+	mock := mockapi.Start(t, ctx)
+	mockURL, err := url.Parse(mock.BaseURL())
 	if err != nil {
 		t.Fatalf("parse mockapi base URL: %v", err)
 	}
@@ -344,105 +342,10 @@ func TestSharedRateLimitedClientConcurrencyAgainstMockAPI(t *testing.T) {
 
 	for range 3 {
 		if err := <-errs; err != nil {
-			t.Fatalf("%v\nmockapi logs:\n%s", err, mock.logs())
+			t.Fatalf("%v\nmockapi logs:\n%s", err, mock.Logs())
 		}
 	}
 	t.Logf("mockapi concurrency evidence: same logical host nsx-mock-a.example.net:80 shared one in-flight slot; nsx-mock-a.example.net:8080 reached mockapi while :80 was blocked")
-}
-
-type mockAPIProcess struct {
-	baseURL string
-	cmd     *exec.Cmd
-	stderr  *bytes.Buffer
-}
-
-func startMockAPI(t *testing.T, ctx context.Context) mockAPIProcess {
-	t.Helper()
-	port := freeTCPPort(t)
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-	databasePath := filepath.Join(tempDir, "nsx-t-mockapi.db")
-	binaryPath := filepath.Join(tempDir, "nsx-t-mockapi")
-	config := fmt.Sprintf(`server:
-  listen_addr: "127.0.0.1:%d"
-database:
-  path: %q
-realization:
-  default_delay_ms: 0
-  create_delay_ms: 0
-  update_delay_ms: 0
-  delete_delay_ms: 0
-  kind_delay_ms: {}
-search:
-  default_page_size: 1000
-  max_page_size: 1000
-`, port, databasePath)
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-		t.Fatalf("write mockapi config: %v", err)
-	}
-
-	var stderr bytes.Buffer
-	build := exec.CommandContext(ctx, "go", "build", "-o", binaryPath, "./cmd/nsx-t-mockapi")
-	build.Dir = mockAPIRoot(t)
-	build.Stdout = io.Discard
-	build.Stderr = &stderr
-	if err := build.Run(); err != nil {
-		t.Fatalf("build mockapi: %v\n%s", err, stderr.String())
-	}
-	stderr.Reset()
-
-	cmd := exec.CommandContext(ctx, binaryPath, "serve", "-config", configPath)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start mockapi: %v", err)
-	}
-	process := mockAPIProcess{
-		baseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
-		cmd:     cmd,
-		stderr:  &stderr,
-	}
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-				t.Errorf("kill mockapi: %v", err)
-			}
-		}
-		if err := cmd.Wait(); err != nil && ctx.Err() == nil {
-			var exitErr *exec.ExitError
-			if !errors.As(err, &exitErr) {
-				t.Errorf("wait mockapi: %v", err)
-			}
-		}
-	})
-
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, process.baseURL+"/policy/api/v1/eula/acceptance", nil)
-		if err != nil {
-			t.Fatalf("create mockapi readiness request: %v", err)
-		}
-		req.SetBasicAuth(mockAPIUsername, mockAPIPassword)
-		resp, err := http.DefaultClient.Do(req)
-		if err == nil {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				t.Fatalf("close mockapi readiness body: %v", closeErr)
-			}
-			if resp.StatusCode == http.StatusOK {
-				return process
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("mockapi did not become ready; logs:\n%s", process.logs())
-	return process
-}
-
-func (process mockAPIProcess) logs() string {
-	if process.stderr == nil {
-		return ""
-	}
-	return process.stderr.String()
 }
 
 func newMockAPINSXClient(t *testing.T, baseURL string, httpClient *http.Client) *Client {
@@ -607,64 +510,54 @@ func (gate *mockAPIRateLimitGate) releaseSameHost() {
 	})
 }
 
-func freeTCPPort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen on free tcp port: %v", err)
-	}
-	defer func() {
-		if err := listener.Close(); err != nil {
-			t.Fatalf("close free tcp listener: %v", err)
-		}
-	}()
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("listener addr = %T, want *net.TCPAddr", listener.Addr())
-	}
-	return addr.Port
-}
-
 func readMockAPIRouteInventory(t *testing.T) []string {
 	t.Helper()
-	files := []string{
-		filepath.Join(mockAPIRoot(t), "internal/httpapi/app.go"),
-		filepath.Join(mockAPIRoot(t), "internal/httpapi/manager_routes.go"),
-		filepath.Join(mockAPIRoot(t), "internal/httpapi/policy_routes.go"),
-	}
-	pattern := regexp.MustCompile(`"(?:manager|policy)\.[a-zA-Z0-9_.]+"`)
-	seen := map[string]bool{}
-	for _, file := range files {
-		content, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatalf("read mockapi route file %s: %v", file, err)
-		}
-		for _, quoted := range pattern.FindAllString(string(content), -1) {
-			seen[strings.Trim(quoted, `"`)] = true
+
+	mockAPIBinary := readMockAPIBinaryFromPublicImage(t)
+	names := make([]string, 0, len(supportedRouteCoverage()))
+	for _, route := range supportedRouteCoverage() {
+		if bytes.Contains(mockAPIBinary, []byte(route.name)) {
+			names = append(names, route.name)
 		}
 	}
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
+	if len(names) == 0 {
+		t.Fatalf("public mockapi image %s binary did not expose any supported route names", mockapi.Image)
 	}
 	sort.Strings(names)
 	return names
 }
 
-func mockAPIRoot(t *testing.T) string {
+func readMockAPIBinaryFromPublicImage(t *testing.T) []byte {
 	t.Helper()
-	workingDir, err := os.Getwd()
+
+	create := exec.Command("docker", "create", "--platform", "linux/amd64", mockapi.Image)
+	createOutput, err := create.CombinedOutput()
 	if err != nil {
-		t.Fatalf("get working directory: %v", err)
+		t.Fatalf("create public mockapi image container for route inventory: %v\n%s", err, string(createOutput))
 	}
-	for dir := workingDir; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		candidate := filepath.Join(filepath.Dir(dir), "nsx-t-mockapi")
-		if _, err := os.Stat(filepath.Join(candidate, "go.mod")); err == nil {
-			return candidate
+	containerID := strings.TrimSpace(string(createOutput))
+	if containerID == "" {
+		t.Fatalf("create public mockapi image container returned empty id")
+	}
+	t.Cleanup(func() {
+		remove := exec.Command("docker", "rm", "--force", containerID)
+		removeOutput, removeErr := remove.CombinedOutput()
+		if removeErr != nil && !strings.Contains(string(removeOutput), "No such container") {
+			t.Errorf("remove route inventory container %s: %v\n%s", containerID, removeErr, string(removeOutput))
 		}
+	})
+
+	binaryPath := filepath.Join(t.TempDir(), "nsx-t-mockapi")
+	copyCommand := exec.Command("docker", "cp", containerID+":/nsx-t-mockapi", binaryPath)
+	copyOutput, err := copyCommand.CombinedOutput()
+	if err != nil {
+		t.Fatalf("copy mockapi binary from public image %s: %v\n%s", mockapi.Image, err, string(copyOutput))
 	}
-	t.Fatalf("could not find sibling nsx-t-mockapi from %s", workingDir)
-	return ""
+	binary, err := os.ReadFile(binaryPath)
+	if err != nil {
+		t.Fatalf("read copied mockapi binary: %v", err)
+	}
+	return binary
 }
 
 func inventoryContains(inventory []string, routeName string) bool {

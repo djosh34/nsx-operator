@@ -3,6 +3,7 @@ module github.com/djosh34/nsx-operator
 go 1.26
 
 require (
+	github.com/go-logr/zapr v1.3.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/prometheus/client_model v0.6.1
 	go.uber.org/zap v1.27.0

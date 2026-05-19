@@ -4,7 +4,8 @@ This stack runs `nsx-operator` from `Dockerfile` with real process
 boundaries. `kine` stores Kubernetes data in memory, `kube-apiserver` talks to
 `kine`, `crd-init` installs this repository's CRDs and sample resources, the
 operator talks to `kube-apiserver` through a generated kubeconfig, and NSX calls
-go to the sibling `../nsx-t-mockapi` service by Compose service name.
+go to the public `ghcr.io/djosh34/nsx-t-mockapi:latest` service by Compose
+service name.
 
 The Compose project name is `nsx-operator-scratch`, from `compose.yaml`.
 
@@ -16,8 +17,9 @@ Kubernetes context.
 - Docker Engine with the Docker Compose plugin available as `docker compose`.
 - `kubectl` for host-side API checks.
 - `openssl` and GNU `base64` for `scripts/generate-compose-kube-assets.sh`.
-- A sibling `../nsx-t-mockapi` checkout containing `Dockerfile` and
-  `config/config.yaml`.
+- The public `ghcr.io/djosh34/nsx-t-mockapi:latest` image. On non-amd64 hosts,
+  Docker must have `linux/amd64` binfmt emulation available because the current
+  published image is amd64.
 
 ## Services, Ports, And Files
 
@@ -26,8 +28,8 @@ Kubernetes context.
 - `kine`: in-memory Kubernetes storage, no host port.
 - `kube-apiserver`: Kubernetes API on container port `6443`, published to host
   port `${NSX_OPERATOR_KUBE_APISERVER_PORT:-16443}`.
-- `nsx-t-mockapi`: sibling NSX-T mock API on container port `8080`, published to
-  host port `${NSX_T_MOCKAPI_PORT:-18080}` and reachable in Compose as
+- `nsx-t-mockapi`: public GHCR NSX-T mock API image on container port `8080`,
+  published to host port `${NSX_T_MOCKAPI_PORT:-18080}` and reachable in Compose as
   `nsx-t-mockapi`, `nsx-t-1`, and `nsx-t-2`.
 - `crd-init`: waits for Kubernetes readiness, applies `crds`, waits
   for `nsxnetworkclouds.nsx.ing.com` and `nsxgroups.nsx.ing.com`, then applies
@@ -63,7 +65,7 @@ Check the resolved Compose configuration before building:
 docker compose config
 ```
 
-Build the scratch operator image and sibling mock API image:
+Build the scratch operator image:
 
 ```bash
 docker compose build
@@ -86,6 +88,8 @@ Expected state after startup:
 
 - `kine`, `kube-apiserver`, `nsx-t-mockapi`, and `operator` are running.
 - `crd-init` has exited successfully after applying CRDs and sample manifests.
+- `docker compose images nsx-t-mockapi` shows
+  `ghcr.io/djosh34/nsx-t-mockapi:latest`.
 
 ## Verify Kubernetes API
 
@@ -106,6 +110,24 @@ kubectl --kubeconfig config/compose/generated/kubeconfig-host.yaml get nsxgroups
 ```
 
 Expected resources include `mockapi` and `compose-managed-web`.
+
+Add a NetworkCloud through the ingest script:
+
+```bash
+export KUBECONFIG=config/compose/generated/kubeconfig-host.yaml
+printf '%s\n' '{"name":"cloud-live","fqdn":"nsx-t-mockapi:8080","id":"cloud-live"}' \
+  | ./scripts/ingest-networkcloud.sh
+kubectl get nsxnetworkclouds.nsx.ing.com cloud-live -o yaml
+```
+
+Delete it and verify Kubernetes reports it as gone:
+
+```bash
+kubectl delete nsxnetworkclouds.nsx.ing.com cloud-live
+kubectl get nsxnetworkclouds.nsx.ing.com cloud-live
+```
+
+The final `get` should fail with `NotFound`.
 
 ## Verify NSX-T Mock API
 
@@ -167,14 +189,17 @@ rm -rf config/compose/generated
 
 ## Troubleshooting
 
-Missing sibling mock API checkout:
+Public mock API image does not run on non-amd64 hosts:
 
 ```text
-unable to prepare context: path "../nsx-t-mockapi" not found
+exec /nsx-t-mockapi: exec format error
 ```
 
-Clone or restore the sibling checkout so `../nsx-t-mockapi/Dockerfile` and
-`../nsx-t-mockapi/config/config.yaml` exist.
+Install amd64 binfmt support for Docker, then start the stack again:
+
+```bash
+docker run --privileged --rm tonistiigi/binfmt --install amd64
+```
 
 Port conflicts:
 

@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 10:25:36 PM CEST 2026
+Generated: Tue May 19 10:57:29 PM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -329,6 +329,18 @@ DONE
 
 <plan>
 .ralph/tasks/29-story-networkcloud-ingest-script/01-task-add-networkcloud-ingest-script_plans/01-networkcloud-ingest-script-plan.md
+NOW EXECUTE
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/30-story-networkcloud-live-lifecycle/01-task-test-networkcloud-addition-and-removal.md`
+
+```
+## Task: Test NetworkCloud Addition And Removal <status>not_started</status> <passes>true</passes>
+
+<plan>
+.ralph/tasks/30-story-networkcloud-live-lifecycle/01-task-test-networkcloud-addition-and-removal_plans/01-networkcloud-add-remove-lifecycle-plan.md
 NOW EXECUTE
 ```
 

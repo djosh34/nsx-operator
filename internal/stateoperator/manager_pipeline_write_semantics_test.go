@@ -25,7 +25,7 @@ func TestManagedWriteUsesSelectedPatchEndpointsAndPreservesUnrelatedMockAPIExpre
 
 	mock := startStateoperatorMockAPI(t, ctx)
 	recorder := &httpRequestRecorder{}
-	managerClient := newStateoperatorMockAPIRecordingClient(t, mock.baseURL, recorder)
+	managerClient := newStateoperatorMockAPIRecordingClient(t, mock.BaseURL(), recorder)
 	seedGroup := &nsxclient.Group{
 		Resource: nsxclient.Resource{ID: "managed-write-mock", DisplayName: "Remote Managed", ResourceType: "Group"},
 		Expression: []json.RawMessage{
@@ -44,21 +44,21 @@ func TestManagedWriteUsesSelectedPatchEndpointsAndPreservesUnrelatedMockAPIExpre
 		},
 	}
 	if _, err := managerClient.PutGroup(ctx, "managed-write-mock", seedGroup); err != nil {
-		t.Fatalf("seed managed group: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("seed managed group: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	if err := managerClient.PatchGroupIPAddressExpression(ctx, "managed-write-mock", "selected-ip", &nsxclient.IPAddressExpressionPatch{
 		ID:           "selected-ip",
 		ResourceType: "IPAddressExpression",
 		IPAddresses:  []string{"10.1.0.0/24"},
 	}); err != nil {
-		t.Fatalf("seed selected ip expression: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("seed selected ip expression: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	if err := managerClient.PatchGroupPathExpression(ctx, "managed-write-mock", "selected-path", &nsxclient.PathExpressionPatch{
 		ID:           "selected-path",
 		ResourceType: "PathExpression",
 		Paths:        []string{"/infra/segments/old"},
 	}); err != nil {
-		t.Fatalf("seed selected path expression: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("seed selected path expression: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	recorder.Reset()
 
@@ -74,23 +74,23 @@ func TestManagedWriteUsesSelectedPatchEndpointsAndPreservesUnrelatedMockAPIExpre
 		}},
 	})
 	if err != nil {
-		t.Fatalf("ApplyManagerPlan() error = %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("ApplyManagerPlan() error = %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	writeRequests := recorder.Snapshot()
 
 	ipMembers, err := managerClient.ListGroupIPAddressMembers(ctx, "managed-write-mock")
 	if err != nil {
-		t.Fatalf("list ip members: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("list ip members: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	requireStringMembers(t, ipMembers, "10.99.0.1", "10.42.0.0/24")
 	groupMembers, err := managerClient.ListGroupIPGroupMembers(ctx, "managed-write-mock")
 	if err != nil {
-		t.Fatalf("list group members: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("list group members: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	requireMemberPaths(t, groupMembers, "/infra/domains/default/groups/unrelated-group")
 	segmentMembers, err := managerClient.ListGroupSegmentMembers(ctx, "managed-write-mock")
 	if err != nil {
-		t.Fatalf("list segment members: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("list segment members: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	requireMemberPaths(t, segmentMembers, "/infra/segments/unrelated", "/infra/segments/new")
 
@@ -132,7 +132,7 @@ func TestManagedWriteDeletesOnlySelectedIPAddressExpressionWhenCIDRsAreAbsent(t 
 
 	mock := startStateoperatorMockAPI(t, ctx)
 	recorder := &httpRequestRecorder{}
-	managerClient := newStateoperatorMockAPIRecordingClient(t, mock.baseURL, recorder)
+	managerClient := newStateoperatorMockAPIRecordingClient(t, mock.BaseURL(), recorder)
 	seedGroup := &nsxclient.Group{
 		Resource: nsxclient.Resource{ID: "managed-delete-selected-ip", DisplayName: "Remote Managed", ResourceType: "Group"},
 		Expression: []json.RawMessage{
@@ -151,14 +151,14 @@ func TestManagedWriteDeletesOnlySelectedIPAddressExpressionWhenCIDRsAreAbsent(t 
 		},
 	}
 	if _, err := managerClient.PutGroup(ctx, "managed-delete-selected-ip", seedGroup); err != nil {
-		t.Fatalf("seed managed group: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("seed managed group: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	if err := managerClient.PatchGroupIPAddressExpression(ctx, "managed-delete-selected-ip", "selected-ip", &nsxclient.IPAddressExpressionPatch{
 		ID:           "selected-ip",
 		ResourceType: "IPAddressExpression",
 		IPAddresses:  []string{"10.2.0.0/24"},
 	}); err != nil {
-		t.Fatalf("seed selected ip expression: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("seed selected ip expression: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	recorder.Reset()
 
@@ -170,7 +170,7 @@ func TestManagedWriteDeletesOnlySelectedIPAddressExpressionWhenCIDRsAreAbsent(t 
 		}},
 	})
 	if err != nil {
-		t.Fatalf("ApplyManagerPlan() error = %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("ApplyManagerPlan() error = %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	requireRecordedHTTPRequests(t, recorder.Snapshot(), []recordedHTTPRequest{
 		{
@@ -190,13 +190,13 @@ func TestManagedWriteDeletesOnlySelectedIPAddressExpressionWhenCIDRsAreAbsent(t 
 
 	ipMembers, err := managerClient.ListGroupIPAddressMembers(ctx, "managed-delete-selected-ip")
 	if err != nil {
-		t.Fatalf("list ip members: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("list ip members: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	requireStringMembers(t, ipMembers, "10.99.0.2")
 	requireStringMembersAbsent(t, ipMembers, "10.2.0.0/24")
 	segmentMembers, err := managerClient.ListGroupSegmentMembers(ctx, "managed-delete-selected-ip")
 	if err != nil {
-		t.Fatalf("list segment members: %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("list segment members: %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	requireMemberPaths(t, segmentMembers, "/infra/segments/unrelated-delete")
 }
@@ -207,7 +207,7 @@ func TestDisabledNSXWritesDoNotReachMockAPIRecorderWhileReadsStillDo(t *testing.
 
 	mock := startStateoperatorMockAPI(t, ctx)
 	recorder := &httpRequestRecorder{}
-	managerClient := newStateoperatorMockAPIRecordingClientWithWriteControl(t, mock.baseURL, recorder, nsxclient.WriteControl{
+	managerClient := newStateoperatorMockAPIRecordingClientWithWriteControl(t, mock.BaseURL(), recorder, nsxclient.WriteControl{
 		Enabled:          false,
 		Reason:           nsxclient.WriteDisabledReasonNetworkCloud,
 		NetworkCloudName: "cloud-a",
@@ -264,11 +264,11 @@ func TestDisabledNSXWritesDoNotReachMockAPIRecorderWhileReadsStillDo(t *testing.
 		}
 	}
 	if got := recorder.Snapshot(); len(got) != 0 {
-		t.Fatalf("disabled writes reached mock API recorder: %#v\nmockapi logs:\n%s", got, mock.logs())
+		t.Fatalf("disabled writes reached mock API recorder: %#v\nmockapi logs:\n%s", got, mock.Logs())
 	}
 
 	if _, err := managerClient.ListGroups(ctx); err != nil {
-		t.Fatalf("ListGroups() error = %v\nmockapi logs:\n%s", err, mock.logs())
+		t.Fatalf("ListGroups() error = %v\nmockapi logs:\n%s", err, mock.Logs())
 	}
 	requireRecordedHTTPRequests(t, recorder.Snapshot(), []recordedHTTPRequest{{
 		method: http.MethodGet,
