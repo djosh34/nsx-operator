@@ -21,6 +21,12 @@ type Resource struct {
 	LastModifiedTime int64  `json:"_last_modified_time,omitempty"`
 }
 
+type GroupPatch struct {
+	ID           string `json:"id,omitempty"`
+	DisplayName  string `json:"display_name,omitempty"`
+	ResourceType string `json:"resource_type,omitempty"`
+}
+
 type Group struct {
 	Resource
 	GroupType          []string          `json:"group_type,omitempty"`
@@ -34,9 +40,21 @@ type IPAddressExpression struct {
 	IPAddresses []string `json:"ip_addresses,omitempty"`
 }
 
+type IPAddressExpressionPatch struct {
+	ID           string   `json:"id,omitempty"`
+	ResourceType string   `json:"resource_type,omitempty"`
+	IPAddresses  []string `json:"ip_addresses,omitempty"`
+}
+
 type PathExpression struct {
 	Resource
 	Paths []string `json:"paths,omitempty"`
+}
+
+type PathExpressionPatch struct {
+	ID           string   `json:"id,omitempty"`
+	ResourceType string   `json:"resource_type,omitempty"`
+	Paths        []string `json:"paths,omitempty"`
 }
 
 type GroupMember struct {

@@ -733,6 +733,53 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 	}
 }
 
+func TestApplyManagerPlanPatchesOnlyRepresentedGroupWriteFields(t *testing.T) {
+	segmentPath := "/infra/segments/web"
+	recorder := &operationRecorder{}
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
+		ManagedWrites: []stateoperator.ManagedGroupWrite{{
+			Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-write"},
+			DisplayName:           "Managed Write",
+			CIDRs:                 []string{"10.42.0.0/24"},
+			SegmentPath:           &segmentPath,
+			IPAddressExpressionID: "selected-ip",
+			PathExpressionID:      "selected-path",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	wantOperations := []string{
+		"patch-group:managed-write",
+		"patch-ip:managed-write:selected-ip",
+		"patch-path:managed-write:selected-path",
+	}
+	if !reflect.DeepEqual(recorder.operations, wantOperations) {
+		t.Fatalf("operations = %v, want %v", recorder.operations, wantOperations)
+	}
+
+	groupPatch := recorder.groupPatches["managed-write"]
+	if groupPatch == nil {
+		t.Fatalf("recorded group patch is nil, want payload for managed-write")
+	}
+	rawPatch, err := json.Marshal(groupPatch)
+	if err != nil {
+		t.Fatalf("marshal recorded group patch: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rawPatch, &payload); err != nil {
+		t.Fatalf("unmarshal recorded group patch: %v", err)
+	}
+	wantPayload := map[string]any{
+		"id":            "managed-write",
+		"display_name":  "Managed Write",
+		"resource_type": "Group",
+	}
+	if !reflect.DeepEqual(payload, wantPayload) {
+		t.Fatalf("group patch payload = %#v, want only %#v", payload, wantPayload)
+	}
+}
+
 func TestApplyManagerPlanRejectsMissingRequiredClients(t *testing.T) {
 	t.Run("kubernetes applier", func(t *testing.T) {
 		err := stateoperator.ApplyManagerPlan(context.Background(), nil, &operationRecorder{}, stateoperator.ManagerPlan{})
@@ -1172,10 +1219,10 @@ func TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI(t *testing.T) {
 
 	mock := startStateoperatorMockAPI(t, ctx)
 	managerClient := newStateoperatorMockAPIClient(t, mock.baseURL)
-	if err := managerClient.PatchGroup(ctx, "observe-remote", &nsxclient.Group{Resource: nsxclient.Resource{DisplayName: "Observe Remote", ResourceType: "Group"}}); err != nil {
+	if err := managerClient.PatchGroup(ctx, "observe-remote", &nsxclient.GroupPatch{DisplayName: "Observe Remote", ResourceType: "Group"}); err != nil {
 		t.Fatalf("seed observe remote group: %v\nmockapi logs:\n%s", err, mock.logs())
 	}
-	if err := managerClient.PatchGroup(ctx, "manage-remote", &nsxclient.Group{Resource: nsxclient.Resource{DisplayName: "Manage Remote", ResourceType: "Group"}}); err != nil {
+	if err := managerClient.PatchGroup(ctx, "manage-remote", &nsxclient.GroupPatch{DisplayName: "Manage Remote", ResourceType: "Group"}); err != nil {
 		t.Fatalf("seed manage remote group: %v\nmockapi logs:\n%s", err, mock.logs())
 	}
 
@@ -1359,9 +1406,9 @@ func managerGroup(name string, fqdn string, groupID string, mode nsxv1alpha.NSXG
 type operationRecorder struct {
 	operations      []string
 	listGroups      []*nsxclient.Group
-	groupPatches    map[string]*nsxclient.Group
-	ipExpressions   map[string]*nsxclient.IPAddressExpression
-	pathExpressions map[string]*nsxclient.PathExpression
+	groupPatches    map[string]*nsxclient.GroupPatch
+	ipExpressions   map[string]*nsxclient.IPAddressExpressionPatch
+	pathExpressions map[string]*nsxclient.PathExpressionPatch
 	patchGroupErr   error
 	deleteGroupErr  error
 }
@@ -1395,23 +1442,23 @@ func (r *operationRecorder) ListGroups(context.Context) ([]*nsxclient.Group, err
 	return r.listGroups, nil
 }
 
-func (r *operationRecorder) PatchGroup(_ context.Context, groupID string, group *nsxclient.Group) error {
+func (r *operationRecorder) PatchGroup(_ context.Context, groupID string, group *nsxclient.GroupPatch) error {
 	r.operations = append(r.operations, "patch-group:"+groupID)
 	if r.groupPatches == nil {
-		r.groupPatches = map[string]*nsxclient.Group{}
+		r.groupPatches = map[string]*nsxclient.GroupPatch{}
 	}
 	copied := *group
 	r.groupPatches[groupID] = &copied
 	return r.patchGroupErr
 }
 
-func (r *operationRecorder) PatchGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpression) error {
+func (r *operationRecorder) PatchGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpressionPatch) error {
 	r.operations = append(r.operations, "patch-ip:"+groupID+":"+expressionID)
 	r.recordIPAddressExpression(groupID, expressionID, expression)
 	return nil
 }
 
-func (r *operationRecorder) AddGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpression) error {
+func (r *operationRecorder) AddGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpressionPatch) error {
 	r.operations = append(r.operations, "add-ip:"+groupID+":"+expressionID)
 	r.recordIPAddressExpression(groupID, expressionID, expression)
 	return nil
@@ -1422,13 +1469,13 @@ func (r *operationRecorder) DeleteGroupIPAddressExpression(_ context.Context, gr
 	return nil
 }
 
-func (r *operationRecorder) PatchGroupPathExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.PathExpression) error {
+func (r *operationRecorder) PatchGroupPathExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.PathExpressionPatch) error {
 	r.operations = append(r.operations, "patch-path:"+groupID+":"+expressionID)
 	r.recordPathExpression(groupID, expressionID, expression)
 	return nil
 }
 
-func (r *operationRecorder) AddGroupPathExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.PathExpression) error {
+func (r *operationRecorder) AddGroupPathExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.PathExpressionPatch) error {
 	r.operations = append(r.operations, "add-path:"+groupID+":"+expressionID)
 	r.recordPathExpression(groupID, expressionID, expression)
 	return nil
@@ -1444,18 +1491,18 @@ func (r *operationRecorder) DeleteGroup(_ context.Context, groupID string) error
 	return r.deleteGroupErr
 }
 
-func (r *operationRecorder) recordPathExpression(groupID string, expressionID string, expression *nsxclient.PathExpression) {
+func (r *operationRecorder) recordPathExpression(groupID string, expressionID string, expression *nsxclient.PathExpressionPatch) {
 	if r.pathExpressions == nil {
-		r.pathExpressions = map[string]*nsxclient.PathExpression{}
+		r.pathExpressions = map[string]*nsxclient.PathExpressionPatch{}
 	}
 	copied := *expression
 	copied.Paths = append([]string(nil), expression.Paths...)
 	r.pathExpressions[groupID+":"+expressionID] = &copied
 }
 
-func (r *operationRecorder) recordIPAddressExpression(groupID string, expressionID string, expression *nsxclient.IPAddressExpression) {
+func (r *operationRecorder) recordIPAddressExpression(groupID string, expressionID string, expression *nsxclient.IPAddressExpressionPatch) {
 	if r.ipExpressions == nil {
-		r.ipExpressions = map[string]*nsxclient.IPAddressExpression{}
+		r.ipExpressions = map[string]*nsxclient.IPAddressExpressionPatch{}
 	}
 	copied := *expression
 	copied.IPAddresses = append([]string(nil), expression.IPAddresses...)

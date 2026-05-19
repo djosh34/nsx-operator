@@ -237,7 +237,7 @@ func (c *Client) ListGroups(ctx context.Context) ([]*Group, error) {
 	return listAllTyped[Group](ctx, c, defaultDomainPath()+"/groups", nil)
 }
 
-func (c *Client) PatchGroup(ctx context.Context, groupID string, group *Group) error {
+func (c *Client) PatchGroup(ctx context.Context, groupID string, group *GroupPatch) error {
 	return c.do(ctx, http.MethodPatch, groupPath(groupID), nil, group, nil)
 }
 
@@ -261,15 +261,15 @@ func (c *Client) DeleteGroup(ctx context.Context, groupID string) error {
 	return c.do(ctx, http.MethodDelete, groupPath(groupID), nil, nil, nil)
 }
 
-func (c *Client) PatchGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *IPAddressExpression) error {
+func (c *Client) PatchGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *IPAddressExpressionPatch) error {
 	return c.do(ctx, http.MethodPatch, groupExpressionPath(groupID, "ip-address-expressions", expressionID), nil, expression, nil)
 }
 
-func (c *Client) AddGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *IPAddressExpression) error {
+func (c *Client) AddGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *IPAddressExpressionPatch) error {
 	return c.do(ctx, http.MethodPost, groupExpressionPath(groupID, "ip-address-expressions", expressionID), actionQuery("add"), expression, nil)
 }
 
-func (c *Client) RemoveGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *IPAddressExpression) error {
+func (c *Client) RemoveGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *IPAddressExpressionPatch) error {
 	return c.do(ctx, http.MethodPost, groupExpressionPath(groupID, "ip-address-expressions", expressionID), actionQuery("remove"), expression, nil)
 }
 
@@ -277,11 +277,11 @@ func (c *Client) DeleteGroupIPAddressExpression(ctx context.Context, groupID str
 	return c.do(ctx, http.MethodDelete, groupExpressionPath(groupID, "ip-address-expressions", expressionID), nil, nil, nil)
 }
 
-func (c *Client) PatchGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *PathExpression) error {
+func (c *Client) PatchGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *PathExpressionPatch) error {
 	return c.do(ctx, http.MethodPatch, groupExpressionPath(groupID, "path-expressions", expressionID), nil, expression, nil)
 }
 
-func (c *Client) AddGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *PathExpression) error {
+func (c *Client) AddGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *PathExpressionPatch) error {
 	return c.do(ctx, http.MethodPost, groupExpressionPath(groupID, "path-expressions", expressionID), actionQuery("add"), expression, nil)
 }
 

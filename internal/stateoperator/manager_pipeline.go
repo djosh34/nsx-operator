@@ -42,12 +42,12 @@ type GroupListFunc func(context.Context, kubeapi.ListOptions) (*nsxv1alpha.NSXGr
 
 type ManagerClient interface {
 	ListGroups(ctx context.Context) ([]*nsxclient.Group, error)
-	PatchGroup(ctx context.Context, groupID string, group *nsxclient.Group) error
-	PatchGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpression) error
-	AddGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpression) error
+	PatchGroup(ctx context.Context, groupID string, group *nsxclient.GroupPatch) error
+	PatchGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpressionPatch) error
+	AddGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpressionPatch) error
 	DeleteGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string) error
-	PatchGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.PathExpression) error
-	AddGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.PathExpression) error
+	PatchGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.PathExpressionPatch) error
+	AddGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.PathExpressionPatch) error
 	DeleteGroupPathExpression(ctx context.Context, groupID string, expressionID string) error
 	DeleteGroup(ctx context.Context, groupID string) error
 }
@@ -615,11 +615,10 @@ func compareBindingKeys(left BindingKey, right BindingKey) int {
 }
 
 func applyManagedWrite(ctx context.Context, managerClient ManagerClient, write ManagedGroupWrite) error {
-	group := &nsxclient.Group{
-		Resource: nsxclient.Resource{
-			ID:          write.Key.GroupID,
-			DisplayName: write.DisplayName,
-		},
+	group := &nsxclient.GroupPatch{
+		ID:           write.Key.GroupID,
+		DisplayName:  write.DisplayName,
+		ResourceType: "Group",
 	}
 	if err := managerClient.PatchGroup(ctx, write.Key.GroupID, group); err != nil {
 		return fmt.Errorf("patch managed nsx group %q: %w", write.Key.GroupID, err)
@@ -641,12 +640,10 @@ func applyManagedIPAddressExpression(ctx context.Context, managerClient ManagerC
 			}
 		}
 	} else {
-		expression := &nsxclient.IPAddressExpression{
-			Resource: nsxclient.Resource{
-				ID:           write.IPAddressExpressionID,
-				ResourceType: "IPAddressExpression",
-			},
-			IPAddresses: append([]string(nil), write.CIDRs...),
+		expression := &nsxclient.IPAddressExpressionPatch{
+			ID:           write.IPAddressExpressionID,
+			ResourceType: "IPAddressExpression",
+			IPAddresses:  append([]string(nil), write.CIDRs...),
 		}
 		if write.IPAddressExpressionID != "" {
 			if err := managerClient.PatchGroupIPAddressExpression(ctx, write.Key.GroupID, write.IPAddressExpressionID, expression); err != nil {
@@ -672,24 +669,20 @@ func applyManagedPathExpression(ctx context.Context, managerClient ManagerClient
 		return nil
 	}
 	if write.SegmentPath != nil && write.PathExpressionID != "" {
-		expression := &nsxclient.PathExpression{
-			Resource: nsxclient.Resource{
-				ID:           write.PathExpressionID,
-				ResourceType: "PathExpression",
-			},
-			Paths: []string{*write.SegmentPath},
+		expression := &nsxclient.PathExpressionPatch{
+			ID:           write.PathExpressionID,
+			ResourceType: "PathExpression",
+			Paths:        []string{*write.SegmentPath},
 		}
 		if err := managerClient.PatchGroupPathExpression(ctx, write.Key.GroupID, write.PathExpressionID, expression); err != nil {
 			return fmt.Errorf("patch managed nsx group %q path expression %q: %w", write.Key.GroupID, write.PathExpressionID, err)
 		}
 	}
 	if write.SegmentPath != nil && write.PathExpressionID == "" {
-		expression := &nsxclient.PathExpression{
-			Resource: nsxclient.Resource{
-				ID:           "segment",
-				ResourceType: "PathExpression",
-			},
-			Paths: []string{*write.SegmentPath},
+		expression := &nsxclient.PathExpressionPatch{
+			ID:           "segment",
+			ResourceType: "PathExpression",
+			Paths:        []string{*write.SegmentPath},
 		}
 		if err := managerClient.AddGroupPathExpression(ctx, write.Key.GroupID, expression.ID, expression); err != nil {
 			return fmt.Errorf("add managed nsx group %q path expression %q: %w", write.Key.GroupID, expression.ID, err)

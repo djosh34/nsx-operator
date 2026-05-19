@@ -103,7 +103,7 @@ func TestTypedClientContractsAgainstMockAPI(t *testing.T) {
 	group := &Group{Resource: Resource{ID: "web", DisplayName: "Web", ResourceType: "Group"}}
 	_, err = client.PutGroup(ctx, "web", group)
 	cover("policy.groups.put", err)
-	cover("policy.groups.patch", client.PatchGroup(ctx, "web", &Group{Resource: Resource{DisplayName: "Web Patched", ResourceType: "Group"}}))
+	cover("policy.groups.patch", client.PatchGroup(ctx, "web", &GroupPatch{DisplayName: "Web Patched", ResourceType: "Group"}))
 	_, err = client.GetGroup(ctx, "web")
 	cover("policy.groups.get", err)
 	_, err = client.ListGroups(ctx)
@@ -111,16 +111,18 @@ func TestTypedClientContractsAgainstMockAPI(t *testing.T) {
 	_, err = client.GetGlobalConsolidatedEffectiveIPAddresses(ctx, "web")
 	cover("policy.global.groups.consolidated_effective_ip_addresses", err)
 
-	ipExpression := &IPAddressExpression{
-		Resource:    Resource{ID: "ips", DisplayName: "IPs", ResourceType: "IPAddressExpression"},
-		IPAddresses: []string{"10.0.0.1", "10.0.0.2"},
+	ipExpression := &IPAddressExpressionPatch{
+		ID:           "ips",
+		ResourceType: "IPAddressExpression",
+		IPAddresses:  []string{"10.0.0.1", "10.0.0.2"},
 	}
 	cover("policy.groups.ip_address_expressions.patch", client.PatchGroupIPAddressExpression(ctx, "web", "ips", ipExpression))
-	cover("policy.groups.ip_address_expressions.add", client.AddGroupIPAddressExpression(ctx, "web", "ips", &IPAddressExpression{IPAddresses: []string{"10.0.0.3"}}))
-	cover("policy.groups.ip_address_expressions.remove", client.RemoveGroupIPAddressExpression(ctx, "web", "ips", &IPAddressExpression{IPAddresses: []string{"10.0.0.2"}}))
-	cover("policy.groups.path_expressions.patch", client.PatchGroupPathExpression(ctx, "web", "paths", &PathExpression{
-		Resource: Resource{ID: "paths", DisplayName: "Paths", ResourceType: "PathExpression"},
-		Paths:    []string{"/infra/tier-1s/app-t1/segments/app-seg"},
+	cover("policy.groups.ip_address_expressions.add", client.AddGroupIPAddressExpression(ctx, "web", "ips", &IPAddressExpressionPatch{IPAddresses: []string{"10.0.0.3"}}))
+	cover("policy.groups.ip_address_expressions.remove", client.RemoveGroupIPAddressExpression(ctx, "web", "ips", &IPAddressExpressionPatch{IPAddresses: []string{"10.0.0.2"}}))
+	cover("policy.groups.path_expressions.patch", client.PatchGroupPathExpression(ctx, "web", "paths", &PathExpressionPatch{
+		ID:           "paths",
+		ResourceType: "PathExpression",
+		Paths:        []string{"/infra/tier-1s/app-t1/segments/app-seg"},
 	}))
 	_, err = client.ListGroupIPAddressMembers(ctx, "web")
 	cover("policy.groups.members.ip_addresses", err)

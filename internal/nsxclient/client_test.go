@@ -54,7 +54,7 @@ func TestClientAddsBasicAuthToReadAndWriteRequests(t *testing.T) {
 	if _, err := client.ListGroups(context.Background()); err != nil {
 		t.Fatalf("ListGroups() error = %v", err)
 	}
-	if err := client.PatchGroup(context.Background(), "app", &Group{Resource: Resource{DisplayName: "App"}}); err != nil {
+	if err := client.PatchGroup(context.Background(), "app", &GroupPatch{DisplayName: "App"}); err != nil {
 		t.Fatalf("PatchGroup() error = %v", err)
 	}
 	if got := seen.Load(); got != 2 {
@@ -166,7 +166,7 @@ func TestGroupPathExpressionRoutesUsePolicyExpressionEndpoints(t *testing.T) {
 	t.Parallel()
 
 	var requests []string
-	var addPayload PathExpression
+	var addPayload PathExpressionPatch
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requests = append(requests, req.Method+" "+req.URL.RequestURI())
 		switch len(requests) {
@@ -203,9 +203,10 @@ func TestGroupPathExpressionRoutesUsePolicyExpressionEndpoints(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := newTestClient(t, server.URL)
-	err := client.AddGroupPathExpression(context.Background(), "web", "segment", &PathExpression{
-		Resource: Resource{ID: "segment", ResourceType: "PathExpression"},
-		Paths:    []string{"/infra/segments/web"},
+	err := client.AddGroupPathExpression(context.Background(), "web", "segment", &PathExpressionPatch{
+		ID:           "segment",
+		ResourceType: "PathExpression",
+		Paths:        []string{"/infra/segments/web"},
 	})
 	if err != nil {
 		t.Fatalf("AddGroupPathExpression() error = %v", err)
@@ -260,6 +261,68 @@ func TestStatusErrorsMapTypedCodes(t *testing.T) {
 			}
 			if !tt.assert(err) {
 				t.Fatalf("GetGroup() error = %T %[1]v, want typed status error", err)
+			}
+		})
+	}
+}
+
+func TestWriteStatusErrorsAreTypedAndNotRetried(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		statusCode int
+		assert     func(error) bool
+	}{
+		{statusCode: http.StatusConflict, assert: func(err error) bool {
+			var target ConflictError
+			return errors.As(err, &target)
+		}},
+		{statusCode: http.StatusPreconditionFailed, assert: func(err error) bool {
+			var target PreconditionFailedError
+			return errors.As(err, &target)
+		}},
+		{statusCode: http.StatusTooManyRequests, assert: func(err error) bool {
+			var target RateLimitedError
+			return errors.As(err, &target)
+		}},
+		{statusCode: http.StatusServiceUnavailable, assert: func(err error) bool {
+			var target ServiceUnavailableError
+			return errors.As(err, &target)
+		}},
+	}
+	for _, tt := range cases {
+		t.Run(http.StatusText(tt.statusCode), func(t *testing.T) {
+			t.Parallel()
+			var count atomic.Int32
+			client, err := NewClient(Options{
+				BaseURL:  "https://nsx.example.test",
+				Username: "nsx_admin",
+				Password: "nsx_password",
+				Logger:   zap.NewNop(),
+				HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					count.Add(1)
+					if req.Method != http.MethodPatch {
+						t.Errorf("method = %s, want PATCH", req.Method)
+					}
+					if req.URL.Path != "/policy/api/v1/infra/domains/default/groups/app" {
+						t.Errorf("path = %s, want policy group path", req.URL.Path)
+					}
+					return jsonResponse(req, tt.statusCode, http.StatusText(tt.statusCode)), nil
+				})},
+			})
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+
+			err = client.PatchGroup(context.Background(), "app", &GroupPatch{ID: "app", DisplayName: "App", ResourceType: "Group"})
+			if err == nil {
+				t.Fatal("PatchGroup() error = nil, want status error")
+			}
+			if !tt.assert(err) {
+				t.Fatalf("PatchGroup() error = %T %[1]v, want typed status error", err)
+			}
+			if got := count.Load(); got != 1 {
+				t.Fatalf("request count = %d, want exactly 1", got)
 			}
 		})
 	}
