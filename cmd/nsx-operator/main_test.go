@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/djosh34/nsx-operator/internal/startup"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -64,6 +66,7 @@ logging:
 }
 
 func TestRunReturnsSuccessForValidConfig(t *testing.T) {
+	replaceNewRuntimeManager(t, successfulRuntimeManager)
 	configPath := writeCommandConfig(t, `
 operator:
   tickInterval: 30s
@@ -85,6 +88,7 @@ logging:
 }
 
 func TestRunWritesValidJSONLToStderrForValidConfig(t *testing.T) {
+	replaceNewRuntimeManager(t, successfulRuntimeManager)
 	configPath := writeCommandConfig(t, `
 operator:
   tickInterval: 30s
@@ -120,6 +124,7 @@ logging:
 }
 
 func TestRunDoesNotWriteCredentialsToStderr(t *testing.T) {
+	replaceNewRuntimeManager(t, successfulRuntimeManager)
 	configPath := writeCommandConfig(t, `
 operator:
   tickInterval: 30s
@@ -239,6 +244,26 @@ func replaceNewStderrLogger(t *testing.T, replacement func(string) (*zap.Logger,
 	t.Cleanup(func() {
 		newStderrLogger = original
 	})
+}
+
+func replaceNewRuntimeManager(t *testing.T, replacement func(startup.ManagerOptions) (startup.RunnableManager, error)) {
+	t.Helper()
+
+	original := newRuntimeManager
+	newRuntimeManager = replacement
+	t.Cleanup(func() {
+		newRuntimeManager = original
+	})
+}
+
+func successfulRuntimeManager(startup.ManagerOptions) (startup.RunnableManager, error) {
+	return commandFakeManager{}, nil
+}
+
+type commandFakeManager struct{}
+
+func (commandFakeManager) Start(context.Context) error {
+	return nil
 }
 
 func newSyncErrorLogger() *zap.Logger {

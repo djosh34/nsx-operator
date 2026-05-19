@@ -1,6 +1,7 @@
 package startup
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/djosh34/nsx-operator/internal/config"
@@ -10,6 +11,12 @@ import (
 
 type LoggerFactory func(config.LoggingConfig) (*zap.Logger, error)
 
+type RunnableManager interface {
+	Start(context.Context) error
+}
+
+type ManagerFactory func(ManagerOptions) (RunnableManager, error)
+
 type RuntimeConstructors struct {
 	Kubernetes func(config.Config) error
 	NSX        func(config.Config) error
@@ -18,6 +25,8 @@ type RuntimeConstructors struct {
 type Options struct {
 	Config          config.Options
 	Constructors    RuntimeConstructors
+	Context         context.Context
+	ManagerFactory  ManagerFactory
 	BootstrapLogger *zap.Logger
 	LoggerFactory   LoggerFactory
 }
@@ -70,6 +79,25 @@ func Run(options Options) error {
 			return fmt.Errorf("construct nsx clients: %w", err)
 		}
 		logger.Debug("constructed nsx clients", logging.Component("startup"))
+	}
+	if options.ManagerFactory != nil {
+		runContext := options.Context
+		if runContext == nil {
+			runContext = context.Background()
+		}
+		logger.Info("constructing controller runtime manager", logging.Component("startup"))
+		runtimeManager, err := options.ManagerFactory(ManagerOptions{
+			Config: loadedConfig,
+			Logger: logger,
+		})
+		if err != nil {
+			return fmt.Errorf("construct controller runtime manager: %w", err)
+		}
+		logger.Info("starting controller runtime manager", logging.Component("startup"))
+		if err := runtimeManager.Start(runContext); err != nil {
+			return fmt.Errorf("start controller runtime manager: %w", err)
+		}
+		logger.Info("controller runtime manager stopped", logging.Component("startup"))
 	}
 
 	logger.Info("startup completed", logging.Component("startup"))

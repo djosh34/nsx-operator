@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/djosh34/nsx-operator/internal/config"
 	"github.com/djosh34/nsx-operator/internal/logging"
@@ -17,7 +20,12 @@ func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
-var newStderrLogger = logging.NewStderr
+var (
+	newStderrLogger   = logging.NewStderr
+	newRuntimeManager = func(options startup.ManagerOptions) (startup.RunnableManager, error) {
+		return startup.NewManager(options)
+	}
+)
 
 func run(args []string) int {
 	bootstrapLogger, err := newStderrLogger("info")
@@ -45,8 +53,12 @@ func run(args []string) int {
 		return 2
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	runtimeLogger := bootstrapLogger
 	err = startup.Run(startup.Options{
+		Context: ctx,
 		Config: config.Options{
 			Path:    *configPath,
 			Environ: environMap(os.Environ()),
@@ -60,6 +72,7 @@ func run(args []string) int {
 			runtimeLogger = logger
 			return logger, nil
 		},
+		ManagerFactory: newRuntimeManager,
 	})
 	if err != nil {
 		bootstrapLogger.Info("startup failed", logging.Component("cmd"), zap.Error(err))

@@ -2,7 +2,9 @@ package startup_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -187,6 +189,86 @@ logging:
 	}
 }
 
+func TestRunReturnsKubernetesConstructorError(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configYAML := []byte(`
+operator:
+  tickInterval: 45s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 9
+  maxRequestsPerSecondPerHost: 21
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: debug
+`)
+	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	err := startup.Run(startup.Options{
+		Config: config.Options{
+			Path:    configPath,
+			Environ: map[string]string{},
+		},
+		Constructors: startup.RuntimeConstructors{
+			Kubernetes: func(config.Config) error {
+				return errors.New("kubernetes construct boom")
+			},
+		},
+		BootstrapLogger: zap.NewNop(),
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want kubernetes constructor error")
+	}
+	if !strings.Contains(err.Error(), "construct kubernetes clients") {
+		t.Fatalf("Run() error = %v, want kubernetes constructor error", err)
+	}
+}
+
+func TestRunReturnsNSXConstructorError(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configYAML := []byte(`
+operator:
+  tickInterval: 45s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 9
+  maxRequestsPerSecondPerHost: 21
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: debug
+`)
+	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	err := startup.Run(startup.Options{
+		Config: config.Options{
+			Path:    configPath,
+			Environ: map[string]string{},
+		},
+		Constructors: startup.RuntimeConstructors{
+			NSX: func(config.Config) error {
+				return errors.New("nsx construct boom")
+			},
+		},
+		BootstrapLogger: zap.NewNop(),
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want nsx constructor error")
+	}
+	if !strings.Contains(err.Error(), "construct nsx clients") {
+		t.Fatalf("Run() error = %v, want nsx constructor error", err)
+	}
+}
+
 func TestRunUsesConfiguredRuntimeLoggerForDebugStartupDetails(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
@@ -231,6 +313,131 @@ logging:
 	}
 	if !hasLogEntry(entries, "info", "startup completed") {
 		t.Fatalf("runtime logs did not include startup completion: %q", runtimeLogs.String())
+	}
+}
+
+func TestRunValidConfigCreatesAndStartsManagerWithLoadedTickInterval(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configYAML := []byte(`
+operator:
+  tickInterval: 45s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 9
+  maxRequestsPerSecondPerHost: 21
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: debug
+`)
+	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	var factoryTickInterval string
+	managerStarted := false
+	err := startup.Run(startup.Options{
+		Config: config.Options{
+			Path:    configPath,
+			Environ: map[string]string{},
+		},
+		ManagerFactory: func(options startup.ManagerOptions) (startup.RunnableManager, error) {
+			factoryTickInterval = options.Config.Operator.TickInterval.String()
+			return fakeRunnableManager{start: func(context.Context) error {
+				managerStarted = true
+				return nil
+			}}, nil
+		},
+		BootstrapLogger: zap.NewNop(),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if factoryTickInterval != "45s" {
+		t.Fatalf("manager factory tick interval = %q, want 45s", factoryTickInterval)
+	}
+	if !managerStarted {
+		t.Fatal("manager was not started")
+	}
+}
+
+func TestRunReturnsManagerFactoryError(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configYAML := []byte(`
+operator:
+  tickInterval: 45s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 9
+  maxRequestsPerSecondPerHost: 21
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: debug
+`)
+	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	err := startup.Run(startup.Options{
+		Config: config.Options{
+			Path:    configPath,
+			Environ: map[string]string{},
+		},
+		ManagerFactory: func(startup.ManagerOptions) (startup.RunnableManager, error) {
+			return nil, errors.New("manager construct boom")
+		},
+		BootstrapLogger: zap.NewNop(),
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want manager factory error")
+	}
+	if !strings.Contains(err.Error(), "construct controller runtime manager") {
+		t.Fatalf("Run() error = %v, want manager construction error", err)
+	}
+}
+
+func TestRunReturnsManagerStartError(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	configYAML := []byte(`
+operator:
+  tickInterval: 45s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 9
+  maxRequestsPerSecondPerHost: 21
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: debug
+`)
+	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	err := startup.Run(startup.Options{
+		Config: config.Options{
+			Path:    configPath,
+			Environ: map[string]string{},
+		},
+		ManagerFactory: func(startup.ManagerOptions) (startup.RunnableManager, error) {
+			return fakeRunnableManager{start: func(context.Context) error {
+				return errors.New("manager start boom")
+			}}, nil
+		},
+		BootstrapLogger: zap.NewNop(),
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want manager start error")
+	}
+	if !strings.Contains(err.Error(), "start controller runtime manager") {
+		t.Fatalf("Run() error = %v, want manager start error", err)
 	}
 }
 
@@ -285,6 +492,14 @@ logging:
 	if strings.Contains(runtimeLogs.String(), "runtime-sentinel-user") || strings.Contains(runtimeLogs.String(), "runtime-sentinel-password") {
 		t.Fatalf("runtime logs leaked credentials: %q", runtimeLogs.String())
 	}
+}
+
+type fakeRunnableManager struct {
+	start func(context.Context) error
+}
+
+func (m fakeRunnableManager) Start(ctx context.Context) error {
+	return m.start(ctx)
 }
 
 func parseStartupLogs(t *testing.T, output string) []map[string]any {
