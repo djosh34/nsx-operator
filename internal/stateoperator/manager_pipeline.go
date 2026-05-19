@@ -15,6 +15,7 @@ import (
 	"github.com/djosh34/nsx-operator/internal/kubeapi"
 	"github.com/djosh34/nsx-operator/internal/logging"
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
+	"github.com/djosh34/nsx-operator/internal/statuscondition"
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -263,15 +264,20 @@ func GatherManagerSnapshot(
 
 func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPlan, error) {
 	if snapshot.GatherError != nil {
+		cloudStatus, err := statuscondition.BuildNetworkCloudStatus(
+			snapshot.Cloud.Status,
+			snapshot.Cloud.Generation,
+			now,
+			statuscondition.Reachable(metav1.ConditionFalse, "GatherFailed", snapshot.GatherError.Error()),
+			statuscondition.Swept(metav1.ConditionFalse, "GatherFailed", snapshot.GatherError.Error()),
+		)
+		if err != nil {
+			return ManagerPlan{}, fmt.Errorf("build gather failure cloud status: %w", err)
+		}
 		return ManagerPlan{
 			CloudStatus: &CloudStatusPlan{
-				Name: snapshot.Cloud.Name,
-				Status: nsxv1alpha.NSXNetworkCloudStatus{
-					Conditions: []metav1.Condition{
-						condition(nsxv1alpha.ConditionReachable, metav1.ConditionFalse, "GatherFailed", snapshot.GatherError.Error(), snapshot.Cloud.Generation, now),
-						condition(nsxv1alpha.ConditionSwept, metav1.ConditionFalse, "GatherFailed", snapshot.GatherError.Error(), snapshot.Cloud.Generation, now),
-					},
-				},
+				Name:   snapshot.Cloud.Name,
+				Status: cloudStatus,
 			},
 		}, nil
 	}
@@ -280,6 +286,17 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 		return ManagerPlan{}, err
 	}
 	plan := ManagerPlan{}
+	cloudStatus, err := statuscondition.BuildNetworkCloudStatus(
+		snapshot.Cloud.Status,
+		snapshot.Cloud.Generation,
+		now,
+		statuscondition.Reachable(metav1.ConditionTrue, "GatherSucceeded", "NSX manager gather completed"),
+		statuscondition.Swept(metav1.ConditionTrue, "SweepPlanned", "manager snapshot was processed"),
+	)
+	if err != nil {
+		return ManagerPlan{}, fmt.Errorf("build successful cloud status: %w", err)
+	}
+	plan.CloudStatus = &CloudStatusPlan{Name: snapshot.Cloud.Name, Status: cloudStatus}
 	for _, remoteBinding := range bindings.Remote {
 		if _, exists := bindings.LocalByKey[remoteBinding.Key]; exists {
 			continue
@@ -289,9 +306,13 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 			Spec:       observeSpecFromRemote(remoteBinding.Remote),
 		})
+		status, err := syncedRemoteStatus(nsxv1alpha.NSXGroupStatus{}, 0, remoteBinding.Remote, now)
+		if err != nil {
+			return ManagerPlan{}, fmt.Errorf("build observe import status %q: %w", name, err)
+		}
 		plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
 			Name:   name,
-			Status: syncedRemoteStatus(remoteBinding.Remote, now),
+			Status: status,
 		})
 	}
 	for _, localBinding := range bindings.Local {
@@ -309,30 +330,46 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 					Spec:       remoteSpec,
 				})
 			}
+			status, err := syncedRemoteStatus(localBinding.Group.Status, localBinding.Group.Generation, remote, now)
+			if err != nil {
+				return ManagerPlan{}, fmt.Errorf("build observe status %q: %w", localBinding.Group.Name, err)
+			}
 			plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
 				Name:   localBinding.Group.Name,
-				Status: syncedRemoteStatus(remote, now),
+				Status: status,
 			})
 		case nsxv1alpha.NSXGroupModeManage:
 			if !exists {
 				plan.ManagedWrites = append(plan.ManagedWrites, managedWriteFromLocal(localBinding.Group, RemoteGroup{}))
+				status, err := missingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, now)
+				if err != nil {
+					return ManagerPlan{}, fmt.Errorf("build missing managed status %q: %w", localBinding.Group.Name, err)
+				}
 				plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
 					Name:   localBinding.Group.Name,
-					Status: missingManageStatus(now),
+					Status: status,
 				})
 				continue
 			}
 			if !managedSpecMatchesRemote(localBinding.Group.Spec, remote) {
 				plan.ManagedWrites = append(plan.ManagedWrites, managedWriteFromLocal(localBinding.Group, remote))
+				status, err := applyingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, remote, now)
+				if err != nil {
+					return ManagerPlan{}, fmt.Errorf("build applying managed status %q: %w", localBinding.Group.Name, err)
+				}
 				plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
 					Name:   localBinding.Group.Name,
-					Status: applyingManageStatus(now),
+					Status: status,
 				})
 				continue
 			}
+			status, err := matchingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, remote, now)
+			if err != nil {
+				return ManagerPlan{}, fmt.Errorf("build matching managed status %q: %w", localBinding.Group.Name, err)
+			}
 			plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
 				Name:   localBinding.Group.Name,
-				Status: matchingManageStatus(now),
+				Status: status,
 			})
 		}
 	}
@@ -592,58 +629,110 @@ func managedWriteFromLocal(group nsxv1alpha.NSXGroup, remote RemoteGroup) Manage
 	}
 }
 
-func missingManageStatus(now time.Time) nsxv1alpha.NSXGroupStatus {
-	return nsxv1alpha.NSXGroupStatus{
-		Conditions: []metav1.Condition{
-			condition(nsxv1alpha.ConditionRemotePresent, metav1.ConditionFalse, "RemoteMissing", "remote NSX group is missing", 0, now),
-			condition(nsxv1alpha.ConditionApplying, metav1.ConditionTrue, "Applying", "managed NSX group create is planned", 0, now),
-			condition(nsxv1alpha.ConditionSynced, metav1.ConditionFalse, "Applying", "managed NSX group create is planned", 0, now),
-		},
-	}
+func missingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+	return statuscondition.BuildGroupStatus(
+		previous,
+		observedGeneration,
+		now,
+		statuscondition.RemotePresent(metav1.ConditionFalse, "RemoteMissing", "remote NSX group is missing"),
+		statuscondition.SpecMatchesRemote(metav1.ConditionFalse, "RemoteMissing", "remote NSX group is missing"),
+		statuscondition.UnsupportedExpression(metav1.ConditionFalse, "SupportedExpression", "no unsupported remote expression is present"),
+		statuscondition.Realized(metav1.ConditionUnknown, "RemoteMissing", "remote realization is unknown because the group is missing"),
+		statuscondition.Synced(metav1.ConditionFalse, metav1.ConditionFalse, metav1.ConditionFalse, metav1.ConditionUnknown, "Applying", "managed NSX group create is planned"),
+		statuscondition.Applying(metav1.ConditionTrue, "Applying", "managed NSX group create is planned"),
+		statuscondition.Deleting(metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned"),
+	)
 }
 
-func applyingManageStatus(now time.Time) nsxv1alpha.NSXGroupStatus {
-	return nsxv1alpha.NSXGroupStatus{
-		Conditions: []metav1.Condition{
-			condition(nsxv1alpha.ConditionRemotePresent, metav1.ConditionTrue, "RemoteFound", "remote NSX group is present", 0, now),
-			condition(nsxv1alpha.ConditionApplying, metav1.ConditionTrue, "Applying", "managed NSX group update is planned", 0, now),
-			condition(nsxv1alpha.ConditionSynced, metav1.ConditionFalse, "Applying", "managed NSX group update is planned", 0, now),
-		},
-	}
+func applyingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote RemoteGroup, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+	unsupportedStatus, unsupportedReason, unsupportedMessage := unsupportedExpressionCondition(remote)
+	realizedStatus, realizedReason, realizedMessage := realizedCondition(remote)
+	return statuscondition.BuildGroupStatus(
+		previous,
+		observedGeneration,
+		now,
+		statuscondition.RemotePresent(metav1.ConditionTrue, "RemoteFound", "remote NSX group is present"),
+		statuscondition.SpecMatchesRemote(metav1.ConditionFalse, "SpecDrifted", "local group spec does not match remote NSX group"),
+		statuscondition.UnsupportedExpression(unsupportedStatus, unsupportedReason, unsupportedMessage),
+		statuscondition.Realized(realizedStatus, realizedReason, realizedMessage),
+		statuscondition.Synced(metav1.ConditionTrue, metav1.ConditionFalse, unsupportedStatus, realizedStatus, "Applying", "managed NSX group update is planned"),
+		statuscondition.Applying(metav1.ConditionTrue, "Applying", "managed NSX group update is planned"),
+		statuscondition.Deleting(metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned"),
+	)
 }
 
-func matchingManageStatus(now time.Time) nsxv1alpha.NSXGroupStatus {
-	return nsxv1alpha.NSXGroupStatus{
-		Conditions: []metav1.Condition{
-			condition(nsxv1alpha.ConditionRemotePresent, metav1.ConditionTrue, "RemoteFound", "remote NSX group is present", 0, now),
-			condition(nsxv1alpha.ConditionSpecMatchesRemote, metav1.ConditionTrue, "SpecMatches", "local group matches remote NSX group", 0, now),
-			condition(nsxv1alpha.ConditionSynced, metav1.ConditionTrue, "Synced", "local group matches remote NSX group", 0, now),
-		},
+func matchingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote RemoteGroup, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+	realizedStatus, realizedReason, realizedMessage := realizedCondition(remote)
+	syncedReason := "Synced"
+	syncedMessage := "local group matches remote NSX group"
+	if realizedStatus == metav1.ConditionUnknown {
+		syncedReason = "RealizationPending"
+		syncedMessage = "remote realization is still pending"
 	}
+	if realizedStatus == metav1.ConditionFalse {
+		syncedReason = "RealizationFailed"
+		syncedMessage = "remote NSX group is not realized"
+	}
+	return statuscondition.BuildGroupStatus(
+		previous,
+		observedGeneration,
+		now,
+		statuscondition.RemotePresent(metav1.ConditionTrue, "RemoteFound", "remote NSX group is present"),
+		statuscondition.SpecMatchesRemote(metav1.ConditionTrue, "SpecMatches", "local group matches remote NSX group"),
+		statuscondition.UnsupportedExpression(metav1.ConditionFalse, "SupportedExpression", "remote NSX group expression is representable"),
+		statuscondition.Realized(realizedStatus, realizedReason, realizedMessage),
+		statuscondition.Synced(metav1.ConditionTrue, metav1.ConditionTrue, metav1.ConditionFalse, realizedStatus, syncedReason, syncedMessage),
+		statuscondition.Applying(metav1.ConditionFalse, "NotApplying", "no NSX write is planned"),
+		statuscondition.Deleting(metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned"),
+	)
 }
 
-func syncedRemoteStatus(remote RemoteGroup, now time.Time) nsxv1alpha.NSXGroupStatus {
-	unsupportedStatus := metav1.ConditionFalse
-	unsupportedReason := "SupportedExpression"
-	unsupportedMessage := "remote NSX group expression is representable"
-	syncedStatus := metav1.ConditionTrue
+func syncedRemoteStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote RemoteGroup, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+	unsupportedStatus, unsupportedReason, unsupportedMessage := unsupportedExpressionCondition(remote)
+	realizedStatus, realizedReason, realizedMessage := realizedCondition(remote)
 	syncedReason := "Synced"
 	syncedMessage := "local group reflects remote NSX group"
 	if remote.UnsupportedExpression {
-		unsupportedStatus = metav1.ConditionTrue
-		unsupportedReason = "UnsupportedExpression"
-		unsupportedMessage = "remote NSX group expression is not fully representable"
-		syncedStatus = metav1.ConditionFalse
 		syncedReason = "UnsupportedExpression"
 		syncedMessage = "remote NSX group expression needs operator support before it can be synced"
 	}
-	return nsxv1alpha.NSXGroupStatus{
-		Conditions: []metav1.Condition{
-			condition(nsxv1alpha.ConditionRemotePresent, metav1.ConditionTrue, "RemoteFound", "remote NSX group is present", 0, now),
-			condition(nsxv1alpha.ConditionSpecMatchesRemote, metav1.ConditionTrue, "SpecMatches", "local group spec matches remote NSX group", 0, now),
-			condition(nsxv1alpha.ConditionUnsupportedExpression, unsupportedStatus, unsupportedReason, unsupportedMessage, 0, now),
-			condition(nsxv1alpha.ConditionSynced, syncedStatus, syncedReason, syncedMessage, 0, now),
-		},
+	if realizedStatus == metav1.ConditionUnknown && unsupportedStatus != metav1.ConditionTrue {
+		syncedReason = "RealizationPending"
+		syncedMessage = "remote realization is still pending"
+	}
+	if realizedStatus == metav1.ConditionFalse && unsupportedStatus != metav1.ConditionTrue {
+		syncedReason = "RealizationFailed"
+		syncedMessage = "remote NSX group is not realized"
+	}
+	return statuscondition.BuildGroupStatus(
+		previous,
+		observedGeneration,
+		now,
+		statuscondition.RemotePresent(metav1.ConditionTrue, "RemoteFound", "remote NSX group is present"),
+		statuscondition.SpecMatchesRemote(metav1.ConditionTrue, "SpecMatches", "local group spec matches remote NSX group"),
+		statuscondition.UnsupportedExpression(unsupportedStatus, unsupportedReason, unsupportedMessage),
+		statuscondition.Realized(realizedStatus, realizedReason, realizedMessage),
+		statuscondition.Synced(metav1.ConditionTrue, metav1.ConditionTrue, unsupportedStatus, realizedStatus, syncedReason, syncedMessage),
+		statuscondition.Applying(metav1.ConditionFalse, "NotApplying", "no NSX write is planned"),
+		statuscondition.Deleting(metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned"),
+	)
+}
+
+func unsupportedExpressionCondition(remote RemoteGroup) (metav1.ConditionStatus, string, string) {
+	if remote.UnsupportedExpression {
+		return metav1.ConditionTrue, "UnsupportedExpression", "remote NSX group expression is not fully representable"
+	}
+	return metav1.ConditionFalse, "SupportedExpression", "remote NSX group expression is representable"
+}
+
+func realizedCondition(remote RemoteGroup) (metav1.ConditionStatus, string, string) {
+	switch strings.ToUpper(strings.TrimSpace(remote.Raw.State)) {
+	case "", "REALIZED", "SUCCESS":
+		return metav1.ConditionTrue, "Realized", "remote NSX group is realized"
+	case "UNREALIZED", "ERROR", "FAILURE", "FAILED":
+		return metav1.ConditionFalse, "RealizationFailed", "remote NSX group is not realized"
+	default:
+		return metav1.ConditionUnknown, "RealizationPending", "remote realization is still pending"
 	}
 }
 
@@ -670,22 +759,4 @@ func NormalizeNetworkCloudFQDN(value string) string {
 		return strings.ToLower(parsed.Host)
 	}
 	return strings.ToLower(trimmed)
-}
-
-func condition(
-	conditionType string,
-	status metav1.ConditionStatus,
-	reason string,
-	message string,
-	observedGeneration int64,
-	now time.Time,
-) metav1.Condition {
-	return metav1.Condition{
-		Type:               conditionType,
-		Status:             status,
-		ObservedGeneration: observedGeneration,
-		LastTransitionTime: metav1.NewTime(now),
-		Reason:             reason,
-		Message:            message,
-	}
 }

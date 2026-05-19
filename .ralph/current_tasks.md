@@ -1,6 +1,6 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 02:38:07 CEST 2026
+Generated: Tue May 19 02:54:22 AM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/09-story-reconcile-behavior/01-task-implement-controller-reconcile-behavior.md`
 
@@ -28,17 +28,6 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Implement Manage Mode Reconciliation <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/12-story-status-conditions/01-task-implement-status-condition-model.md`
-
-```
-## Task: Implement Status Condition Model <status>not_started</status> <passes>false</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

@@ -55,6 +55,8 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 	}
 	requireEstablishedCRD(ctx, t, extensionsClient, "nsxnetworkclouds.nsx.ing.com")
 	requireEstablishedCRD(ctx, t, extensionsClient, "nsxgroups.nsx.ing.com")
+	requireStatusSchemaConditionsOnly(ctx, t, extensionsClient, "nsxnetworkclouds.nsx.ing.com")
+	requireStatusSchemaConditionsOnly(ctx, t, extensionsClient, "nsxgroups.nsx.ing.com")
 
 	dynamicClient, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
@@ -189,6 +191,37 @@ func requireEstablishedCRD(ctx context.Context, t *testing.T, client *apiextensi
 	t.Logf("CRD %s is Established", name)
 }
 
+func requireStatusSchemaConditionsOnly(ctx context.Context, t *testing.T, client *apiextensionsclient.Clientset, name string) {
+	t.Helper()
+	crd, err := client.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get CRD %s for status schema verification: %v", name, err)
+	}
+	if len(crd.Spec.Versions) != 1 {
+		t.Fatalf("CRD %s versions = %d, want exactly one served version", name, len(crd.Spec.Versions))
+	}
+	schema := crd.Spec.Versions[0].Schema
+	if schema == nil || schema.OpenAPIV3Schema == nil {
+		t.Fatalf("CRD %s missing OpenAPI v3 schema", name)
+	}
+	statusSchema, ok := schema.OpenAPIV3Schema.Properties["status"]
+	if !ok {
+		t.Fatalf("CRD %s schema has no status property", name)
+	}
+	gotProperties := make([]string, 0, len(statusSchema.Properties))
+	for property := range statusSchema.Properties {
+		gotProperties = append(gotProperties, property)
+	}
+	slices.Sort(gotProperties)
+	if !slices.Equal(gotProperties, []string{"conditions"}) {
+		t.Fatalf("CRD %s status properties = %v, want only conditions", name, gotProperties)
+	}
+	if _, ok := statusSchema.Properties["conditions"]; !ok {
+		t.Fatalf("CRD %s status.conditions schema is missing", name)
+	}
+	t.Logf("CRD %s status schema exposes only conditions", name)
+}
+
 func createObject(ctx context.Context, t *testing.T, client resourceClient, object map[string]any) *unstructured.Unstructured {
 	t.Helper()
 	created, err := client.Create(ctx, &unstructured.Unstructured{Object: object}, metav1.CreateOptions{})
@@ -226,6 +259,12 @@ func updateStatusAndRequireSpecUnchanged(ctx context.Context, t *testing.T, clie
 	if err := unstructured.SetNestedSlice(statusObject.Object, condition, "status", "conditions"); err != nil {
 		t.Fatalf("set status conditions on %s: %v", object.GetName(), err)
 	}
+	if err := unstructured.SetNestedField(statusObject.Object, true, "status", "synced"); err != nil {
+		t.Fatalf("set synthetic status synced field on %s: %v", object.GetName(), err)
+	}
+	if err := unstructured.SetNestedField(statusObject.Object, map[string]any{"id": "remote-id"}, "status", "remoteObject"); err != nil {
+		t.Fatalf("set synthetic status remoteObject field on %s: %v", object.GetName(), err)
+	}
 	updated, err := client.UpdateStatus(ctx, statusObject, metav1.UpdateOptions{})
 	if err != nil {
 		t.Fatalf("update status for %s: %v", object.GetName(), err)
@@ -236,6 +275,21 @@ func updateStatusAndRequireSpecUnchanged(ctx context.Context, t *testing.T, clie
 	}
 	if !conditionsFound || len(conditions) != 1 {
 		t.Fatalf("status conditions for %s = %#v, want one condition", object.GetName(), conditions)
+	}
+	statusMap, statusFound, err := unstructured.NestedMap(updated.Object, "status")
+	if err != nil {
+		t.Fatalf("read status map for %s: %v", object.GetName(), err)
+	}
+	if !statusFound {
+		t.Fatalf("status map for %s missing after status update", object.GetName())
+	}
+	gotStatusProperties := make([]string, 0, len(statusMap))
+	for property := range statusMap {
+		gotStatusProperties = append(gotStatusProperties, property)
+	}
+	slices.Sort(gotStatusProperties)
+	if !slices.Equal(gotStatusProperties, []string{"conditions"}) {
+		t.Fatalf("stored status properties for %s = %v, want only conditions", object.GetName(), gotStatusProperties)
 	}
 	if displayNameFound {
 		current, currentFound, err := unstructured.NestedString(updated.Object, "spec", displayField)

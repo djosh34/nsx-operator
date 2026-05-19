@@ -7,3 +7,4 @@
 .ralph/tasks/05-story-kubeapi-client/01-task-implement-typed-kubeapi-client.md
 .ralph/tasks/07-story-state-operator-runtime/01-task-implement-state-operator-runtime.md
 .ralph/tasks/08-story-manager-sweep-pipeline/01-task-implement-manager-sweep-pipeline.md
+.ralph/tasks/12-story-status-conditions/01-task-implement-status-condition-model.md

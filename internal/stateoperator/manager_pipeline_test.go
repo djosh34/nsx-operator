@@ -28,9 +28,30 @@ import (
 )
 
 func TestProcessManagerSnapshotGatherFailureOnlyPlansCloudStatus(t *testing.T) {
+	oldTime := time.Date(2026, 5, 19, 11, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	cloud.Generation = 4
+	cloud.Status = nsxv1alpha.NSXNetworkCloudStatus{Conditions: []metav1.Condition{
+		{
+			Type:               nsxv1alpha.ConditionReachable,
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: 3,
+			LastTransitionTime: metav1.NewTime(oldTime),
+			Reason:             "PreviousFailure",
+			Message:            "previous failure",
+		},
+		{
+			Type:               nsxv1alpha.ConditionSwept,
+			Status:             metav1.ConditionTrue,
+			ObservedGeneration: 3,
+			LastTransitionTime: metav1.NewTime(oldTime),
+			Reason:             "PreviousSuccess",
+			Message:            "previous success",
+		},
+	}}
 	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
-		Cloud:            *networkCloud("cloud-a", "nsx-a.example.test"),
+		Cloud:            *cloud,
 		NetworkCloudFQDN: "nsx-a.example.test",
 		LocalGroups: []nsxv1alpha.NSXGroup{
 			*managerGroup("managed-a", "nsx-a.example.test", "managed-a", nsxv1alpha.NSXGroupModeManage),
@@ -63,8 +84,10 @@ func TestProcessManagerSnapshotGatherFailureOnlyPlansCloudStatus(t *testing.T) {
 	if len(gotConditions) != 2 {
 		t.Fatalf("cloud status conditions = %#v, want Reachable and Swept", gotConditions)
 	}
-	requireCondition(t, gotConditions, nsxv1alpha.ConditionReachable, metav1.ConditionFalse, "GatherFailed", "nsx unavailable", now)
+	requireCondition(t, gotConditions, nsxv1alpha.ConditionReachable, metav1.ConditionFalse, "GatherFailed", "nsx unavailable", oldTime)
 	requireCondition(t, gotConditions, nsxv1alpha.ConditionSwept, metav1.ConditionFalse, "GatherFailed", "nsx unavailable", now)
+	requireObservedGeneration(t, gotConditions, nsxv1alpha.ConditionReachable, 4)
+	requireObservedGeneration(t, gotConditions, nsxv1alpha.ConditionSwept, 4)
 }
 
 func TestBuildBindingsSortsDeterministicallyAndRejectsDuplicates(t *testing.T) {
@@ -110,6 +133,40 @@ func TestBuildBindingsSortsDeterministicallyAndRejectsDuplicates(t *testing.T) {
 	}
 }
 
+func TestProcessManagerSnapshotSuccessfulGatherPlansCloudStatus(t *testing.T) {
+	oldTime := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 5, 19, 12, 15, 0, 0, time.UTC)
+	cloud := networkCloud("cloud-a", "nsx-a.example.test")
+	cloud.Generation = 6
+	cloud.Status = nsxv1alpha.NSXNetworkCloudStatus{Conditions: []metav1.Condition{{
+		Type:               nsxv1alpha.ConditionReachable,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: 5,
+		LastTransitionTime: metav1.NewTime(oldTime),
+		Reason:             "PreviousReachable",
+		Message:            "previous success",
+	}}}
+
+	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
+		Cloud:            *cloud,
+		NetworkCloudFQDN: "nsx-a.example.test",
+	}, now)
+	if err != nil {
+		t.Fatalf("ProcessManagerSnapshot() error = %v", err)
+	}
+	if plan.CloudStatus == nil {
+		t.Fatal("CloudStatus = nil, want successful cloud status")
+	}
+	gotConditions := plan.CloudStatus.Status.Conditions
+	if len(gotConditions) != 2 {
+		t.Fatalf("cloud status conditions = %#v, want Reachable and Swept", gotConditions)
+	}
+	requireCondition(t, gotConditions, nsxv1alpha.ConditionReachable, metav1.ConditionTrue, "GatherSucceeded", "NSX manager gather completed", oldTime)
+	requireCondition(t, gotConditions, nsxv1alpha.ConditionSwept, metav1.ConditionTrue, "SweepPlanned", "manager snapshot was processed", now)
+	requireObservedGeneration(t, gotConditions, nsxv1alpha.ConditionReachable, 6)
+	requireObservedGeneration(t, gotConditions, nsxv1alpha.ConditionSwept, 6)
+}
+
 func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testing.T) {
 	now := time.Date(2026, 5, 19, 12, 30, 0, 0, time.UTC)
 	segmentPath := "/infra/segments/web"
@@ -150,10 +207,22 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 	if plan.GroupStatuses[0].Name != "nsx-a.example.test--app-web" {
 		t.Fatalf("Group status name = %q, want observe upsert name", plan.GroupStatuses[0].Name)
 	}
+	requireConditionTypes(t, plan.GroupStatuses[0].Status.Conditions, []string{
+		nsxv1alpha.ConditionRemotePresent,
+		nsxv1alpha.ConditionSpecMatchesRemote,
+		nsxv1alpha.ConditionUnsupportedExpression,
+		nsxv1alpha.ConditionRealized,
+		nsxv1alpha.ConditionSynced,
+		nsxv1alpha.ConditionApplying,
+		nsxv1alpha.ConditionDeleting,
+	})
 	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionRemotePresent, metav1.ConditionTrue, "RemoteFound", "remote NSX group is present", now)
 	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionSpecMatchesRemote, metav1.ConditionTrue, "SpecMatches", "local group spec matches remote NSX group", now)
 	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionUnsupportedExpression, metav1.ConditionFalse, "SupportedExpression", "remote NSX group expression is representable", now)
+	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionRealized, metav1.ConditionTrue, "Realized", "remote NSX group is realized", now)
 	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionTrue, "Synced", "local group reflects remote NSX group", now)
+	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionFalse, "NotApplying", "no NSX write is planned", now)
+	requireCondition(t, plan.GroupStatuses[0].Status.Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned", now)
 }
 
 func TestProcessManagerSnapshotRemoteOnlyUnsupportedExpressionMarksUnsynced(t *testing.T) {
@@ -215,6 +284,7 @@ func TestProcessManagerSnapshotObserveGroupsMirrorRemoteAndDeleteWhenMissing(t *
 }
 
 func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMatching(t *testing.T) {
+	oldTime := time.Date(2026, 5, 19, 12, 30, 0, 0, time.UTC)
 	now := time.Date(2026, 5, 19, 13, 30, 0, 0, time.UTC)
 	drifted := managerGroup("manage-drifted", "nsx-a.example.test", "app-drifted", nsxv1alpha.NSXGroupModeManage)
 	drifted.Spec.DisplayName = "Desired Drifted"
@@ -222,6 +292,21 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 	matching := managerGroup("manage-matching", "nsx-a.example.test", "app-matching", nsxv1alpha.NSXGroupModeManage)
 	matching.Spec.DisplayName = "Matching"
 	matching.Spec.CIDRs = []string{"10.41.0.0/24"}
+	matching.Generation = 8
+	matching.Status = nsxv1alpha.NSXGroupStatus{Conditions: []metav1.Condition{{
+		Type:               nsxv1alpha.ConditionRemotePresent,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: 7,
+		LastTransitionTime: metav1.NewTime(oldTime),
+		Reason:             "PreviousRemoteFound",
+		Message:            "previous remote present",
+	}}}
+	matchingPending := managerGroup("manage-matching-pending", "nsx-a.example.test", "app-matching-pending", nsxv1alpha.NSXGroupModeManage)
+	matchingPending.Spec.DisplayName = "Matching Pending"
+	matchingPending.Spec.CIDRs = []string{"10.43.0.0/24"}
+	matchingFailed := managerGroup("manage-matching-failed", "nsx-a.example.test", "app-matching-failed", nsxv1alpha.NSXGroupModeManage)
+	matchingFailed.Spec.DisplayName = "Matching Failed"
+	matchingFailed.Spec.CIDRs = []string{"10.44.0.0/24"}
 	missing := managerGroup("manage-missing", "nsx-a.example.test", "app-missing", nsxv1alpha.NSXGroupModeManage)
 	missing.Spec.DisplayName = "Missing"
 	missing.Spec.CIDRs = []string{"10.42.0.0/24"}
@@ -229,7 +314,7 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
 		Cloud:            *networkCloud("cloud-a", "nsx-a.example.test"),
 		NetworkCloudFQDN: "nsx-a.example.test",
-		LocalGroups:      []nsxv1alpha.NSXGroup{*matching, *missing, *drifted},
+		LocalGroups:      []nsxv1alpha.NSXGroup{*matching, *matchingPending, *matchingFailed, *missing, *drifted},
 		RemoteGroups: []stateoperator.RemoteGroup{
 			{
 				Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-drifted"},
@@ -243,6 +328,20 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 				DisplayName:           "Matching",
 				CIDRs:                 []string{"10.41.0.0/24"},
 				IPAddressExpressionID: "matching-ip-expression",
+			},
+			{
+				Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-matching-pending"},
+				DisplayName:           "Matching Pending",
+				CIDRs:                 []string{"10.43.0.0/24"},
+				IPAddressExpressionID: "pending-ip-expression",
+				Raw:                   nsxclient.Group{State: "IN_PROGRESS"},
+			},
+			{
+				Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-matching-failed"},
+				DisplayName:           "Matching Failed",
+				CIDRs:                 []string{"10.44.0.0/24"},
+				IPAddressExpressionID: "failed-ip-expression",
+				Raw:                   nsxclient.Group{State: "FAILED"},
 			},
 		},
 	}, now)
@@ -261,12 +360,34 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 	if plan.ManagedWrites[1].Name != "manage-missing" || plan.ManagedWrites[1].IPAddressExpressionID != "" {
 		t.Fatalf("second ManagedWrite = %#v, want missing write without remote expression IDs", plan.ManagedWrites[1])
 	}
-	if len(plan.GroupStatuses) != 3 {
+	if len(plan.GroupStatuses) != 5 {
 		t.Fatalf("GroupStatuses = %#v, want status plans for all manage groups", plan.GroupStatuses)
 	}
+	requireConditionTypes(t, statusFor(t, plan.GroupStatuses, "manage-drifted").Conditions, []string{
+		nsxv1alpha.ConditionRemotePresent,
+		nsxv1alpha.ConditionSpecMatchesRemote,
+		nsxv1alpha.ConditionUnsupportedExpression,
+		nsxv1alpha.ConditionRealized,
+		nsxv1alpha.ConditionSynced,
+		nsxv1alpha.ConditionApplying,
+		nsxv1alpha.ConditionDeleting,
+	})
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-drifted").Conditions, nsxv1alpha.ConditionSpecMatchesRemote, metav1.ConditionFalse, "SpecDrifted", "local group spec does not match remote NSX group", now)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-drifted").Conditions, nsxv1alpha.ConditionRealized, metav1.ConditionTrue, "Realized", "remote NSX group is realized", now)
 	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-drifted").Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionTrue, "Applying", "managed NSX group update is planned", now)
 	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-matching").Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionTrue, "Synced", "local group matches remote NSX group", now)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-matching").Conditions, nsxv1alpha.ConditionRemotePresent, metav1.ConditionTrue, "RemoteFound", "remote NSX group is present", oldTime)
+	requireObservedGeneration(t, statusFor(t, plan.GroupStatuses, "manage-matching").Conditions, nsxv1alpha.ConditionRemotePresent, 8)
+	requireObservedGeneration(t, statusFor(t, plan.GroupStatuses, "manage-matching").Conditions, nsxv1alpha.ConditionSynced, 8)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-matching").Conditions, nsxv1alpha.ConditionApplying, metav1.ConditionFalse, "NotApplying", "no NSX write is planned", now)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-matching-pending").Conditions, nsxv1alpha.ConditionRealized, metav1.ConditionUnknown, "RealizationPending", "remote realization is still pending", now)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-matching-pending").Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionUnknown, "RealizationPending", "remote realization is still pending", now)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-matching-failed").Conditions, nsxv1alpha.ConditionRealized, metav1.ConditionFalse, "RealizationFailed", "remote NSX group is not realized", now)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-matching-failed").Conditions, nsxv1alpha.ConditionSynced, metav1.ConditionFalse, "RealizationFailed", "remote NSX group is not realized", now)
 	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-missing").Conditions, nsxv1alpha.ConditionRemotePresent, metav1.ConditionFalse, "RemoteMissing", "remote NSX group is missing", now)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-missing").Conditions, nsxv1alpha.ConditionSpecMatchesRemote, metav1.ConditionFalse, "RemoteMissing", "remote NSX group is missing", now)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-missing").Conditions, nsxv1alpha.ConditionRealized, metav1.ConditionUnknown, "RemoteMissing", "remote realization is unknown because the group is missing", now)
+	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-missing").Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned", now)
 }
 
 func TestRemoteGroupFromNSXGroupParsesExpressionsAndFlagsUnsupported(t *testing.T) {
@@ -831,4 +952,30 @@ func requireCondition(
 		return
 	}
 	t.Fatalf("condition %s not found in %#v", conditionType, conditions)
+}
+
+func requireObservedGeneration(t *testing.T, conditions []metav1.Condition, conditionType string, observedGeneration int64) {
+	t.Helper()
+
+	for _, condition := range conditions {
+		if condition.Type == conditionType {
+			if condition.ObservedGeneration != observedGeneration {
+				t.Fatalf("condition %s ObservedGeneration = %d, want %d", conditionType, condition.ObservedGeneration, observedGeneration)
+			}
+			return
+		}
+	}
+	t.Fatalf("condition %s not found in %#v", conditionType, conditions)
+}
+
+func requireConditionTypes(t *testing.T, conditions []metav1.Condition, want []string) {
+	t.Helper()
+
+	got := make([]string, 0, len(conditions))
+	for _, condition := range conditions {
+		got = append(got, condition.Type)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("condition types = %v, want %v", got, want)
+	}
 }

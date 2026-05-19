@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 02:38:07 CEST 2026
+Generated: Tue May 19 02:54:22 AM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -94,6 +94,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Implement Per-Manager Gather Process Apply Pipeline <status>done</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/12-story-status-conditions/01-task-implement-status-condition-model.md`
+
+```
+## Task: Implement Status Condition Model <status>done</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
