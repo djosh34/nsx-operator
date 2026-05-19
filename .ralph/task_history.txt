@@ -29,3 +29,4 @@ NONE
 .ralph/tasks/26-story-repository-layout/01-task-rationalize-config-crds-scripts-and-dockerfile.md
 .ralph/tasks/28-story-k8s-safe-names/01-task-make-generated-names-k8s-safe.md
 .ralph/tasks/25-story-cli-flag-help-errors/01-task-print-help-for-bad-flags.md
+.ralph/tasks/29-story-networkcloud-ingest-script/01-task-add-networkcloud-ingest-script.md
