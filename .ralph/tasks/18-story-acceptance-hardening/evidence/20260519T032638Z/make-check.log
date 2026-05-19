@@ -1,0 +1,57 @@
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/gofumpt -w .
+go vet ./...
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/golangci-lint run ./...
+0 issues.
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./...
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	(cached)
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/logging	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/names	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/startup	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -race ./...
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	(cached)
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/logging	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/names	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/startup	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)
+go test ./internal/nsxclient -run 'Test(MockAPIRouteInventoryIsSupportedAndContracted|TypedClientContractsAgainstMockAPI|SharedRateLimitedClientConcurrencyAgainstMockAPI)' -count=1
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	1.427s
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./internal/stateoperator -run 'TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI' -count=1
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	6.207s
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./api/v1alpha ./internal/kubeapi ./internal/startup ./internal/stateoperator ./cmd/nsx-operator -count=1
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	5.977s
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	53.052s
+ok  	github.com/djosh34/nsx-operator/internal/startup	29.566s
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	36.485s
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	0.016s
+GOMEMLIMIT=768MiB KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -tags largechaos ./internal/nsxclient ./internal/stateoperator -run 'Test(Large|Chaos|GroupReconcileManageUnavailableSetsUnknownConditionsAndDoNotRequeue)' -count=1 -timeout 20m
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	0.057s
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	16.464s
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -coverprofile=coverage.out -covermode=atomic ./...
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	(cached)	coverage: 100.0% of statements
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	(cached)	coverage: 80.8% of statements
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)	coverage: 100.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)	coverage: 82.9% of statements
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	(cached)	coverage: 87.8% of statements
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	(cached)	coverage: 80.9% of statements
+ok  	github.com/djosh34/nsx-operator/internal/logging	(cached)	coverage: 96.2% of statements
+ok  	github.com/djosh34/nsx-operator/internal/names	(cached)	coverage: 93.9% of statements
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	(cached)	coverage: 80.4% of statements
+ok  	github.com/djosh34/nsx-operator/internal/startup	(cached)	coverage: 82.8% of statements
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	(cached)	coverage: 80.2% of statements
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)	coverage: 91.1% of statements
+coverage 82.7% meets 80.0% threshold

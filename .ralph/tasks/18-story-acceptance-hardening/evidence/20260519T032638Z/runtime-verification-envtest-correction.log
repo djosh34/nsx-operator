@@ -1,0 +1,7 @@
+## corrected envtest-backed stateoperator default sweep evidence
+=== RUN   TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec
+--- PASS: TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec (6.25s)
+=== RUN   TestDefaultManagerSweepRemovesManagedFinalizerAfterConfirmedRemoteAbsence
+--- PASS: TestDefaultManagerSweepRemovesManagedFinalizerAfterConfirmedRemoteAbsence (5.55s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	11.822s

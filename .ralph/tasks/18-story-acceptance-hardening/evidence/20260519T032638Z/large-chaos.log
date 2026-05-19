@@ -1,0 +1,3 @@
+GOMEMLIMIT=768MiB KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -tags largechaos ./internal/nsxclient ./internal/stateoperator -run 'Test(Large|Chaos|GroupReconcileManageUnavailableSetsUnknownConditionsAndDoNotRequeue)' -count=1 -timeout 20m
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	0.056s
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	16.442s

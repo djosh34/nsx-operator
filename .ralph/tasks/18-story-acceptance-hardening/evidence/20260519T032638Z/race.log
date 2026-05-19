@@ -1,0 +1,12 @@
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	(cached)
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/logging	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/names	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	2.640s
+ok  	github.com/djosh34/nsx-operator/internal/startup	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	37.809s
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)

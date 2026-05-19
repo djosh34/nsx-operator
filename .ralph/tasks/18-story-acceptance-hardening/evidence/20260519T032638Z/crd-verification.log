@@ -1,0 +1,24 @@
+=== RUN   TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema
+    crd_integration_test.go:50: envtest Kubernetes API server version: 1.32.0
+    crd_integration_test.go:56: CRD nsxnetworkclouds.nsx.ing.com is Established
+    crd_integration_test.go:57: CRD nsxgroups.nsx.ing.com is Established
+    crd_integration_test.go:58: CRD nsxnetworkclouds.nsx.ing.com status schema exposes only conditions
+    crd_integration_test.go:59: CRD nsxgroups.nsx.ing.com status schema exposes only conditions
+W0519 05:28:04.206125   42285 warnings.go:70] unknown field "status.remoteObject"
+W0519 05:28:04.206186   42285 warnings.go:70] unknown field "status.synced"
+    crd_integration_test.go:82: status subresource update for cloud-a kept spec unchanged and stored Reachable condition
+W0519 05:28:04.207812   42285 warnings.go:70] unknown field "status.remoteObject"
+W0519 05:28:04.207822   42285 warnings.go:70] unknown field "status.synced"
+    crd_integration_test.go:83: status subresource update for group-a kept spec unchanged and stored Synced condition
+    crd_integration_test.go:85: field selector "spec.networkCloudFQDN=nsx-a.example.net" returned [cloud-a]
+    crd_integration_test.go:86: field selector "spec.networkCloudId=cloud-b" returned [cloud-b]
+    crd_integration_test.go:87: field selector "spec.networkCloudFQDN=nsx-a.example.net" returned [group-a]
+    crd_integration_test.go:88: field selector "spec.groupID=app-b" returned [group-b]
+    crd_integration_test.go:89: field selector "spec.mode=Manage" returned [group-a]
+    crd_integration_test.go:91: invalid NSXGroup/invalid-mode rejected: NSXGroup.nsx.ing.com "invalid-mode" is invalid: spec.mode: Unsupported value: "Invalid": supported values: "Observe", "Manage"
+    crd_integration_test.go:92: invalid NSXGroup/invalid-segment-path rejected: NSXGroup.nsx.ing.com "invalid-segment-path" is invalid: spec.segment_path: Invalid value: "integer": spec.segment_path in body must be of type string: "integer"
+    crd_integration_test.go:107: invalid NSXGroup/missing-cidrs rejected: NSXGroup.nsx.ing.com "missing-cidrs" is invalid: spec.cidrs: Required value
+    crd_integration_test.go:120: invalid NSXNetworkCloud/missing-fqdn rejected: NSXNetworkCloud.nsx.ing.com "missing-fqdn" is invalid: spec.networkCloudFQDN: Required value
+--- PASS: TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema (6.06s)
+PASS
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	6.076s

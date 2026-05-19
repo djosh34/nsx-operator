@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 05:22:32 AM CEST 2026
+Generated: Tue May 19 05:36:36 AM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -193,6 +193,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Build Test And E2E Setup <status>completed</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/18-story-acceptance-hardening/01-task-verify-full-acceptance-criteria.md`
+
+```
+## Task: Verify Full NSX Operator Acceptance Criteria <status>done</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

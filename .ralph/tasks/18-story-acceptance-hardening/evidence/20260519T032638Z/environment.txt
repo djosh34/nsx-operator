@@ -1,0 +1,51 @@
+evidence_dir=.ralph/tasks/18-story-acceptance-hardening/evidence/20260519T032638Z
+date_utc=2026-05-19T03:26:38+00:00
+date_local=2026-05-19T05:26:38+02:00
+hostname=lima-opencode-vm
+pwd=/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator
+git_commit=bbfe738d70b33ad73a0dab9656ae09e5f554c63b
+git_branch=master
+git_status_short_start
+ M .ralph/current_tasks.md
+ M .ralph/current_tasks_done.md
+?? .ralph/current_task.txt
+?? .ralph/progress/18.jsonl
+?? .ralph/tasks/18-story-acceptance-hardening/01-task-verify-full-acceptance-criteria_plans/
+?? .ralph/tasks/18-story-acceptance-hardening/evidence/
+git_status_short_end
+go_version=go version go1.26.3 linux/arm64
+docker_version_start
+Client: Docker Engine - Community
+ Version:           29.2.0
+ API version:       1.53
+ Go version:        go1.25.6
+ Git commit:        0b9d198
+ Built:             Mon Jan 26 19:27:30 2026
+ OS/Arch:           linux/arm64
+ Context:           default
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.2.0
+  API version:      1.53 (minimum version 1.44)
+  Go version:       go1.25.6
+  Git commit:       9c62384
+  Built:            Mon Jan 26 19:25:39 2026
+  OS/Arch:          linux/arm64
+  Experimental:     false
+ containerd:
+  Version:          v2.2.1
+  GitCommit:        dea7da592f5d1d2b7755e3a161be07f43fad8f75
+ runc:
+  Version:          1.4.0
+  GitCommit:        v1.4.0-0-g8bd78a9
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+docker_version_end
+setup_envtest_version=
+envtest_k8s_version=1.32.x
+mockapi_path=/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-t-mockapi
+mockapi_commit=289ef1c211ec4f1e304b86884972e24ecd5b8432
+mockapi_status_short_start
+mockapi_status_short_end

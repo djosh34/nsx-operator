@@ -1,0 +1,22 @@
+=== RUN   TestChaosLowRateSlowAndUnavailableManagerRequests
+    large_chaos_test.go:122: chaos evidence: low per-host limiter serialized 2 slow requests; one 503 was classified as ServiceUnavailableError and one request succeeded
+--- PASS: TestChaosLowRateSlowAndUnavailableManagerRequests (0.05s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	0.058s
+=== RUN   TestLargeRemoteGroupsPlanObserveUpserts
+    large_chaos_test.go:75: large remote evidence: planned 2000 observe upserts and statuses in 5.53834ms; heap_alloc_delta_bytes=5396128
+--- PASS: TestLargeRemoteGroupsPlanObserveUpserts (0.01s)
+=== RUN   TestLargeMixedGroupsThroughRealKubernetesClient
+    large_chaos_test.go:102: created 1000/10000 large Kubernetes groups
+    large_chaos_test.go:102: created 2000/10000 large Kubernetes groups
+    large_chaos_test.go:102: created 3000/10000 large Kubernetes groups
+    large_chaos_test.go:102: created 4000/10000 large Kubernetes groups
+    large_chaos_test.go:102: created 5000/10000 large Kubernetes groups
+    large_chaos_test.go:102: created 6000/10000 large Kubernetes groups
+    large_chaos_test.go:102: created 7000/10000 large Kubernetes groups
+    large_chaos_test.go:102: created 8000/10000 large Kubernetes groups
+    large_chaos_test.go:102: created 9000/10000 large Kubernetes groups
+    large_chaos_test.go:142: large Kubernetes evidence: created and paged 10000 real CRs, gathered 10000 local groups, planned 5000 managed writes and 5000 observe deletes in 10.911740443s
+--- PASS: TestLargeMixedGroupsThroughRealKubernetesClient (16.36s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	16.385s

@@ -1,0 +1,23 @@
+## nsxclient mockapi contracts
+=== RUN   TestMockAPIRouteInventoryIsSupportedAndContracted
+=== PAUSE TestMockAPIRouteInventoryIsSupportedAndContracted
+=== RUN   TestTypedClientContractsAgainstMockAPI
+=== PAUSE TestTypedClientContractsAgainstMockAPI
+=== RUN   TestSharedRateLimitedClientConcurrencyAgainstMockAPI
+    contract_test.go:350: mockapi concurrency evidence: same logical host nsx-mock-a.example.net:80 shared one in-flight slot; nsx-mock-a.example.net:8080 reached mockapi while :80 was blocked
+--- PASS: TestSharedRateLimitedClientConcurrencyAgainstMockAPI (0.88s)
+=== CONT  TestMockAPIRouteInventoryIsSupportedAndContracted
+=== CONT  TestTypedClientContractsAgainstMockAPI
+--- PASS: TestMockAPIRouteInventoryIsSupportedAndContracted (0.01s)
+--- PASS: TestTypedClientContractsAgainstMockAPI (0.61s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	1.487s
+## stateoperator mockapi lifecycle and write semantics
+=== RUN   TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI
+--- PASS: TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI (6.01s)
+=== RUN   TestManagedWriteUsesSelectedPatchEndpointsAndPreservesUnrelatedMockAPIExpressions
+--- PASS: TestManagedWriteUsesSelectedPatchEndpointsAndPreservesUnrelatedMockAPIExpressions (0.53s)
+=== RUN   TestManagedWriteDeletesOnlySelectedIPAddressExpressionWhenCIDRsAreAbsent
+--- PASS: TestManagedWriteDeletesOnlySelectedIPAddressExpressionWhenCIDRsAreAbsent (0.53s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	7.081s

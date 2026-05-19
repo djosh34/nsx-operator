@@ -1,0 +1,13 @@
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./...
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	(cached)
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/logging	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/names	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	1.555s
+ok  	github.com/djosh34/nsx-operator/internal/startup	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	38.195s
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)

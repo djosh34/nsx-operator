@@ -1,4 +1,4 @@
-## Task: Verify Full NSX Operator Acceptance Criteria <status>not_started</status> <passes>false</passes>
+## Task: Verify Full NSX Operator Acceptance Criteria <status>done</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
@@ -10,9 +10,31 @@ In scope: verify CRDs install on Kubernetes >= 1.32; API version is `nsx.ing.com
 </description>
 
 <acceptance_criteria>
-- [ ] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
-- [ ] The verification evidence is recorded in the task or linked artifact.
-- [ ] Completion is not based only on a shallow checkbox, assumption, or code inspection.
-- [ ] A final acceptance evidence bundle or linked artifact records commands, versions, logs, and pass/fail outputs.
-- [ ] Any unmet acceptance item is turned into a follow-up Ralph task before this task is marked passing.
+- [x] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
+- [x] The verification evidence is recorded in the task or linked artifact.
+- [x] Completion is not based only on a shallow checkbox, assumption, or code inspection.
+- [x] A final acceptance evidence bundle or linked artifact records commands, versions, logs, and pass/fail outputs.
+- [x] Any unmet acceptance item is turned into a follow-up Ralph task before this task is marked passing.
 </acceptance_criteria>
+
+<verification_evidence>
+Final evidence bundle: `.ralph/tasks/18-story-acceptance-hardening/evidence/20260519T032638Z/`
+
+Primary matrix: `.ralph/tasks/18-story-acceptance-hardening/evidence/20260519T032638Z/acceptance-matrix.md`
+
+Required checks completed:
+
+- `make test` passed; see `make-test.log`.
+- Explicit `go test -race ./...` passed with envtest assets; see `race.log`.
+- `make test-coverage` passed with total coverage `82.7%`, meeting the `80.0%` threshold; see `make-test-coverage.log`.
+- `make check` passed; see `make-check.log`.
+
+Additional acceptance evidence:
+
+- CRD install/schema/status/selectable-field verification passed against envtest Kubernetes `1.32.0`; see `crd-verification.log`.
+- NSX mockapi contract and Observe/Manage lifecycle verification passed against `../nsx-t-mockapi`; see `mockapi-contract.log`.
+- Runtime/controller/pipeline verification passed; one evidence collection command initially missed `KUBEBUILDER_ASSETS`, and the corrected rerun is recorded in `runtime-verification-envtest-correction.log`.
+- Large/chaos scenarios passed; verbose evidence includes 2000 remote groups, 10000 real CRs, 5000 managed writes, 5000 observe deletes, and limiter/unavailable chaos evidence; see `large-chaos.log` and `large-chaos-verbose.log`.
+
+No production code was changed for this verification task, and no unmet acceptance item required a follow-up Ralph task.
+</verification_evidence>

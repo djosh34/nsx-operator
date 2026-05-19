@@ -1,0 +1,137 @@
+## kube typed clients and selectable field filters
+=== RUN   TestNetworkCloudClientCreatesGetsAndListsByFieldSelector
+    client_test.go:64: typed network cloud create/get/list with field selector returned cloud-a
+--- PASS: TestNetworkCloudClientCreatesGetsAndListsByFieldSelector (5.30s)
+=== RUN   TestGroupClientCreatesGetsAndListsBySelectableFields
+    client_test.go:109: typed group list with filter returned [group-b]
+    client_test.go:110: typed group list with filter returned [group-a]
+    client_test.go:111: typed group list with filter returned [group-a]
+--- PASS: TestGroupClientCreatesGetsAndListsBySelectableFields (6.17s)
+=== RUN   TestFieldFilterExposesTypedFieldAndValue
+--- PASS: TestFieldFilterExposesTypedFieldAndValue (0.00s)
+=== RUN   TestInvalidResourceSpecificFiltersFailBeforeRequest
+--- PASS: TestInvalidResourceSpecificFiltersFailBeforeRequest (4.31s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	15.790s
+## startup manager and controller registration
+=== RUN   TestNewManagerRegistersControllersAndPeriodicSweeper
+W0519 05:28:59.683665   43606 reflector.go:492] pkg/mod/k8s.io/client-go@v0.32.13/tools/cache/reflector.go:251: watch of *v1alpha.NSXNetworkCloud ended with: an error on the server ("unable to decode an event from the watch stream: context canceled") has prevented the request from succeeding
+--- PASS: TestNewManagerRegistersControllersAndPeriodicSweeper (5.91s)
+=== RUN   TestNewManagerSharesRateLimitedTransportAcrossCloudSweeps
+W0519 05:29:06.035441   43606 reflector.go:492] pkg/mod/k8s.io/client-go@v0.32.13/tools/cache/reflector.go:251: watch of *v1alpha.NSXGroup ended with: an error on the server ("unable to decode an event from the watch stream: context canceled") has prevented the request from succeeding
+W0519 05:29:06.035657   43606 reflector.go:492] pkg/mod/k8s.io/client-go@v0.32.13/tools/cache/reflector.go:251: watch of *v1alpha.NSXNetworkCloud ended with: an error on the server ("unable to decode an event from the watch stream: context canceled") has prevented the request from succeeding
+--- PASS: TestNewManagerSharesRateLimitedTransportAcrossCloudSweeps (6.37s)
+=== RUN   TestNewManagerUsesConfiguredHTTPRateLimiterLimits
+--- PASS: TestNewManagerUsesConfiguredHTTPRateLimiterLimits (6.32s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/startup	18.619s
+## state operator scheduler and reconciles
+=== RUN   TestStartImmediatelySweepsAllNetworkClouds
+--- PASS: TestStartImmediatelySweepsAllNetworkClouds (0.00s)
+=== RUN   TestStartSkipsElapsedTicksAfterLongSweep
+--- PASS: TestStartSkipsElapsedTicksAfterLongSweep (0.00s)
+=== RUN   TestStartDoesNotOverlapSweeps
+--- PASS: TestStartDoesNotOverlapSweeps (0.05s)
+=== RUN   TestStartLogsSweepAndCloudFields
+--- PASS: TestStartLogsSweepAndCloudFields (0.00s)
+=== RUN   TestNetworkCloudReconcileLogsCloudAndDoesNotRequeue
+--- PASS: TestNetworkCloudReconcileLogsCloudAndDoesNotRequeue (0.00s)
+=== RUN   TestGroupReconcileObserveDoesNotMutateNSXOrRequeue
+--- PASS: TestGroupReconcileObserveDoesNotMutateNSXOrRequeue (0.00s)
+=== RUN   TestGroupReconcileManageAppliesNSXStatusFinalizerAndDoesNotRequeue
+--- PASS: TestGroupReconcileManageAppliesNSXStatusFinalizerAndDoesNotRequeue (0.00s)
+=== RUN   TestGroupReconcileManageDeletionDeletesNSXStatusKeepsFinalizerAndDoesNotRequeue
+--- PASS: TestGroupReconcileManageDeletionDeletesNSXStatusKeepsFinalizerAndDoesNotRequeue (0.00s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	0.067s
+## pipeline gather process apply boundaries
+=== RUN   TestProcessManagerSnapshotGatherFailureOnlyPlansCloudStatus
+--- PASS: TestProcessManagerSnapshotGatherFailureOnlyPlansCloudStatus (0.00s)
+=== RUN   TestProcessManagerSnapshotSuccessfulGatherPlansCloudStatus
+--- PASS: TestProcessManagerSnapshotSuccessfulGatherPlansCloudStatus (0.00s)
+=== RUN   TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts
+--- PASS: TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts (0.00s)
+=== RUN   TestProcessManagerSnapshotRemoteOnlyUnsupportedExpressionMarksUnsynced
+--- PASS: TestProcessManagerSnapshotRemoteOnlyUnsupportedExpressionMarksUnsynced (0.00s)
+=== RUN   TestProcessManagerSnapshotObserveGroupsMirrorRemoteAndDeleteWhenMissing
+--- PASS: TestProcessManagerSnapshotObserveGroupsMirrorRemoteAndDeleteWhenMissing (0.00s)
+=== RUN   TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMatching
+--- PASS: TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMatching (0.00s)
+=== RUN   TestProcessManagerSnapshotDeletingManageGroupPlansFinalizerRemovalAfterRemoteAbsence
+--- PASS: TestProcessManagerSnapshotDeletingManageGroupPlansFinalizerRemovalAfterRemoteAbsence (0.00s)
+=== RUN   TestProcessManagerSnapshotDeletingManageGroupPlansDeleteWhileRemoteExists
+--- PASS: TestProcessManagerSnapshotDeletingManageGroupPlansDeleteWhileRemoteExists (0.00s)
+=== RUN   TestGatherManagerSnapshotListsLocalGroupsByNormalizedFQDNAndUsesNSXPagination
+--- PASS: TestGatherManagerSnapshotListsLocalGroupsByNormalizedFQDNAndUsesNSXPagination (0.00s)
+=== RUN   TestApplyManagerPlanRunsOperationsInExactOrder
+--- PASS: TestApplyManagerPlanRunsOperationsInExactOrder (0.00s)
+=== RUN   TestApplyManagerPlanPatchesOnlyRepresentedGroupWriteFields
+--- PASS: TestApplyManagerPlanPatchesOnlyRepresentedGroupWriteFields (0.00s)
+=== RUN   TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec
+    manager_pipeline_test.go:1023: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec (0.00s)
+=== RUN   TestDefaultManagerSweepRemovesManagedFinalizerAfterConfirmedRemoteAbsence
+    manager_pipeline_test.go:1118: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepRemovesManagedFinalizerAfterConfirmedRemoteAbsence (0.00s)
+FAIL
+FAIL	github.com/djosh34/nsx-operator/internal/stateoperator	0.016s
+FAIL
+## nsx client transport semantics
+=== RUN   TestClientAddsBasicAuthToReadAndWriteRequests
+=== PAUSE TestClientAddsBasicAuthToReadAndWriteRequests
+=== RUN   TestDecodeListResultsStreamsTypedPointers
+=== PAUSE TestDecodeListResultsStreamsTypedPointers
+=== RUN   TestListMethodsFollowPaginationUntilCursorIsEmpty
+=== PAUSE TestListMethodsFollowPaginationUntilCursorIsEmpty
+=== RUN   TestWriteStatusErrorsAreTypedAndNotRetried
+=== PAUSE TestWriteStatusErrorsAreTypedAndNotRetried
+=== CONT  TestClientAddsBasicAuthToReadAndWriteRequests
+=== CONT  TestListMethodsFollowPaginationUntilCursorIsEmpty
+=== CONT  TestWriteStatusErrorsAreTypedAndNotRetried
+=== RUN   TestWriteStatusErrorsAreTypedAndNotRetried/Conflict
+=== PAUSE TestWriteStatusErrorsAreTypedAndNotRetried/Conflict
+=== RUN   TestWriteStatusErrorsAreTypedAndNotRetried/Precondition_Failed
+--- PASS: TestClientAddsBasicAuthToReadAndWriteRequests (0.00s)
+=== PAUSE TestWriteStatusErrorsAreTypedAndNotRetried/Precondition_Failed
+=== RUN   TestWriteStatusErrorsAreTypedAndNotRetried/Too_Many_Requests
+=== PAUSE TestWriteStatusErrorsAreTypedAndNotRetried/Too_Many_Requests
+=== RUN   TestWriteStatusErrorsAreTypedAndNotRetried/Service_Unavailable
+=== PAUSE TestWriteStatusErrorsAreTypedAndNotRetried/Service_Unavailable
+=== CONT  TestWriteStatusErrorsAreTypedAndNotRetried/Conflict
+=== CONT  TestWriteStatusErrorsAreTypedAndNotRetried/Service_Unavailable
+=== CONT  TestWriteStatusErrorsAreTypedAndNotRetried/Too_Many_Requests
+=== CONT  TestWriteStatusErrorsAreTypedAndNotRetried/Precondition_Failed
+=== CONT  TestDecodeListResultsStreamsTypedPointers
+--- PASS: TestWriteStatusErrorsAreTypedAndNotRetried (0.00s)
+    --- PASS: TestWriteStatusErrorsAreTypedAndNotRetried/Conflict (0.00s)
+    --- PASS: TestWriteStatusErrorsAreTypedAndNotRetried/Service_Unavailable (0.00s)
+    --- PASS: TestWriteStatusErrorsAreTypedAndNotRetried/Too_Many_Requests (0.00s)
+    --- PASS: TestWriteStatusErrorsAreTypedAndNotRetried/Precondition_Failed (0.00s)
+--- PASS: TestDecodeListResultsStreamsTypedPointers (0.00s)
+--- PASS: TestListMethodsFollowPaginationUntilCursorIsEmpty (0.00s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	0.005s
+=== RUN   TestRoundTripperSharesInFlightBucketAcrossWrappersForSameEffectiveHostPort
+=== PAUSE TestRoundTripperSharesInFlightBucketAcrossWrappersForSameEffectiveHostPort
+=== RUN   TestRoundTripperIsolatesDifferentPorts
+=== PAUSE TestRoundTripperIsolatesDifferentPorts
+=== RUN   TestRoundTripperReturnsContextErrorWhileWaitingForInFlightSlot
+=== PAUSE TestRoundTripperReturnsContextErrorWhileWaitingForInFlightSlot
+=== CONT  TestRoundTripperSharesInFlightBucketAcrossWrappersForSameEffectiveHostPort
+=== CONT  TestRoundTripperReturnsContextErrorWhileWaitingForInFlightSlot
+=== CONT  TestRoundTripperIsolatesDifferentPorts
+--- PASS: TestRoundTripperIsolatesDifferentPorts (0.00s)
+--- PASS: TestRoundTripperSharesInFlightBucketAcrossWrappersForSameEffectiveHostPort (0.05s)
+--- PASS: TestRoundTripperReturnsContextErrorWhileWaitingForInFlightSlot (0.07s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	0.078s
+=== RUN   TestNewStderrWritesJSONLToStderr
+--- PASS: TestNewStderrWritesJSONLToStderr (0.00s)
+PASS
+ok  	github.com/djosh34/nsx-operator/internal/logging	0.003s
+=== RUN   TestRunWritesValidJSONLToStderrForValidConfig
+--- PASS: TestRunWritesValidJSONLToStderrForValidConfig (0.00s)
+=== RUN   TestRunDoesNotWriteCredentialsToStderr
+--- PASS: TestRunDoesNotWriteCredentialsToStderr (0.00s)
+PASS
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	0.017s
