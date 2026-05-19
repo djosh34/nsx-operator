@@ -75,6 +75,7 @@ type ManagerPlan struct {
 	ObserveUpserts           []nsxv1alpha.NSXGroup
 	ManagedWrites            []ManagedGroupWrite
 	ManagedDeletes           []ManagedGroupDelete
+	ObserveFinalizerRemovals []string
 	ManagedFinalizerRemovals []string
 	GroupStatuses            []GroupStatusPlan
 	ObserveDeletes           []string
@@ -335,6 +336,9 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 		remote, exists := bindings.RemoteByKey[localBinding.Key]
 		switch localBinding.Group.Spec.Mode {
 		case nsxv1alpha.NSXGroupModeObserve:
+			if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
+				plan.ObserveFinalizerRemovals = append(plan.ObserveFinalizerRemovals, localBinding.Group.Name)
+			}
 			if !exists {
 				plan.ObserveDeletes = append(plan.ObserveDeletes, localBinding.Group.Name)
 				continue
@@ -452,6 +456,11 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 			return fmt.Errorf("update group status %q: %w", status.Name, err)
 		}
 	}
+	for _, name := range plan.ObserveFinalizerRemovals {
+		if err := kubeApplier.RemoveGroupFinalizer(ctx, name, GroupFinalizer); err != nil {
+			return fmt.Errorf("remove observe group finalizer %q: %w", name, err)
+		}
+	}
 	for _, name := range plan.ManagedFinalizerRemovals {
 		if err := kubeApplier.RemoveGroupFinalizer(ctx, name, GroupFinalizer); err != nil {
 			return fmt.Errorf("remove managed group finalizer %q: %w", name, err)
@@ -518,9 +527,12 @@ func defaultManagerSweep(
 			zap.Int("observeUpsertCount", len(plan.ObserveUpserts)),
 			zap.Int("managedWriteCount", len(plan.ManagedWrites)),
 			zap.Int("managedDeleteCount", len(plan.ManagedDeletes)),
+			zap.Int("observeFinalizerRemovalCount", len(plan.ObserveFinalizerRemovals)),
+			zap.Strings("observeFinalizerRemovalNames", plan.ObserveFinalizerRemovals),
 			zap.Int("managedFinalizerRemovalCount", len(plan.ManagedFinalizerRemovals)),
 			zap.Int("groupStatusCount", len(plan.GroupStatuses)),
 			zap.Int("observeDeleteCount", len(plan.ObserveDeletes)),
+			zap.Strings("observeDeleteNames", plan.ObserveDeletes),
 			zap.Bool("cloudStatusPlanned", plan.CloudStatus != nil),
 		)...)
 		metricsSnapshot, err := managerMetricsSnapshot(snapshot, plan)
@@ -578,7 +590,7 @@ func managerMetricsSnapshot(snapshot ManagerSnapshot, plan ManagerPlan) (operato
 		ListedGroups:         len(snapshot.RemoteGroups),
 		ObserveGroups:        observeGroups,
 		ManageGroups:         manageGroups,
-		ObserveUpdatesNeeded: len(plan.ObserveUpserts) + len(plan.ObserveDeletes) - remoteOnlyCreates,
+		ObserveUpdatesNeeded: len(plan.ObserveUpserts) + len(plan.ObserveDeletes) + len(plan.ObserveFinalizerRemovals) - remoteOnlyCreates,
 		ManageUpdatesNeeded:  len(plan.ManagedWrites) + len(plan.ManagedDeletes) + len(plan.ManagedFinalizerRemovals),
 		CreatesNeeded:        remoteOnlyCreates,
 	}, nil
@@ -758,8 +770,7 @@ func applyManagedPathExpression(ctx context.Context, managerClient ManagerClient
 func observeGroupFromRemote(name string, remote RemoteGroup) nsxv1alpha.NSXGroup {
 	return nsxv1alpha.NSXGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       name,
-			Finalizers: []string{GroupFinalizer},
+			Name: name,
 		},
 		Spec: observeSpecFromRemote(remote),
 	}

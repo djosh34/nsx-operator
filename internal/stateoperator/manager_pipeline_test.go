@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -199,8 +200,8 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 	if upsert.Name != "nsx-a.example.test-8443--app-web" {
 		t.Fatalf("Observe upsert name = %q, want deterministic cloud/group name", upsert.Name)
 	}
-	if !slices.Contains(upsert.Finalizers, stateoperator.GroupFinalizer) {
-		t.Fatalf("Observe upsert finalizers = %v, want %q", upsert.Finalizers, stateoperator.GroupFinalizer)
+	if len(upsert.Finalizers) != 0 {
+		t.Fatalf("Observe upsert finalizers = %v, want none", upsert.Finalizers)
 	}
 	wantSpec := nsxv1alpha.NSXGroupSpec{
 		NetworkCloudFQDN: "nsx-a.example.test:8443",
@@ -284,8 +285,8 @@ func TestProcessManagerSnapshotObserveGroupsMirrorRemoteAndDeleteWhenMissing(t *
 	if plan.ObserveUpserts[0].Name != "observe-drifted" {
 		t.Fatalf("ObserveUpsert name = %q, want existing CR name", plan.ObserveUpserts[0].Name)
 	}
-	if !slices.Contains(plan.ObserveUpserts[0].Finalizers, stateoperator.GroupFinalizer) {
-		t.Fatalf("ObserveUpsert finalizers = %v, want %q", plan.ObserveUpserts[0].Finalizers, stateoperator.GroupFinalizer)
+	if len(plan.ObserveUpserts[0].Finalizers) != 0 {
+		t.Fatalf("ObserveUpsert finalizers = %v, want none", plan.ObserveUpserts[0].Finalizers)
 	}
 	if plan.ObserveUpserts[0].Spec.DisplayName != "Remote App" || !reflect.DeepEqual(plan.ObserveUpserts[0].Spec.CIDRs, []string{"10.31.0.0/24"}) {
 		t.Fatalf("ObserveUpsert spec = %#v, want remote replacement spec", plan.ObserveUpserts[0].Spec)
@@ -295,6 +296,36 @@ func TestProcessManagerSnapshotObserveGroupsMirrorRemoteAndDeleteWhenMissing(t *
 	}
 	if len(plan.GroupStatuses) != 1 || plan.GroupStatuses[0].Name != "observe-drifted" {
 		t.Fatalf("GroupStatuses = %#v, want status for remote-present observe", plan.GroupStatuses)
+	}
+}
+
+func TestProcessManagerSnapshotObserveGroupWithLegacyFinalizerPlansFinalizerRemovalOnly(t *testing.T) {
+	now := time.Date(2026, 5, 19, 13, 15, 0, 0, time.UTC)
+	observe := managerGroup("observe-legacy", "nsx-a.example.test", "app-legacy", nsxv1alpha.NSXGroupModeObserve)
+	observe.Spec.DisplayName = "Legacy App"
+	observe.Finalizers = []string{stateoperator.GroupFinalizer, "example.test/keep"}
+
+	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
+		Cloud:            *networkCloud("cloud-a", "nsx-a.example.test"),
+		NetworkCloudFQDN: "nsx-a.example.test",
+		LocalGroups:      []nsxv1alpha.NSXGroup{*observe},
+		RemoteGroups: []stateoperator.RemoteGroup{{
+			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-legacy"},
+			DisplayName: "Legacy App",
+			CIDRs:       []string{"10.0.0.0/24"},
+		}},
+	}, now)
+	if err != nil {
+		t.Fatalf("ProcessManagerSnapshot() error = %v", err)
+	}
+	if len(plan.ObserveFinalizerRemovals) != 1 || plan.ObserveFinalizerRemovals[0] != "observe-legacy" {
+		t.Fatalf("ObserveFinalizerRemovals = %#v, want observe-legacy", plan.ObserveFinalizerRemovals)
+	}
+	if len(plan.ObserveUpserts) != 0 {
+		t.Fatalf("ObserveUpserts = %#v, want none for matching Observe group", plan.ObserveUpserts)
+	}
+	if len(plan.ManagedWrites) != 0 || len(plan.ManagedDeletes) != 0 {
+		t.Fatalf("managed operations = writes %#v deletes %#v, want none", plan.ManagedWrites, plan.ManagedDeletes)
 	}
 }
 
@@ -711,8 +742,9 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 		GroupStatuses: []stateoperator.GroupStatusPlan{
 			{Name: "manage-drifted"},
 		},
-		ObserveDeletes: []string{"observe-missing"},
-		CloudStatus:    &stateoperator.CloudStatusPlan{Name: "cloud-a"},
+		ObserveFinalizerRemovals: []string{"observe-missing"},
+		ObserveDeletes:           []string{"observe-missing"},
+		CloudStatus:              &stateoperator.CloudStatusPlan{Name: "cloud-a"},
 	}
 
 	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, plan)
@@ -728,6 +760,7 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 		"add-ip:app-missing:cidrs",
 		"delete-group:app-delete",
 		"group-status:manage-drifted",
+		"remove-finalizer:observe-missing:nsx.ing.com/finalizer",
 		"delete-group-cr:observe-missing",
 		"cloud-status:cloud-a",
 	}
@@ -984,12 +1017,14 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 		t.Fatalf("create typed cloud: %v", err)
 	}
 	localObserve := managerGroup("observe-stale", "nsx-a.example.test", "stale", nsxv1alpha.NSXGroupModeObserve)
+	localObserve.Finalizers = []string{stateoperator.GroupFinalizer}
 	if _, err := typedClient.Groups().Create(ctx, localObserve, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("create typed group: %v", err)
 	}
 	driftedObserve := managerGroup("observe-drifted", "nsx-a.example.test", "remote-replace", nsxv1alpha.NSXGroupModeObserve)
 	driftedObserve.Spec.DisplayName = "Old Remote"
 	driftedObserve.Spec.CIDRs = []string{"10.70.0.0/24"}
+	driftedObserve.Finalizers = []string{stateoperator.GroupFinalizer}
 	if _, err := typedClient.Groups().Create(ctx, driftedObserve, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("create drifted typed group: %v", err)
 	}
@@ -1038,8 +1073,8 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 	if err != nil {
 		t.Fatalf("get imported observe group: %v", err)
 	}
-	if !slices.Contains(imported.Finalizers, stateoperator.GroupFinalizer) {
-		t.Fatalf("imported finalizers = %v, want %q", imported.Finalizers, stateoperator.GroupFinalizer)
+	if len(imported.Finalizers) != 0 {
+		t.Fatalf("imported finalizers = %v, want none", imported.Finalizers)
 	}
 	if imported.Spec.Mode != nsxv1alpha.NSXGroupModeObserve || imported.Spec.DisplayName != "Remote Import" {
 		t.Fatalf("imported spec = %#v, want Observe Remote Import", imported.Spec)
@@ -1049,8 +1084,8 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 	if err != nil {
 		t.Fatalf("get replaced observe group: %v", err)
 	}
-	if !slices.Contains(replaced.Finalizers, stateoperator.GroupFinalizer) {
-		t.Fatalf("replaced finalizers = %v, want %q", replaced.Finalizers, stateoperator.GroupFinalizer)
+	if slices.Contains(replaced.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("replaced finalizers = %v, want no %q", replaced.Finalizers, stateoperator.GroupFinalizer)
 	}
 	if replaced.Spec.DisplayName != "Remote Replacement" || !reflect.DeepEqual(replaced.Spec.CIDRs, []string{"10.71.0.0/24"}) {
 		t.Fatalf("replaced spec = %#v, want remote replacement spec", replaced.Spec)
@@ -1068,7 +1103,7 @@ nsx_operator_nsx_group_cr_creates_needed_total{manager="nsx-a.example.test"} 1
 # HELP nsx_operator_nsx_group_cr_updates_needed_total Last manager sweep total group CR updates needed by mode.
 # TYPE nsx_operator_nsx_group_cr_updates_needed_total gauge
 nsx_operator_nsx_group_cr_updates_needed_total{manager="nsx-a.example.test",mode="manage"} 0
-nsx_operator_nsx_group_cr_updates_needed_total{manager="nsx-a.example.test",mode="observe"} 2
+nsx_operator_nsx_group_cr_updates_needed_total{manager="nsx-a.example.test",mode="observe"} 4
 # HELP nsx_operator_nsx_groups_listed_total Last manager sweep total groups listed from NSX.
 # TYPE nsx_operator_nsx_groups_listed_total gauge
 nsx_operator_nsx_groups_listed_total{manager="nsx-a.example.test"} 2
@@ -1384,6 +1419,63 @@ func TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI(t *testing.T) {
 	requireMockAPIGroupAbsent(ctx, t, managerClient, "manage-remote")
 }
 
+func TestLifecycleObserveMissingRemoteDeletesCRAgainstMockAPIWithoutNSXDelete(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+
+	mock := startStateoperatorMockAPI(t, ctx)
+	managerClient := newStateoperatorMockAPIClient(t, mock.baseURL)
+	if err := managerClient.PatchGroup(ctx, "observe-missing-remote", &nsxclient.GroupPatch{DisplayName: "Observe Missing Remote", ResourceType: "Group"}); err != nil {
+		t.Fatalf("seed observe remote group: %v\nmockapi logs:\n%s", err, mock.logs())
+	}
+	requireMockAPIGroupPresent(ctx, t, managerClient, "observe-missing-remote")
+	if err := managerClient.DeleteGroup(ctx, "observe-missing-remote"); err != nil {
+		t.Fatalf("delete observe remote outside operator: %v\nmockapi logs:\n%s", err, mock.logs())
+	}
+	requireMockAPIGroupAbsent(ctx, t, managerClient, "observe-missing-remote")
+
+	clients, stopClients := startStateoperatorClients(t)
+	t.Cleanup(stopClients)
+	cloud := networkCloud("cloud-observe-missing", "nsx-a.example.test")
+	if _, err := clients.typed.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create observe missing cloud: %v", err)
+	}
+	observe := managerGroup("observe-missing-remote", "nsx-a.example.test", "observe-missing-remote", nsxv1alpha.NSXGroupModeObserve)
+	observe.Finalizers = []string{stateoperator.GroupFinalizer}
+	if _, err := clients.typed.Groups().Create(ctx, observe, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create observe missing group: %v", err)
+	}
+
+	recordingClient := &deleteRecordingManagerClient{ManagerClient: managerClient}
+	operator, err := stateoperator.New(stateoperator.Options{
+		Client:       clients.controller,
+		KubeClient:   clients.typed,
+		TickInterval: time.Hour,
+		Logger:       zap.NewNop(),
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			return recordingClient, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	operatorErr := make(chan error, 1)
+	operatorCtx, stopOperator := context.WithCancel(ctx)
+	go func() {
+		operatorErr <- operator.Start(operatorCtx)
+	}()
+	requireTypedGroupDeleted(ctx, t, clients.typed, observe.Name)
+	stopOperator()
+	if err := <-operatorErr; err != nil {
+		t.Fatalf("operator Start() error = %v", err)
+	}
+	if calls := recordingClient.deleteCalls(); len(calls) != 0 {
+		t.Fatalf("operator NSX deletes = %v, want none for missing Observe remote", calls)
+	}
+	requireMockAPIGroupAbsent(ctx, t, managerClient, "observe-missing-remote")
+}
+
 func TestLifecycleCloudDeletionLeavesChildGroupsAndStopsDefaultSweepThroughTypedKubeAPI(t *testing.T) {
 	clients, stop := startStateoperatorClients(t)
 	t.Cleanup(stop)
@@ -1488,6 +1580,25 @@ type operationRecorder struct {
 	pathExpressions map[string]*nsxclient.PathExpressionPatch
 	patchGroupErr   error
 	deleteGroupErr  error
+}
+
+type deleteRecordingManagerClient struct {
+	stateoperator.ManagerClient
+	mu      sync.Mutex
+	deletes []string
+}
+
+func (c *deleteRecordingManagerClient) DeleteGroup(ctx context.Context, groupID string) error {
+	c.mu.Lock()
+	c.deletes = append(c.deletes, groupID)
+	c.mu.Unlock()
+	return fmt.Errorf("unexpected operator nsx delete for %q", groupID)
+}
+
+func (c *deleteRecordingManagerClient) deleteCalls() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.deletes...)
 }
 
 func (r *operationRecorder) ApplyGroup(_ context.Context, group nsxv1alpha.NSXGroup) error {

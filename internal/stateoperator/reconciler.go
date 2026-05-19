@@ -116,31 +116,13 @@ func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 		zap.String("mode", string(group.Spec.Mode)),
 	)
 	if group.Spec.Mode == nsxv1alpha.NSXGroupModeObserve && group.DeletionTimestamp != nil {
-		if slices.Contains(group.Finalizers, GroupFinalizer) {
-			group.Finalizers = slices.DeleteFunc(group.Finalizers, func(finalizer string) bool {
-				return finalizer == GroupFinalizer
-			})
-			if err := r.Client.Update(ctx, &group); err != nil {
-				logger.Info(
-					"observe group finalizer removal failed",
-					logging.Component("stateoperator"),
-					logging.ReconcileKey(reconcileKey(req.NamespacedName)),
-					zap.String("groupName", group.Name),
-					zap.Error(err),
-				)
-				return reconcile.Result{}, fmt.Errorf("remove observe nsx group finalizer %q: %w", group.Name, err)
-			}
-			logger.Info(
-				"removed observe group finalizer",
-				logging.Component("stateoperator"),
-				logging.ReconcileKey(reconcileKey(req.NamespacedName)),
-				zap.String("groupName", group.Name),
-			)
+		if err := r.removeGroupFinalizer(ctx, &group, logger, req); err != nil {
+			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	}
 	if group.Spec.Mode == nsxv1alpha.NSXGroupModeObserve && group.DeletionTimestamp == nil {
-		if err := r.ensureGroupFinalizer(ctx, &group, logger, req); err != nil {
+		if err := r.removeGroupFinalizer(ctx, &group, logger, req); err != nil {
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
@@ -331,6 +313,38 @@ func (r GroupReconciler) ensureGroupFinalizer(ctx context.Context, group *nsxv1a
 		logging.Component("stateoperator"),
 		logging.ReconcileKey(reconcileKey(req.NamespacedName)),
 		zap.String("groupName", group.Name),
+	)
+	return nil
+}
+
+func (r GroupReconciler) removeGroupFinalizer(ctx context.Context, group *nsxv1alpha.NSXGroup, logger *zap.Logger, req reconcile.Request) error {
+	if !slices.Contains(group.Finalizers, GroupFinalizer) {
+		return nil
+	}
+	group.Finalizers = slices.DeleteFunc(group.Finalizers, func(finalizer string) bool {
+		return finalizer == GroupFinalizer
+	})
+	if err := r.Client.Update(ctx, group); err != nil {
+		logger.Info(
+			"observe group finalizer removal failed",
+			logging.Component("stateoperator"),
+			logging.ReconcileKey(reconcileKey(req.NamespacedName)),
+			zap.String("groupName", group.Name),
+			logging.NetworkCloudFQDN(group.Spec.NetworkCloudFQDN),
+			zap.String("groupID", group.Spec.GroupID),
+			zap.String("mode", string(group.Spec.Mode)),
+			zap.Error(err),
+		)
+		return fmt.Errorf("remove observe nsx group finalizer %q: %w", group.Name, err)
+	}
+	logger.Info(
+		"removed observe group finalizer",
+		logging.Component("stateoperator"),
+		logging.ReconcileKey(reconcileKey(req.NamespacedName)),
+		zap.String("groupName", group.Name),
+		logging.NetworkCloudFQDN(group.Spec.NetworkCloudFQDN),
+		zap.String("groupID", group.Spec.GroupID),
+		zap.String("mode", string(group.Spec.Mode)),
 	)
 	return nil
 }

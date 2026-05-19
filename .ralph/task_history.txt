@@ -24,3 +24,4 @@ NONE
 NONE
 .ralph/tasks/22-story-nsx-write-disable-controls/01-task-add-nsx-write-disable-controls.md
 .ralph/tasks/23-story-targeted-metrics/01-task-add-targeted-operator-metrics.md
+.ralph/tasks/13-story-object-lifecycle/02-task-remove-observe-finalizers-and-autodelete-missing-observe-groups.md

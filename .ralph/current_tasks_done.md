@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Tue May 19 11:04:55 AM CEST 2026
+Generated: Tue May 19 20:45:26 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -149,6 +149,17 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Implement Finalizer And Object Lifecycle Rules <status>completed</status> <passes>true</passes>
+
+<description>
+Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/13-story-object-lifecycle/02-task-remove-observe-finalizers-and-autodelete-missing-observe-groups.md`
+
+```
+## Task: Remove Observe Finalizers And Autodelete Missing Observe Groups <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

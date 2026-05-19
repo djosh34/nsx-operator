@@ -435,9 +435,52 @@ func TestGroupReconcileObserveDoesNotMutateNSXOrRequeue(t *testing.T) {
 	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
 		t.Fatalf("get updated group: %v", err)
 	}
-	if !slices.Contains(updated.Finalizers, stateoperator.GroupFinalizer) {
-		t.Fatalf("finalizers = %v, want %q added", updated.Finalizers, stateoperator.GroupFinalizer)
+	if slices.Contains(updated.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("finalizers = %v, want no %q", updated.Finalizers, stateoperator.GroupFinalizer)
 	}
+}
+
+func TestGroupReconcileObserveRemovesLegacyFinalizerWithoutNSXMutation(t *testing.T) {
+	scheme := newScheme(t)
+	group := managerGroup("group-a", "nsx-a.example.test", "group-a", nsxv1alpha.NSXGroupModeObserve)
+	group.Finalizers = []string{stateoperator.GroupFinalizer, "example.test/keep"}
+	core, logs := observer.New(zapcore.DebugLevel)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(group).
+		Build()
+	reconciler := stateoperator.GroupReconciler{
+		Client: kubeClient,
+		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
+			t.Fatalf("observe reconcile constructed NSX manager client")
+			return nil, nil
+		},
+		Logger: zap.New(core),
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	var updated nsxv1alpha.NSXGroup
+	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+		t.Fatalf("get updated group: %v", err)
+	}
+	if slices.Contains(updated.Finalizers, stateoperator.GroupFinalizer) {
+		t.Fatalf("finalizers = %v, want no %q", updated.Finalizers, stateoperator.GroupFinalizer)
+	}
+	if !slices.Contains(updated.Finalizers, "example.test/keep") {
+		t.Fatalf("finalizers = %v, want unrelated finalizer kept", updated.Finalizers)
+	}
+	requireLogField(t, logs, "removed observe group finalizer", "groupName", "group-a")
+	requireLogField(t, logs, "removed observe group finalizer", "networkCloudFQDN", "nsx-a.example.test")
+	requireLogField(t, logs, "removed observe group finalizer", "groupID", "group-a")
+	requireLogField(t, logs, "removed observe group finalizer", "mode", string(nsxv1alpha.NSXGroupModeObserve))
 }
 
 func TestGroupReconcileMissingGroupDoesNotRequeue(t *testing.T) {
