@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"reflect"
 	"sort"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
 	"github.com/djosh34/nsx-operator/internal/kubeapi"
 	"github.com/djosh34/nsx-operator/internal/logging"
+	"github.com/djosh34/nsx-operator/internal/names"
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
 	"github.com/djosh34/nsx-operator/internal/statuscondition"
 	"go.uber.org/zap"
@@ -220,7 +220,7 @@ func GatherManagerSnapshot(
 	listGroups GroupListFunc,
 	managerClientFactory ManagerClientFactory,
 ) (ManagerSnapshot, error) {
-	normalizedFQDN := NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
+	normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
 	snapshot := ManagerSnapshot{
 		Cloud:            cloud,
 		NetworkCloudFQDN: normalizedFQDN,
@@ -301,7 +301,10 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 		if _, exists := bindings.LocalByKey[remoteBinding.Key]; exists {
 			continue
 		}
-		name := observeGroupName(remoteBinding.Key)
+		name := names.NSXGroupName(names.NSXGroupLogicalID{
+			NetworkCloudFQDN: remoteBinding.Key.NetworkCloudFQDN,
+			GroupID:          remoteBinding.Key.GroupID,
+		})
 		plan.ObserveUpserts = append(plan.ObserveUpserts, nsxv1alpha.NSXGroup{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 			Spec:       observeSpecFromRemote(remoteBinding.Remote),
@@ -426,7 +429,7 @@ func defaultManagerSweep(
 		logger = zap.NewNop()
 	}
 	return func(ctx context.Context, cloud nsxv1alpha.NSXNetworkCloud, sweep SweepContext) error {
-		normalizedFQDN := NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
+		normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
 		fields := []zap.Field{
 			logging.Component("stateoperator"),
 			logging.SweepID(sweep.ID),
@@ -582,17 +585,10 @@ func applyManagedWrite(ctx context.Context, managerClient ManagerClient, write M
 	return nil
 }
 
-func observeGroupName(key BindingKey) string {
-	cloud := strings.TrimSpace(strings.ToLower(key.NetworkCloudFQDN))
-	cloud = strings.ReplaceAll(cloud, ":", "-")
-	groupID := strings.TrimSpace(key.GroupID)
-	return cloud + "--" + groupID
-}
-
 func observeSpecFromRemote(remote RemoteGroup) nsxv1alpha.NSXGroupSpec {
 	return nsxv1alpha.NSXGroupSpec{
-		NetworkCloudFQDN: remote.Key.NetworkCloudFQDN,
-		GroupID:          remote.Key.GroupID,
+		NetworkCloudFQDN: names.NormalizeNetworkCloudFQDN(remote.Key.NetworkCloudFQDN),
+		GroupID:          strings.TrimSpace(remote.Key.GroupID),
 		DisplayName:      remote.DisplayName,
 		Mode:             nsxv1alpha.NSXGroupModeObserve,
 		CIDRs:            copyStringSlice(remote.CIDRs),
@@ -749,14 +745,4 @@ func copyStringSlice(values []string) []string {
 		return []string{}
 	}
 	return append([]string(nil), values...)
-}
-
-func NormalizeNetworkCloudFQDN(value string) string {
-	trimmed := strings.TrimSpace(value)
-	trimmed = strings.TrimRight(trimmed, "/")
-	parsed, err := url.Parse(trimmed)
-	if err == nil && parsed.Host != "" {
-		return strings.ToLower(parsed.Host)
-	}
-	return strings.ToLower(trimmed)
 }

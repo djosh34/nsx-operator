@@ -8,6 +8,7 @@ import (
 	"github.com/djosh34/nsx-operator/internal/config"
 	"github.com/djosh34/nsx-operator/internal/kubeapi"
 	"github.com/djosh34/nsx-operator/internal/logging"
+	"github.com/djosh34/nsx-operator/internal/names"
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
 	"github.com/djosh34/nsx-operator/internal/stateoperator"
 	"go.uber.org/zap"
@@ -81,7 +82,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		return nil, fmt.Errorf("construct typed kubernetes crd client: %w", err)
 	}
 	managerClientFactory := func(_ context.Context, cloud nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
-		normalizedFQDN := stateoperator.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
+		normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
 		client, err := nsxclient.NewClient(nsxclient.Options{
 			BaseURL:  "https://" + normalizedFQDN,
 			Username: options.Config.NSX.Auth.Username,

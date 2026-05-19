@@ -9,3 +9,4 @@
 .ralph/tasks/08-story-manager-sweep-pipeline/01-task-implement-manager-sweep-pipeline.md
 .ralph/tasks/12-story-status-conditions/01-task-implement-status-condition-model.md
 .ralph/tasks/09-story-reconcile-behavior/01-task-implement-controller-reconcile-behavior.md
+.ralph/tasks/16-story-names-and-keys/01-task-implement-names-and-keys.md

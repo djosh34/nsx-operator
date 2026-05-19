@@ -1,6 +1,6 @@
 # Current Tasks Summary
 
-Generated: Tue May 19 03:13:47 AM CEST 2026
+Generated: Tue May 19 03:27:25 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/10-story-observe-reconciliation/01-task-implement-observe-reconciliation.md`
 
@@ -50,17 +50,6 @@ Must be manually verified with concrete evidence that it works.
 
 ```
 ## Task: Validate HTTP Concurrency Model Across Manager Goroutines <status>not_started</status> <passes>false</passes>
-
-<description>
-Must be manually verified with concrete evidence that it works.
-```
-
-==============
-
-# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/16-story-names-and-keys/01-task-implement-names-and-keys.md`
-
-```
-## Task: Implement NSXGroup Names And Keys <status>not_started</status> <passes>false</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.

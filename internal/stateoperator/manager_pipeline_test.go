@@ -171,10 +171,10 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 	now := time.Date(2026, 5, 19, 12, 30, 0, 0, time.UTC)
 	segmentPath := "/infra/segments/web"
 	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
-		Cloud:            *networkCloud("cloud-a", "NSX-A.Example.Test"),
-		NetworkCloudFQDN: "nsx-a.example.test",
+		Cloud:            *networkCloud("cloud-a", "NSX-A.Example.Test:8443"),
+		NetworkCloudFQDN: "nsx-a.example.test:8443",
 		RemoteGroups: []stateoperator.RemoteGroup{{
-			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-web"},
+			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "NSX-A.Example.Test:8443", GroupID: "app-web"},
 			DisplayName: "App Web",
 			CIDRs:       []string{"10.20.0.0/24", "10.20.1.0/24"},
 			SegmentPath: &segmentPath,
@@ -187,11 +187,11 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 		t.Fatalf("ObserveUpserts = %#v, want one remote-only import", plan.ObserveUpserts)
 	}
 	upsert := plan.ObserveUpserts[0]
-	if upsert.Name != "nsx-a.example.test--app-web" {
+	if upsert.Name != "nsx-a.example.test-8443--app-web" {
 		t.Fatalf("Observe upsert name = %q, want deterministic cloud/group name", upsert.Name)
 	}
 	wantSpec := nsxv1alpha.NSXGroupSpec{
-		NetworkCloudFQDN: "nsx-a.example.test",
+		NetworkCloudFQDN: "nsx-a.example.test:8443",
 		GroupID:          "app-web",
 		DisplayName:      "App Web",
 		Mode:             nsxv1alpha.NSXGroupModeObserve,
@@ -204,7 +204,7 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 	if len(plan.GroupStatuses) != 1 {
 		t.Fatalf("GroupStatuses = %#v, want one status update", plan.GroupStatuses)
 	}
-	if plan.GroupStatuses[0].Name != "nsx-a.example.test--app-web" {
+	if plan.GroupStatuses[0].Name != "nsx-a.example.test-8443--app-web" {
 		t.Fatalf("Group status name = %q, want observe upsert name", plan.GroupStatuses[0].Name)
 	}
 	requireConditionTypes(t, plan.GroupStatuses[0].Status.Conditions, []string{
@@ -600,6 +600,36 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 	if !reflect.DeepEqual(recorder.operations, want) {
 		t.Fatalf("operations = %v, want %v", recorder.operations, want)
 	}
+}
+
+func TestApplyManagerPlanRejectsMissingRequiredClients(t *testing.T) {
+	t.Run("kubernetes applier", func(t *testing.T) {
+		err := stateoperator.ApplyManagerPlan(context.Background(), nil, &operationRecorder{}, stateoperator.ManagerPlan{})
+		if err == nil {
+			t.Fatal("ApplyManagerPlan() error = nil, want missing kubernetes applier error")
+		}
+	})
+
+	t.Run("manager client for managed write", func(t *testing.T) {
+		err := stateoperator.ApplyManagerPlan(context.Background(), &operationRecorder{}, nil, stateoperator.ManagerPlan{
+			ManagedWrites: []stateoperator.ManagedGroupWrite{{
+				Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-write"},
+				DisplayName: "App Write",
+			}},
+		})
+		if err == nil {
+			t.Fatal("ApplyManagerPlan() error = nil, want missing manager client error")
+		}
+	})
+
+	t.Run("manager client for managed delete", func(t *testing.T) {
+		err := stateoperator.ApplyManagerPlan(context.Background(), &operationRecorder{}, nil, stateoperator.ManagerPlan{
+			ManagedDeletes: []stateoperator.ManagedGroupDelete{{GroupID: "app-delete"}},
+		})
+		if err == nil {
+			t.Fatal("ApplyManagerPlan() error = nil, want missing manager client error")
+		}
+	})
 }
 
 func TestApplyManagerPlanDeletesExistingIPAddressExpressionWhenManagedCIDRsAreEmpty(t *testing.T) {

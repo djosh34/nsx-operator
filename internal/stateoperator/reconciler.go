@@ -10,6 +10,7 @@ import (
 
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
 	"github.com/djosh34/nsx-operator/internal/logging"
+	"github.com/djosh34/nsx-operator/internal/names"
 	"github.com/djosh34/nsx-operator/internal/nsxclient"
 	"github.com/djosh34/nsx-operator/internal/statuscondition"
 	"go.uber.org/zap"
@@ -329,13 +330,13 @@ func (r GroupReconciler) ensureGroupFinalizer(ctx context.Context, group *nsxv1a
 }
 
 func (r GroupReconciler) findNetworkCloud(ctx context.Context, networkCloudFQDN string) (nsxv1alpha.NSXNetworkCloud, error) {
-	normalizedFQDN := NormalizeNetworkCloudFQDN(networkCloudFQDN)
+	normalizedFQDN := names.NormalizeNetworkCloudFQDN(networkCloudFQDN)
 	var clouds nsxv1alpha.NSXNetworkCloudList
 	if err := r.Client.List(ctx, &clouds); err != nil {
 		return nsxv1alpha.NSXNetworkCloud{}, fmt.Errorf("list nsx network clouds: %w", err)
 	}
 	for _, cloud := range clouds.Items {
-		if NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN) == normalizedFQDN {
+		if names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN) == normalizedFQDN {
 			return cloud, nil
 		}
 	}
