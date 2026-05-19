@@ -53,6 +53,15 @@ func TestLargeRemoteGroupsPlanObserveUpserts(t *testing.T) {
 	if len(plan.GroupStatuses) != largeRemoteGroupCount {
 		t.Fatalf("GroupStatuses = %d, want %d", len(plan.GroupStatuses), largeRemoteGroupCount)
 	}
+	if len(plan.KubeWrites.GroupCreates) != largeRemoteGroupCount {
+		t.Fatalf("group create batch requests = %d, want %d", len(plan.KubeWrites.GroupCreates), largeRemoteGroupCount)
+	}
+	if len(plan.KubeWrites.GroupStatusesAfterGroupWrite) != largeRemoteGroupCount {
+		t.Fatalf("group status-after-create batch requests = %d, want %d", len(plan.KubeWrites.GroupStatusesAfterGroupWrite), largeRemoteGroupCount)
+	}
+	if len(plan.KubeWrites.GroupStatusUpdates) != 0 {
+		t.Fatalf("direct group status batch requests = %d, want 0 for remote imports without gathered resource versions", len(plan.KubeWrites.GroupStatusUpdates))
+	}
 	requireLargeObserveUpsert(t, plan.ObserveUpserts[0], "nsx-large.example.test-remote-0000", "remote-0000")
 	requireLargeObserveUpsert(t, plan.ObserveUpserts[len(plan.ObserveUpserts)-1], "nsx-large.example.test-remote-1999", "remote-1999")
 
@@ -72,7 +81,7 @@ func TestLargeRemoteGroupsPlanObserveUpserts(t *testing.T) {
 
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
-	t.Logf("large remote evidence: planned %d observe upserts and statuses in %s; heap_alloc_delta_bytes=%d", largeRemoteGroupCount, time.Since(started), int64(after.HeapAlloc)-int64(before.HeapAlloc))
+	t.Logf("large remote evidence: planned %d observe create batch requests and %d status-after-create requests in %s; heap_alloc_delta_bytes=%d", len(plan.KubeWrites.GroupCreates), len(plan.KubeWrites.GroupStatusesAfterGroupWrite), time.Since(started), int64(after.HeapAlloc)-int64(before.HeapAlloc))
 }
 
 func TestLargeMixedGroupsThroughRealKubernetesClient(t *testing.T) {
@@ -139,7 +148,16 @@ func TestLargeMixedGroupsThroughRealKubernetesClient(t *testing.T) {
 	if len(plan.ObserveDeletes) != largeKubernetesGroupCount/2 {
 		t.Fatalf("observe deletes = %d, want %d", len(plan.ObserveDeletes), largeKubernetesGroupCount/2)
 	}
-	t.Logf("large Kubernetes evidence: created and paged %d real CRs, gathered %d local groups, planned %d managed writes and %d observe deletes in %s", largeKubernetesGroupCount, len(snapshot.LocalGroups), len(plan.ManagedWrites), len(plan.ObserveDeletes), time.Since(started))
+	if len(plan.KubeWrites.GroupDeletes) != largeKubernetesGroupCount/2 {
+		t.Fatalf("group delete batch requests = %d, want %d", len(plan.KubeWrites.GroupDeletes), largeKubernetesGroupCount/2)
+	}
+	if len(plan.KubeWrites.GroupStatusUpdates) != largeKubernetesGroupCount/2 {
+		t.Fatalf("group status batch requests = %d, want %d", len(plan.KubeWrites.GroupStatusUpdates), largeKubernetesGroupCount/2)
+	}
+	if len(plan.KubeWrites.GroupCreates) != 0 || len(plan.KubeWrites.GroupUpdates) != 0 {
+		t.Fatalf("unexpected group create/update batch requests: creates=%d updates=%d", len(plan.KubeWrites.GroupCreates), len(plan.KubeWrites.GroupUpdates))
+	}
+	t.Logf("large Kubernetes evidence: created and paged %d real CRs, gathered %d local groups, planned %d managed writes, %d observe deletes, %d group status batch requests, %d group delete batch requests, and zero typed per-item get requests in process/apply plan in %s", largeKubernetesGroupCount, len(snapshot.LocalGroups), len(plan.ManagedWrites), len(plan.ObserveDeletes), len(plan.KubeWrites.GroupStatusUpdates), len(plan.KubeWrites.GroupDeletes), time.Since(started))
 }
 
 func requireLargeObserveUpsert(t *testing.T, group nsxv1alpha.NSXGroup, wantName string, wantGroupID string) {

@@ -19,7 +19,6 @@ import (
 	"github.com/djosh34/nsx-operator/internal/operatormetrics"
 	"github.com/djosh34/nsx-operator/internal/statuscondition"
 	"go.uber.org/zap"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -66,11 +65,7 @@ type ManagerClient interface {
 type ManagerClientFactory func(context.Context, nsxv1alpha.NSXNetworkCloud) (ManagerClient, error)
 
 type ManagerKubeApplier interface {
-	ApplyGroup(ctx context.Context, group nsxv1alpha.NSXGroup) error
-	UpdateGroupStatus(ctx context.Context, name string, status nsxv1alpha.NSXGroupStatus) error
-	DeleteGroupCR(ctx context.Context, name string) error
-	RemoveGroupFinalizer(ctx context.Context, name string, finalizer string) error
-	UpdateCloudStatus(ctx context.Context, name string, status nsxv1alpha.NSXNetworkCloudStatus) error
+	ApplyManagerKubeWrites(ctx context.Context, writes ManagerKubeWritePlan) error
 }
 
 type ManagerSnapshot struct {
@@ -90,6 +85,7 @@ type ManagerPlan struct {
 	GroupStatuses            []GroupStatusPlan
 	ObserveDeletes           []string
 	CloudStatus              *CloudStatusPlan
+	KubeWrites               ManagerKubeWritePlan
 	statusWriteDecisions     []statusWriteLogDecision
 }
 
@@ -125,13 +121,15 @@ type ManagedGroupDelete struct {
 }
 
 type GroupStatusPlan struct {
-	Name   string
-	Status nsxv1alpha.NSXGroupStatus
+	Name            string
+	ResourceVersion string
+	Status          nsxv1alpha.NSXGroupStatus
 }
 
 type CloudStatusPlan struct {
-	Name   string
-	Status nsxv1alpha.NSXNetworkCloudStatus
+	Name            string
+	ResourceVersion string
+	Status          nsxv1alpha.NSXNetworkCloudStatus
 }
 
 type statusWriteLogDecision struct {
@@ -378,7 +376,7 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 			return ManagerPlan{}, fmt.Errorf("build gather failure cloud status: %w", err)
 		}
 		plan := ManagerPlan{}
-		setCloudStatusPlanIfNeeded(&plan, snapshot.Cloud.Name, snapshot.Cloud.Spec.NetworkCloudFQDN, snapshot.Cloud.Status, cloudStatus)
+		setCloudStatusPlanIfNeeded(&plan, snapshot.Cloud.Name, snapshot.Cloud.ResourceVersion, snapshot.Cloud.Spec.NetworkCloudFQDN, snapshot.Cloud.Status, cloudStatus)
 		return plan, nil
 	}
 	bindings, err := BuildBindings(snapshot)
@@ -396,7 +394,7 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 	if err != nil {
 		return ManagerPlan{}, fmt.Errorf("build successful cloud status: %w", err)
 	}
-	setCloudStatusPlanIfNeeded(&plan, snapshot.Cloud.Name, snapshot.Cloud.Spec.NetworkCloudFQDN, snapshot.Cloud.Status, cloudStatus)
+	setCloudStatusPlanIfNeeded(&plan, snapshot.Cloud.Name, snapshot.Cloud.ResourceVersion, snapshot.Cloud.Spec.NetworkCloudFQDN, snapshot.Cloud.Status, cloudStatus)
 	for _, remoteBinding := range bindings.Remote {
 		if _, exists := bindings.LocalByKey[remoteBinding.Key]; exists {
 			continue
@@ -405,33 +403,51 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 			NetworkCloudFQDN: remoteBinding.Key.NetworkCloudFQDN,
 			GroupID:          remoteBinding.Key.GroupID,
 		})
-		plan.ObserveUpserts = append(plan.ObserveUpserts, observeGroupFromRemote(name, remoteBinding.Remote))
+		group := observeGroupFromRemote(name, remoteBinding.Remote)
+		plan.ObserveUpserts = append(plan.ObserveUpserts, group)
+		createKey := groupBatchKey("create", "", name)
+		ensureManagerKubeWrites(&plan.KubeWrites)
+		plan.KubeWrites.GroupCreates[createKey] = kubeapi.GroupCreateRequest{Object: group.DeepCopy()}
 		status, err := syncedRemoteStatus(nsxv1alpha.NSXGroupStatus{}, 0, remoteBinding.Remote, now)
 		if err != nil {
 			return ManagerPlan{}, fmt.Errorf("build observe import status %q: %w", name, err)
 		}
-		appendGroupStatusPlanIfNeeded(&plan, name, remoteBinding.Key, nsxv1alpha.NSXGroupStatus{}, status)
+		appendGroupStatusPlanIfNeeded(&plan, name, "", remoteBinding.Key, nsxv1alpha.NSXGroupStatus{}, status, &createKey)
 	}
 	for _, localBinding := range bindings.Local {
 		remote, exists := bindings.RemoteByKey[localBinding.Key]
 		switch localBinding.Group.Spec.Mode {
 		case nsxv1alpha.NSXGroupModeObserve:
+			var groupWriteKey *kubeapi.BatchKey
 			if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
 				plan.ObserveFinalizerRemovals = append(plan.ObserveFinalizerRemovals, localBinding.Group.Name)
 			}
 			if !exists {
 				plan.ObserveDeletes = append(plan.ObserveDeletes, localBinding.Group.Name)
+				addGroupDeleteRequest(&plan, localBinding.Group.Name)
+				if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
+					addGroupFinalizerPatchRequest(&plan, localBinding.Group, nil)
+				}
 				continue
 			}
 			remoteSpec := observeSpecFromRemote(remote)
 			if !groupSpecsEqual(localBinding.Group.Spec, remoteSpec) {
 				plan.ObserveUpserts = append(plan.ObserveUpserts, observeGroupFromRemote(localBinding.Group.Name, remote))
+				update := localBinding.Group.DeepCopy()
+				update.Spec = remoteSpec
+				key := groupBatchKey("update", "", localBinding.Group.Name)
+				ensureManagerKubeWrites(&plan.KubeWrites)
+				plan.KubeWrites.GroupUpdates[key] = kubeapi.GroupUpdateRequest{Object: update}
+				groupWriteKey = &key
 			}
 			status, err := syncedRemoteStatus(localBinding.Group.Status, localBinding.Group.Generation, remote, now)
 			if err != nil {
 				return ManagerPlan{}, fmt.Errorf("build observe status %q: %w", localBinding.Group.Name, err)
 			}
-			appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Key, localBinding.Group.Status, status)
+			statusKey := appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, groupWriteKey)
+			if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
+				addGroupFinalizerPatchRequest(&plan, localBinding.Group, groupWriteKeyOrStatusKey(groupWriteKey, statusKey))
+			}
 		case nsxv1alpha.NSXGroupModeManage:
 			if localBinding.Group.DeletionTimestamp != nil {
 				if exists {
@@ -440,7 +456,7 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 					if err != nil {
 						return ManagerPlan{}, fmt.Errorf("build deleting managed status %q: %w", localBinding.Group.Name, err)
 					}
-					appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Key, localBinding.Group.Status, status)
+					appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
 					continue
 				}
 				if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
@@ -450,7 +466,10 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 				if err != nil {
 					return ManagerPlan{}, fmt.Errorf("build deleted managed status %q: %w", localBinding.Group.Name, err)
 				}
-				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Key, localBinding.Group.Status, status)
+				statusKey := appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
+				if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
+					addGroupFinalizerPatchRequest(&plan, localBinding.Group, statusKey)
+				}
 				continue
 			}
 			if !exists {
@@ -459,7 +478,7 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 				if err != nil {
 					return ManagerPlan{}, fmt.Errorf("build missing managed status %q: %w", localBinding.Group.Name, err)
 				}
-				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Key, localBinding.Group.Status, status)
+				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
 				continue
 			}
 			if !managedSpecMatchesRemote(localBinding.Group.Spec, remote) {
@@ -468,14 +487,14 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 				if err != nil {
 					return ManagerPlan{}, fmt.Errorf("build applying managed status %q: %w", localBinding.Group.Name, err)
 				}
-				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Key, localBinding.Group.Status, status)
+				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
 				continue
 			}
 			status, err := matchingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, remote, now)
 			if err != nil {
 				return ManagerPlan{}, fmt.Errorf("build matching managed status %q: %w", localBinding.Group.Name, err)
 			}
-			appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Key, localBinding.Group.Status, status)
+			appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
 		}
 	}
 	return plan, nil
@@ -484,10 +503,12 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 func appendGroupStatusPlanIfNeeded(
 	plan *ManagerPlan,
 	name string,
+	resourceVersion string,
 	key BindingKey,
 	current nsxv1alpha.NSXGroupStatus,
 	desired nsxv1alpha.NSXGroupStatus,
-) {
+	afterGroupWrite *kubeapi.BatchKey,
+) *kubeapi.BatchKey {
 	decision := statuscondition.CompareGroupStatus(current, desired)
 	plan.statusWriteDecisions = append(plan.statusWriteDecisions, statusWriteLogDecision{
 		ResourceKind:     "NSXGroup",
@@ -497,17 +518,36 @@ func appendGroupStatusPlanIfNeeded(
 		Decision:         decision,
 	})
 	if !decision.Needed {
-		return
+		return nil
 	}
 	plan.GroupStatuses = append(plan.GroupStatuses, GroupStatusPlan{
+		Name:            name,
+		ResourceVersion: resourceVersion,
+		Status:          desired,
+	})
+	ensureManagerKubeWrites(&plan.KubeWrites)
+	statusKey := groupBatchKey("updateStatus", "status", name)
+	if afterGroupWrite != nil {
+		plan.KubeWrites.GroupStatusesAfterGroupWrite[*afterGroupWrite] = GroupStatusAfterGroupWrite{
+			Name:   name,
+			Status: desired,
+		}
+		return &statusKey
+	}
+	plan.KubeWrites.GroupStatusUpdates[statusKey] = kubeapi.GroupStatusUpdateRequest{
 		Name:   name,
 		Status: desired,
-	})
+		Options: kubeapi.StatusUpdateOptions{
+			ResourceVersion: resourceVersion,
+		},
+	}
+	return &statusKey
 }
 
 func setCloudStatusPlanIfNeeded(
 	plan *ManagerPlan,
 	name string,
+	resourceVersion string,
 	networkCloudFQDN string,
 	current nsxv1alpha.NSXNetworkCloudStatus,
 	desired nsxv1alpha.NSXNetworkCloudStatus,
@@ -522,7 +562,15 @@ func setCloudStatusPlanIfNeeded(
 	if !decision.Needed {
 		return
 	}
-	plan.CloudStatus = &CloudStatusPlan{Name: name, Status: desired}
+	plan.CloudStatus = &CloudStatusPlan{Name: name, ResourceVersion: resourceVersion, Status: desired}
+	ensureManagerKubeWrites(&plan.KubeWrites)
+	plan.KubeWrites.CloudStatusUpdates[networkCloudBatchKey("updateStatus", "status", name)] = kubeapi.NetworkCloudStatusUpdateRequest{
+		Name:   name,
+		Status: desired,
+		Options: kubeapi.StatusUpdateOptions{
+			ResourceVersion: resourceVersion,
+		},
+	}
 }
 
 func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, managerClient ManagerClient, plan ManagerPlan) error {
@@ -532,9 +580,12 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 	if managerClient == nil && (len(plan.ManagedWrites) > 0 || len(plan.ManagedDeletes) > 0) {
 		return errors.New("manager client is required for managed writes or deletes")
 	}
-	for _, group := range plan.ObserveUpserts {
-		if err := kubeApplier.ApplyGroup(ctx, group); err != nil {
-			return fmt.Errorf("apply observe group %q: %w", group.Name, err)
+	if plan.KubeWrites.Empty() {
+		plan.KubeWrites = legacyManagerKubeWrites(plan)
+	}
+	if preWrites := managerKubeObjectWrites(plan.KubeWrites); !preWrites.Empty() {
+		if err := kubeApplier.ApplyManagerKubeWrites(ctx, preWrites); err != nil {
+			return fmt.Errorf("apply manager kubernetes object writes: %w", err)
 		}
 	}
 	nsxWritesSkipped := false
@@ -557,29 +608,9 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 			}
 		}
 	}
-	for _, status := range plan.GroupStatuses {
-		if err := kubeApplier.UpdateGroupStatus(ctx, status.Name, status.Status); err != nil {
-			return fmt.Errorf("update group status %q: %w", status.Name, err)
-		}
-	}
-	for _, name := range plan.ObserveFinalizerRemovals {
-		if err := kubeApplier.RemoveGroupFinalizer(ctx, name, GroupFinalizer); err != nil {
-			return fmt.Errorf("remove observe group finalizer %q: %w", name, err)
-		}
-	}
-	for _, name := range plan.ManagedFinalizerRemovals {
-		if err := kubeApplier.RemoveGroupFinalizer(ctx, name, GroupFinalizer); err != nil {
-			return fmt.Errorf("remove managed group finalizer %q: %w", name, err)
-		}
-	}
-	for _, name := range plan.ObserveDeletes {
-		if err := kubeApplier.DeleteGroupCR(ctx, name); err != nil {
-			return fmt.Errorf("delete observe group cr %q: %w", name, err)
-		}
-	}
-	if plan.CloudStatus != nil {
-		if err := kubeApplier.UpdateCloudStatus(ctx, plan.CloudStatus.Name, plan.CloudStatus.Status); err != nil {
-			return fmt.Errorf("update cloud status %q: %w", plan.CloudStatus.Name, err)
+	if postWrites := managerKubePostObjectWrites(plan.KubeWrites); !postWrites.Empty() {
+		if err := kubeApplier.ApplyManagerKubeWrites(ctx, postWrites); err != nil {
+			return fmt.Errorf("apply manager kubernetes post-object writes: %w", err)
 		}
 	}
 	return nil
@@ -718,118 +749,6 @@ func managerMetricsSnapshot(snapshot ManagerSnapshot, plan ManagerPlan) (operato
 		ManageUpdatesNeeded:  len(plan.ManagedWrites) + len(plan.ManagedDeletes) + len(plan.ManagedFinalizerRemovals),
 		CreatesNeeded:        remoteOnlyCreates,
 	}, nil
-}
-
-type kubeAPIAdapter struct {
-	client *kubeapi.Client
-	logger *zap.Logger
-}
-
-func (a kubeAPIAdapter) ApplyGroup(ctx context.Context, group nsxv1alpha.NSXGroup) error {
-	current, err := a.client.Groups().Get(ctx, group.Name, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		_, err := a.client.Groups().Create(ctx, &group, metav1.CreateOptions{})
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	current.Spec = group.Spec
-	for _, finalizer := range group.Finalizers {
-		if !slices.Contains(current.Finalizers, finalizer) {
-			current.Finalizers = append(current.Finalizers, finalizer)
-		}
-	}
-	_, err = a.client.Groups().Update(ctx, current, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (a kubeAPIAdapter) UpdateGroupStatus(ctx context.Context, name string, status nsxv1alpha.NSXGroupStatus) error {
-	current, err := a.client.Groups().Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	decision := statuscondition.CompareGroupStatus(current.Status, status)
-	statusDecision := statusWriteLogDecision{
-		ResourceKind:     "NSXGroup",
-		ResourceName:     name,
-		NetworkCloudFQDN: current.Spec.NetworkCloudFQDN,
-		GroupID:          current.Spec.GroupID,
-		Decision:         decision,
-	}
-	logger := a.logger
-	if logger == nil {
-		logger = zap.NewNop()
-	}
-	logger.Debug("manager status write apply decision", appendStatusWriteDecisionFields(nil, statusDecision)...)
-	if !decision.Needed {
-		return nil
-	}
-	logger.Info("updating manager group status", appendStatusWriteDecisionFields(nil, statusDecision)...)
-	_, err = a.client.Groups().UpdateStatus(ctx, name, status, kubeapi.StatusUpdateOptions{ResourceVersion: current.ResourceVersion})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (a kubeAPIAdapter) DeleteGroupCR(ctx context.Context, name string) error {
-	return a.client.Groups().Delete(ctx, name, metav1.DeleteOptions{})
-}
-
-func (a kubeAPIAdapter) RemoveGroupFinalizer(ctx context.Context, name string, finalizer string) error {
-	current, err := a.client.Groups().Get(ctx, name, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !slices.Contains(current.Finalizers, finalizer) {
-		return nil
-	}
-	current.Finalizers = slices.DeleteFunc(current.Finalizers, func(existing string) bool {
-		return existing == finalizer
-	})
-	_, err = a.client.Groups().Update(ctx, current, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (a kubeAPIAdapter) UpdateCloudStatus(ctx context.Context, name string, status nsxv1alpha.NSXNetworkCloudStatus) error {
-	current, err := a.client.NetworkClouds().Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	decision := statuscondition.CompareNetworkCloudStatus(current.Status, status)
-	statusDecision := statusWriteLogDecision{
-		ResourceKind:     "NSXNetworkCloud",
-		ResourceName:     name,
-		NetworkCloudFQDN: current.Spec.NetworkCloudFQDN,
-		Decision:         decision,
-	}
-	logger := a.logger
-	if logger == nil {
-		logger = zap.NewNop()
-	}
-	logger.Debug("manager status write apply decision", appendStatusWriteDecisionFields(nil, statusDecision)...)
-	if !decision.Needed {
-		return nil
-	}
-	logger.Info("updating manager cloud status", appendStatusWriteDecisionFields(nil, statusDecision)...)
-	_, err = a.client.NetworkClouds().UpdateStatus(ctx, name, status, kubeapi.StatusUpdateOptions{ResourceVersion: current.ResourceVersion})
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func appendStatusWriteDecisionFields(baseFields []zap.Field, statusDecision statusWriteLogDecision) []zap.Field {

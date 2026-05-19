@@ -1,4 +1,4 @@
-## Task: Remove Get Then Update From Reconcile Loops <status>not_started</status> <passes>false</passes>
+## Task: Remove Get Then Update From Reconcile Loops <status>completed</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
@@ -44,17 +44,44 @@ Out of scope:
 
 
 <acceptance_criteria>
-- [ ] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
-- [ ] The verification evidence is recorded in the task or linked artifact.
-- [ ] Completion is not based only on a shallow checkbox, assumption, or code inspection.
-- [ ] No reconcile write flow contains or executes a per-resource kube-api get followed by patch or put/update.
-- [ ] Reconcile uses a gather pass that loads all relevant CR state and all relevant NSX-T manager state before compare/write planning.
-- [ ] Reconcile uses a process pass that divides resources into needed apply/patches, put/updates, creations, deletions, finalizer patches, status changes, and skipped already-correct resources.
-- [ ] Reconcile prepares the typed batch request maps during the process pass.
-- [ ] Reconcile uses an apply pass that sends the prepared request maps to generic kube-api batch functions.
-- [ ] Already-correct resources produce no kube-api write, including no status patch when `lastTransitionTime` would be the only changed value.
-- [ ] Tests or instrumentation at the typed kube-api interface prove request counts are full-list plus required batched writes, not one get plus one write per item.
-- [ ] Large-scale verification with 10,000+ resources is run and recorded.
-- [ ] NSX-T-facing behavior is verified against `../nsx-t-mockapi` or equivalent testcontainers evidence.
-- [ ] Full relevant tests are run and recorded, including `go test ./...` and race tests for batch/reconcile paths.
+- [x] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
+- [x] The verification evidence is recorded in the task or linked artifact.
+- [x] Completion is not based only on a shallow checkbox, assumption, or code inspection.
+- [x] No reconcile write flow contains or executes a per-resource kube-api get followed by patch or put/update.
+- [x] Reconcile uses a gather pass that loads all relevant CR state and all relevant NSX-T manager state before compare/write planning.
+- [x] Reconcile uses a process pass that divides resources into needed apply/patches, put/updates, creations, deletions, finalizer patches, status changes, and skipped already-correct resources.
+- [x] Reconcile prepares the typed batch request maps during the process pass.
+- [x] Reconcile uses an apply pass that sends the prepared request maps to generic kube-api batch functions.
+- [x] Already-correct resources produce no kube-api write, including no status patch when `lastTransitionTime` would be the only changed value.
+- [x] Tests or instrumentation at the typed kube-api interface prove request counts are full-list plus required batched writes, not one get plus one write per item.
+- [x] Large-scale verification with 10,000+ resources is run and recorded.
+- [x] NSX-T-facing behavior is verified against `../nsx-t-mockapi` or equivalent testcontainers evidence.
+- [x] Full relevant tests are run and recorded, including `go test ./...` and race tests for batch/reconcile paths.
 </acceptance_criteria>
+
+<verification_evidence>
+- Plan executed from `.ralph/tasks/33-story-reconcile-write-efficiency/03-task-remove-get-then-update-from-reconcile-loops_plans/01-remove-get-then-update-plan.md`.
+- Focused typed kube-api manager sweep evidence:
+  - Command: `KUBEBUILDER_ASSETS="$(.bin/setup-envtest use 1.32.x -p path)" go test ./internal/stateoperator -run 'TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeAPI' -count=1 -v`
+  - Result: PASS.
+  - Recorded call counts from typed kube-api metrics: `groups.list=5 groups.create=3 groups.update=1 groups.update_status=2 groups.patch=2 groups.delete=1 networkclouds.update_status=1 groups.get=0 networkclouds.get=0`.
+  - The test runs through envtest Kubernetes and verifies imported observe CRs, drift repair, finalizer removal, observe deletion, and zero typed apply-phase GET calls.
+- Large-scale 10,000+ resource evidence:
+  - Command: `GOMEMLIMIT=768MiB KUBEBUILDER_ASSETS="$(.bin/setup-envtest use 1.32.x -p path)" go test -tags largechaos ./internal/stateoperator -run 'TestLarge(MixedGroupsThroughRealKubernetesClient|RemoteGroupsPlanObserveUpserts)' -count=1 -timeout 20m -v`
+  - Result: PASS.
+  - Recorded evidence: `created and paged 10000 real CRs, gathered 10000 local groups, planned 5000 managed writes, 5000 observe deletes, 5000 group status batch requests, 5000 group delete batch requests, and zero typed per-item get requests in process/apply plan in 11.931084342s`.
+  - Remote-only large plan evidence: `planned 2000 observe create batch requests and 2000 status-after-create requests`.
+- NSX-T mockapi / contract evidence:
+  - `make check` ran `go test ./internal/nsxclient -run 'Test(MockAPIRouteInventoryIsSupportedAndContracted|TypedClientContractsAgainstMockAPI|SharedRateLimitedClientConcurrencyAgainstMockAPI)' -count=1` and passed.
+  - `make check` ran `go test ./internal/stateoperator -run 'Test(NetworkCloudAddAndRemoveLifecycleAgainstPublicMockAPI|LifecycleObserveAndManageDeletionDifferAgainstMockAPI)' -count=1` under envtest and passed.
+- Race and coverage evidence:
+  - `KUBEBUILDER_ASSETS="$(.bin/setup-envtest use 1.32.x -p path)" go test -race ./internal/stateoperator -run 'Manager|Sweep|Reconcile' -count=1`: PASS, `internal/stateoperator 36.677s`.
+  - `make test-race`: PASS for all packages after fixing request-body metrics accounting to use atomic counters.
+  - `make test-coverage`: PASS, total coverage `85.0% meets 80.0% threshold`; `internal/stateoperator` coverage `84.9%`; `internal/kubeapi` coverage `80.7%`.
+- Required gates:
+  - `make test`: PASS.
+  - `make test-large-chaos`: PASS.
+  - `make check`: PASS. It completed fmt, vet, lint (`0 issues`), normal tests, race tests, contract tests, e2e tests, large-chaos tests, and coverage.
+- Boundary review:
+  - Used `$improve-code-boundaries` final check and split manager Kubernetes write planning/apply helpers into `internal/stateoperator/manager_kube_writes.go`, keeping `internal/kubeapi` as the typed REST/batch client and `manager_pipeline.go` focused on gather/process/sweep flow.
+</verification_evidence>

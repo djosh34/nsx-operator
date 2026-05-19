@@ -76,7 +76,7 @@ func (rt kubernetesMetricsRoundTripper) RoundTrip(req *http.Request) (*http.Resp
 
 type countedBody struct {
 	io.ReadCloser
-	count int64
+	count atomic.Int64
 }
 
 func wrapRequestBody(req *http.Request) *countedBody {
@@ -93,7 +93,7 @@ func (body *countedBody) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	n, err := body.ReadCloser.Read(p)
-	body.count += int64(n)
+	body.count.Add(int64(n))
 	return n, err
 }
 
@@ -108,7 +108,7 @@ func (body *countedBody) bytesRead() int64 {
 	if body == nil {
 		return 0
 	}
-	return body.count
+	return body.count.Load()
 }
 
 type observedResponseBody struct {

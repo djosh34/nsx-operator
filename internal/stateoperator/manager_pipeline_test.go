@@ -28,6 +28,7 @@ import (
 	"github.com/djosh34/nsx-operator/internal/testsupport/mockapi"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -218,6 +219,14 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 		t.Fatalf("ObserveUpserts = %#v, want one remote-only import", plan.ObserveUpserts)
 	}
 	upsert := plan.ObserveUpserts[0]
+	createKey := kubeapi.BatchKey{Operation: "create", Resource: "nsxgroups", Name: "nsx-a.example.test-8443-app-web-group"}
+	createRequest, found := plan.KubeWrites.GroupCreates[createKey]
+	if !found {
+		t.Fatalf("GroupCreates = %#v, want typed create request for remote-only import", plan.KubeWrites.GroupCreates)
+	}
+	if createRequest.Object == nil || createRequest.Object.Name != "nsx-a.example.test-8443-app-web-group" {
+		t.Fatalf("GroupCreateRequest = %#v, want import object", createRequest)
+	}
 	if upsert.Name != "nsx-a.example.test-8443-app-web-group" {
 		t.Fatalf("Observe upsert name = %q, want deterministic cloud/group name", upsert.Name)
 	}
@@ -240,6 +249,16 @@ func TestProcessManagerSnapshotImportsRemoteOnlyGroupsAsObserveUpserts(t *testin
 	}
 	if len(plan.GroupStatuses) != 1 {
 		t.Fatalf("GroupStatuses = %#v, want one status update", plan.GroupStatuses)
+	}
+	pendingStatus, found := plan.KubeWrites.GroupStatusesAfterGroupWrite[createKey]
+	if !found {
+		t.Fatalf("GroupStatusesAfterGroupWrite = %#v, want status tied to create result", plan.KubeWrites.GroupStatusesAfterGroupWrite)
+	}
+	if pendingStatus.Name != "nsx-a.example.test-8443-app-web-group" {
+		t.Fatalf("pending status name = %q, want import name", pendingStatus.Name)
+	}
+	if len(plan.KubeWrites.GroupStatusUpdates) != 0 {
+		t.Fatalf("GroupStatusUpdates = %#v, want no direct status without gathered resource version", plan.KubeWrites.GroupStatusUpdates)
 	}
 	if plan.GroupStatuses[0].Name != "nsx-a.example.test-8443-app-web-group" {
 		t.Fatalf("Group status name = %q, want observe upsert name", plan.GroupStatuses[0].Name)
@@ -292,9 +311,12 @@ func TestProcessManagerSnapshotRemoteOnlyUnsupportedExpressionMarksUnsynced(t *t
 func TestProcessManagerSnapshotObserveGroupsMirrorRemoteAndDeleteWhenMissing(t *testing.T) {
 	now := time.Date(2026, 5, 19, 13, 0, 0, 0, time.UTC)
 	drifted := managerGroup("observe-drifted", "nsx-a.example.test", "app-drifted", nsxv1alpha.NSXGroupModeObserve)
+	drifted.ResourceVersion = "rv-drifted"
 	drifted.Spec.DisplayName = "Old App"
 	drifted.Spec.CIDRs = []string{"10.30.0.0/24"}
+	drifted.Finalizers = []string{"example.test/keep"}
 	missing := managerGroup("observe-missing", "nsx-a.example.test", "app-missing", nsxv1alpha.NSXGroupModeObserve)
+	missing.ResourceVersion = "rv-missing"
 
 	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
 		Cloud:            *networkCloud("cloud-a", "nsx-a.example.test"),
@@ -321,11 +343,32 @@ func TestProcessManagerSnapshotObserveGroupsMirrorRemoteAndDeleteWhenMissing(t *
 	if plan.ObserveUpserts[0].Spec.DisplayName != "Remote App" || !reflect.DeepEqual(plan.ObserveUpserts[0].Spec.CIDRs, []string{"10.31.0.0/24"}) {
 		t.Fatalf("ObserveUpsert spec = %#v, want remote replacement spec", plan.ObserveUpserts[0].Spec)
 	}
+	updateKey := kubeapi.BatchKey{Operation: "update", Resource: "nsxgroups", Name: "observe-drifted"}
+	updateRequest, found := plan.KubeWrites.GroupUpdates[updateKey]
+	if !found {
+		t.Fatalf("GroupUpdates = %#v, want typed update for drifted observe group", plan.KubeWrites.GroupUpdates)
+	}
+	if updateRequest.Object.ResourceVersion != "rv-drifted" {
+		t.Fatalf("update resourceVersion = %q, want gathered rv-drifted", updateRequest.Object.ResourceVersion)
+	}
+	if !reflect.DeepEqual(updateRequest.Object.Finalizers, []string{"example.test/keep"}) {
+		t.Fatalf("update finalizers = %#v, want gathered unrelated finalizer preserved", updateRequest.Object.Finalizers)
+	}
+	if updateRequest.Object.Spec.DisplayName != "Remote App" {
+		t.Fatalf("update spec displayName = %q, want remote value", updateRequest.Object.Spec.DisplayName)
+	}
 	if len(plan.ObserveDeletes) != 1 || plan.ObserveDeletes[0] != "observe-missing" {
 		t.Fatalf("ObserveDeletes = %#v, want observe-missing", plan.ObserveDeletes)
 	}
+	deleteKey := kubeapi.BatchKey{Operation: "delete", Resource: "nsxgroups", Name: "observe-missing"}
+	if _, found := plan.KubeWrites.GroupDeletes[deleteKey]; !found {
+		t.Fatalf("GroupDeletes = %#v, want typed delete for missing observe group", plan.KubeWrites.GroupDeletes)
+	}
 	if len(plan.GroupStatuses) != 1 || plan.GroupStatuses[0].Name != "observe-drifted" {
 		t.Fatalf("GroupStatuses = %#v, want status for remote-present observe", plan.GroupStatuses)
+	}
+	if _, found := plan.KubeWrites.GroupStatusesAfterGroupWrite[updateKey]; !found {
+		t.Fatalf("GroupStatusesAfterGroupWrite = %#v, want status to use update result resourceVersion", plan.KubeWrites.GroupStatusesAfterGroupWrite)
 	}
 }
 
@@ -361,6 +404,14 @@ func TestProcessManagerSnapshotObserveGroupWithLegacyFinalizerPlansFinalizerRemo
 	}
 	if len(plan.ManagedWrites) != 0 || len(plan.ManagedDeletes) != 0 {
 		t.Fatalf("managed operations = writes %#v deletes %#v, want none", plan.ManagedWrites, plan.ManagedDeletes)
+	}
+	statusKey := kubeapi.BatchKey{Operation: "updateStatus", Resource: "nsxgroups", Subresource: "status", Name: "observe-legacy"}
+	patchRequest, found := plan.KubeWrites.GroupFinalizersAfterStatusWrite[statusKey]
+	if !found {
+		t.Fatalf("GroupFinalizersAfterStatusWrite = %#v, want finalizer patch to use status result resource version", plan.KubeWrites.GroupFinalizersAfterStatusWrite)
+	}
+	if !reflect.DeepEqual(patchRequest.Finalizers, []string{"example.test/keep"}) {
+		t.Fatalf("patch finalizers = %#v, want only unrelated finalizer", patchRequest.Finalizers)
 	}
 }
 
@@ -1370,21 +1421,23 @@ func TestApplyManagerPlanDeletesExistingPathExpressionWhenManagedSegmentPathsAre
 }
 
 func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeAPI(t *testing.T) {
-	typedClient, stop := startStateoperatorKubeAPIClient(t)
-	t.Cleanup(stop)
 	registry := prometheus.NewRegistry()
 	metricsRecorder, err := operatormetrics.NewRecorder(registry, zap.NewNop())
 	if err != nil {
 		t.Fatalf("construct metrics recorder: %v", err)
 	}
+	typedClient, stop := startStateoperatorKubeAPIClientWithRecorder(t, metricsRecorder)
+	t.Cleanup(stop)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
 	cloud := networkCloud("cloud-default", "nsx-a.example.test")
-	if _, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+	createdCloud, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("create typed cloud: %v", err)
 	}
+	cloud = createdCloud
 	localObserve := managerGroup("observe-stale", "nsx-a.example.test", "stale", nsxv1alpha.NSXGroupModeObserve)
 	localObserve.Finalizers = []string{stateoperator.GroupFinalizer}
 	if _, err := typedClient.Groups().Create(ctx, localObserve, metav1.CreateOptions{}); err != nil {
@@ -1437,29 +1490,40 @@ func TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeA
 		operatorErr <- operator.Start(operatorCtx)
 	}()
 
-	requireTypedGroupCondition(ctx, t, typedClient, "nsx-a.example.test-remote-import", nsxv1alpha.ConditionSynced, metav1.ConditionTrue)
-	imported, err := typedClient.Groups().Get(ctx, "nsx-a.example.test-remote-import", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get imported observe group: %v", err)
-	}
+	imported := requireTypedGroupConditionByList(ctx, t, typedClient, "nsx-a.example.test-remote-import", nsxv1alpha.ConditionSynced, metav1.ConditionTrue)
 	if len(imported.Finalizers) != 0 {
 		t.Fatalf("imported finalizers = %v, want none", imported.Finalizers)
 	}
 	if imported.Spec.Mode != nsxv1alpha.NSXGroupModeObserve || imported.Spec.DisplayName != "Remote Import" {
 		t.Fatalf("imported spec = %#v, want Observe Remote Import", imported.Spec)
 	}
-	requireTypedGroupCondition(ctx, t, typedClient, "observe-drifted", nsxv1alpha.ConditionSynced, metav1.ConditionTrue)
-	replaced, err := typedClient.Groups().Get(ctx, "observe-drifted", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get replaced observe group: %v", err)
-	}
+	replaced := requireTypedGroupConditionByList(ctx, t, typedClient, "observe-drifted", nsxv1alpha.ConditionSynced, metav1.ConditionTrue)
 	if slices.Contains(replaced.Finalizers, stateoperator.GroupFinalizer) {
 		t.Fatalf("replaced finalizers = %v, want no %q", replaced.Finalizers, stateoperator.GroupFinalizer)
 	}
 	if replaced.Spec.DisplayName != "Remote Replacement" || !reflect.DeepEqual(replaced.Spec.CIDRs, []string{"10.71.0.0/24"}) {
 		t.Fatalf("replaced spec = %#v, want remote replacement spec", replaced.Spec)
 	}
-	requireTypedGroupDeleted(ctx, t, typedClient, "observe-stale")
+	requireTypedGroupDeletedByList(ctx, t, typedClient, "observe-stale")
+
+	if groupGets := counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "groups.get"}); groupGets != 0 {
+		t.Fatalf("typed kube api groups.get count = %v, want zero during manager sweep verification", groupGets)
+	}
+	if cloudGets := counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "network_clouds.get"}); cloudGets != 0 {
+		t.Fatalf("typed kube api networkclouds.get count = %v, want zero during manager sweep verification", cloudGets)
+	}
+	t.Logf(
+		"typed kube api manager sweep counts: groups.list=%v groups.create=%v groups.update=%v groups.update_status=%v groups.patch=%v groups.delete=%v networkclouds.update_status=%v groups.get=%v networkclouds.get=%v",
+		counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "groups.list"}),
+		counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "groups.create"}),
+		counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "groups.update"}),
+		counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "groups.update_status"}),
+		counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "groups.apply"}),
+		counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "groups.delete"}),
+		counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "network_clouds.update_status"}),
+		counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "groups.get"}),
+		counterValueOrZero(t, registry, "nsx_operator_kubernetes_api_calls_total", map[string]string{"function": "network_clouds.get"}),
+	)
 
 	stopOperator()
 	if err := <-operatorErr; err != nil {
@@ -1513,9 +1577,11 @@ func TestDefaultManagerSweepLogsUnsupportedRemoteReason(t *testing.T) {
 	t.Cleanup(cancel)
 
 	cloud := networkCloud("cloud-unsupported", "nsx-a.example.test")
-	if _, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+	createdCloud, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("create typed cloud: %v", err)
 	}
+	cloud = createdCloud
 	controllerClient := fake.NewClientBuilder().
 		WithScheme(newScheme(t)).
 		WithObjects(cloud).
@@ -1567,9 +1633,11 @@ func TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec(t *testing.T
 	t.Cleanup(cancel)
 
 	cloud := networkCloud("cloud-manage", "nsx-a.example.test")
-	if _, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+	createdCloud, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("create typed cloud: %v", err)
 	}
+	cloud = createdCloud
 	desiredSegments := []string{"/infra/segments/desired", "/infra/segments/extra"}
 	localManage := managerGroup("manage-drifted", "nsx-a.example.test", "app-drifted", nsxv1alpha.NSXGroupModeManage)
 	localManage.Spec.DisplayName = "Desired App"
@@ -1662,9 +1730,11 @@ func TestDefaultManagerSweepRemovesManagedFinalizerAfterConfirmedRemoteAbsence(t
 	t.Cleanup(cancel)
 
 	cloud := networkCloud("cloud-delete", "nsx-a.example.test")
-	if _, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+	createdCloud, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("create typed cloud: %v", err)
 	}
+	cloud = createdCloud
 	localManage := managerGroup("manage-deleted", "nsx-a.example.test", "app-deleted", nsxv1alpha.NSXGroupModeManage)
 	localManage.Finalizers = []string{stateoperator.GroupFinalizer, "example.test/keep"}
 	if _, err := typedClient.Groups().Create(ctx, localManage, metav1.CreateOptions{}); err != nil {
@@ -1719,9 +1789,11 @@ func TestDefaultManagerSweepUpdatesCloudStatusWhenGatherFails(t *testing.T) {
 	t.Cleanup(cancel)
 
 	cloud := networkCloud("cloud-gather-failed", "nsx-failed.example.test")
-	if _, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+	createdCloud, err := typedClient.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("create typed cloud: %v", err)
 	}
+	cloud = createdCloud
 	controllerClient := fake.NewClientBuilder().
 		WithScheme(newScheme(t)).
 		WithObjects(cloud).
@@ -2133,6 +2205,66 @@ func (r *operationRecorder) ApplyGroup(_ context.Context, group nsxv1alpha.NSXGr
 	return nil
 }
 
+func (r *operationRecorder) ApplyManagerKubeWrites(_ context.Context, writes stateoperator.ManagerKubeWritePlan) error {
+	for _, key := range sortedTestBatchKeys(writes.GroupCreates) {
+		request := writes.GroupCreates[key]
+		r.operations = append(r.operations, "apply-group:"+request.Object.Name)
+	}
+	for _, key := range sortedTestBatchKeys(writes.GroupUpdates) {
+		request := writes.GroupUpdates[key]
+		r.operations = append(r.operations, "apply-group:"+request.Object.Name)
+	}
+	for _, key := range sortedTestBatchKeys(writes.GroupStatusUpdates) {
+		request := writes.GroupStatusUpdates[key]
+		r.operations = append(r.operations, "group-status:"+request.Name)
+	}
+	for _, key := range sortedTestBatchKeys(writes.GroupStatusesAfterGroupWrite) {
+		pending := writes.GroupStatusesAfterGroupWrite[key]
+		r.operations = append(r.operations, "group-status:"+pending.Name)
+	}
+	for _, key := range sortedTestBatchKeys(writes.GroupFinalizerPatches) {
+		request := writes.GroupFinalizerPatches[key]
+		r.operations = append(r.operations, "remove-finalizer:"+request.Name+":"+stateoperator.GroupFinalizer)
+	}
+	for _, key := range sortedTestBatchKeys(writes.GroupFinalizersAfterGroupWrite) {
+		pending := writes.GroupFinalizersAfterGroupWrite[key]
+		r.operations = append(r.operations, "remove-finalizer:"+pending.Name+":"+stateoperator.GroupFinalizer)
+	}
+	for _, key := range sortedTestBatchKeys(writes.GroupFinalizersAfterStatusWrite) {
+		pending := writes.GroupFinalizersAfterStatusWrite[key]
+		r.operations = append(r.operations, "remove-finalizer:"+pending.Name+":"+stateoperator.GroupFinalizer)
+	}
+	for _, key := range sortedTestBatchKeys(writes.GroupDeletes) {
+		request := writes.GroupDeletes[key]
+		r.operations = append(r.operations, "delete-group-cr:"+request.Name)
+	}
+	for _, key := range sortedTestBatchKeys(writes.CloudStatusUpdates) {
+		request := writes.CloudStatusUpdates[key]
+		r.operations = append(r.operations, "cloud-status:"+request.Name)
+	}
+	return nil
+}
+
+func sortedTestBatchKeys[T any](items map[kubeapi.BatchKey]T) []kubeapi.BatchKey {
+	keys := make([]kubeapi.BatchKey, 0, len(items))
+	for key := range items {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, func(a kubeapi.BatchKey, b kubeapi.BatchKey) int {
+		if a.Operation != b.Operation {
+			return strings.Compare(a.Operation, b.Operation)
+		}
+		if a.Resource != b.Resource {
+			return strings.Compare(a.Resource, b.Resource)
+		}
+		if a.Subresource != b.Subresource {
+			return strings.Compare(a.Subresource, b.Subresource)
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	return keys
+}
+
 func (r *operationRecorder) UpdateGroupStatus(_ context.Context, name string, _ nsxv1alpha.NSXGroupStatus) error {
 	r.operations = append(r.operations, "group-status:"+name)
 	return nil
@@ -2241,12 +2373,24 @@ func startStateoperatorKubeAPIClient(t *testing.T) (*kubeapi.Client, func()) {
 	return clients.typed, stop
 }
 
+func startStateoperatorKubeAPIClientWithRecorder(t *testing.T, recorder operatormetrics.Recorder) (*kubeapi.Client, func()) {
+	t.Helper()
+
+	clients, stop := startStateoperatorClientsWithRecorder(t, recorder)
+	return clients.typed, stop
+}
+
 type stateoperatorClients struct {
 	typed      *kubeapi.Client
 	controller crclient.Client
 }
 
 func startStateoperatorClients(t *testing.T) (stateoperatorClients, func()) {
+	t.Helper()
+	return startStateoperatorClientsWithRecorder(t, operatormetrics.NopRecorder{})
+}
+
+func startStateoperatorClientsWithRecorder(t *testing.T, recorder operatormetrics.Recorder) (stateoperatorClients, func()) {
 	t.Helper()
 
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
@@ -2260,7 +2404,7 @@ func startStateoperatorClients(t *testing.T) (stateoperatorClients, func()) {
 	if err != nil {
 		t.Fatalf("start envtest API server: %v", err)
 	}
-	typedClient, err := kubeapi.NewClient(kubeapi.Options{Config: restConfig})
+	typedClient, err := kubeapi.NewClient(kubeapi.Options{Config: restConfig, Recorder: recorder})
 	if err != nil {
 		if stopErr := testEnvironment.Stop(); stopErr != nil {
 			t.Errorf("stop envtest API server after typed client failure: %v", stopErr)
@@ -2405,6 +2549,41 @@ func requireTypedGroupCondition(
 	}
 }
 
+func requireTypedGroupConditionByList(
+	ctx context.Context,
+	t *testing.T,
+	typedClient *kubeapi.Client,
+	name string,
+	conditionType string,
+	status metav1.ConditionStatus,
+) nsxv1alpha.NSXGroup {
+	t.Helper()
+
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		groups, err := typedClient.Groups().List(ctx, kubeapi.ListOptions{})
+		if err != nil {
+			t.Fatalf("list typed groups while waiting for %q: %v", name, err)
+		}
+		for _, group := range groups.Items {
+			if group.Name != name {
+				continue
+			}
+			for _, condition := range group.Status.Conditions {
+				if condition.Type == conditionType && condition.Status == status {
+					return group
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for group %q condition %s=%s via list", name, conditionType, status)
+		case <-ticker.C:
+		}
+	}
+}
+
 func requireTypedGroupDeleted(ctx context.Context, t *testing.T, typedClient *kubeapi.Client, name string) {
 	t.Helper()
 
@@ -2421,6 +2600,34 @@ func requireTypedGroupDeleted(ctx context.Context, t *testing.T, typedClient *ku
 		select {
 		case <-ctx.Done():
 			t.Fatalf("timed out waiting for group %q to be deleted", name)
+		case <-ticker.C:
+		}
+	}
+}
+
+func requireTypedGroupDeletedByList(ctx context.Context, t *testing.T, typedClient *kubeapi.Client, name string) {
+	t.Helper()
+
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		groups, err := typedClient.Groups().List(ctx, kubeapi.ListOptions{})
+		if err != nil {
+			t.Fatalf("list typed groups while waiting for delete %q: %v", name, err)
+		}
+		found := false
+		for _, group := range groups.Items {
+			if group.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for group %q to be deleted via list", name)
 		case <-ticker.C:
 		}
 	}
@@ -2445,6 +2652,41 @@ func requireTypedGroupFinalizerRemoved(ctx context.Context, t *testing.T, typedC
 		case <-ticker.C:
 		}
 	}
+}
+
+func counterValueOrZero(t *testing.T, registry *prometheus.Registry, name string, labels map[string]string) float64 {
+	t.Helper()
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("gather registry: %v", err)
+	}
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			if metric.GetCounter() != nil && metricLabelsContain(metric.GetLabel(), labels) {
+				return metric.GetCounter().GetValue()
+			}
+		}
+	}
+	return 0
+}
+
+func metricLabelsContain(actual []*dto.LabelPair, want map[string]string) bool {
+	for key, value := range want {
+		found := false
+		for _, label := range actual {
+			if label.GetName() == key && label.GetValue() == value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func requireTypedCloudCondition(

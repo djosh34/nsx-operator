@@ -36,3 +36,4 @@ NONE
 .ralph/tasks/32-story-unsupported-reason-enum/01-task-expose-unsupported-expression-reason-enum.md
 .ralph/tasks/33-story-reconcile-write-efficiency/01-task-stop-unneeded-status-update-churn.md
 .ralph/tasks/33-story-reconcile-write-efficiency/02-task-add-batched-kubeapi-patch-and-put.md
+.ralph/tasks/33-story-reconcile-write-efficiency/03-task-remove-get-then-update-from-reconcile-loops.md
