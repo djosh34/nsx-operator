@@ -16,7 +16,7 @@ SETUP_ENVTEST := $(BIN_DIR)/setup-envtest
 
 .PHONY: check fmt vet lint project-lint test test-race test-contract test-e2e test-large-chaos test-coverage
 
-check: fmt vet lint test test-race test-contract test-e2e test-large-chaos test-coverage
+check: fmt vet lint project-lint test test-race test-contract test-e2e test-large-chaos test-coverage
 
 fmt: $(GOFUMPT)
 	$(GOFUMPT) -w .

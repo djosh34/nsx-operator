@@ -1,0 +1,3 @@
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/gofumpt -w .
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/golangci-lint run ./...
+0 issues.

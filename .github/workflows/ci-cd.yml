@@ -71,12 +71,61 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Run strict standard lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running strict standard lint with make lint"
+          make lint
+
+      - name: Run project analyzer lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running custom project analyzers with make project-lint"
+          make project-lint
+
       - name: Run Go tests
         shell: bash
         run: |
           set -euo pipefail
-          echo "Running repository Go tests with make test"
+          echo "Running full Go tests with make test"
           make test
+
+      - name: Run Go race tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running Go race tests with make test-race"
+          make test-race
+
+      - name: Run contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running contract tests with make test-contract"
+          make test-contract
+
+      - name: Run focused e2e tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running focused e2e tests with make test-e2e"
+          make test-e2e
+
+      - name: Run large chaos tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running large chaos tests with make test-large-chaos"
+          make test-large-chaos
+
+      - name: Run coverage threshold
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running coverage threshold with make test-coverage"
+          make test-coverage
 
   publish-ghcr:
     name: Publish image to GHCR
