@@ -1,0 +1,5 @@
+internal/stateoperator/manager_pipeline.go:59:20: the interface has more than 5 methods: 9 (interfacebloat)
+type ManagerClient interface {
+                   ^
+1 issues:
+* interfacebloat: 1

@@ -56,18 +56,38 @@ func (r *RemoteGroup) markUnsupported(reason nsxv1alpha.UnsupportedExpressionRea
 type GroupListFunc func(context.Context, kubeapi.ListOptions) (*nsxv1alpha.NSXGroupList, error)
 
 // ManagerClient is the NSX manager API surface required by group reconciliation.
-//
-//nolint:interfacebloat // the NSX group reconciliation port intentionally groups one cohesive route family.
 type ManagerClient interface {
+	managerGroupReader
+	managerGroupWriter
+	managerIPAddressExpressionWriter
+	managerPathExpressionWriter
+}
+
+type managerGroupReader interface {
 	ListGroups(ctx context.Context) ([]*nsxclient.Group, error)
+}
+
+type managerGroupWriter interface {
 	PatchGroup(ctx context.Context, groupID string, group *nsxclient.GroupPatch) error
+	DeleteGroup(ctx context.Context, groupID string) error
+}
+
+type managerIPAddressExpressionWriter interface {
 	PatchGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpressionPatch) error
 	AddGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpressionPatch) error
 	DeleteGroupIPAddressExpression(ctx context.Context, groupID string, expressionID string) error
+}
+
+type managerPathExpressionWriter interface {
 	PatchGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.PathExpressionPatch) error
 	AddGroupPathExpression(ctx context.Context, groupID string, expressionID string, expression *nsxclient.PathExpressionPatch) error
 	DeleteGroupPathExpression(ctx context.Context, groupID string, expressionID string) error
-	DeleteGroup(ctx context.Context, groupID string) error
+}
+
+type managerManagedWriteClient interface {
+	managerGroupWriter
+	managerIPAddressExpressionWriter
+	managerPathExpressionWriter
 }
 
 // ManagerClientFactory creates an NSX manager client for a network cloud.
@@ -848,7 +868,7 @@ func compareBindingKeys(left BindingKey, right BindingKey) int {
 	return 0
 }
 
-func applyManagedWrite(ctx context.Context, managerClient ManagerClient, write *ManagedGroupWrite) error {
+func applyManagedWrite(ctx context.Context, managerClient managerManagedWriteClient, write *ManagedGroupWrite) error {
 	group := &nsxclient.GroupPatch{
 		ID:           write.Key.GroupID,
 		DisplayName:  write.DisplayName,
@@ -869,7 +889,7 @@ func applyManagedWrite(ctx context.Context, managerClient ManagerClient, write *
 	return nil
 }
 
-func applyManagedIPAddressExpression(ctx context.Context, managerClient ManagerClient, write *ManagedGroupWrite) error {
+func applyManagedIPAddressExpression(ctx context.Context, managerClient managerIPAddressExpressionWriter, write *ManagedGroupWrite) error {
 	if len(write.CIDRs) == 0 {
 		if write.IPAddressExpressionID != "" {
 			err := managerClient.DeleteGroupIPAddressExpression(ctx, write.Key.GroupID, write.IPAddressExpressionID)
@@ -899,7 +919,7 @@ func applyManagedIPAddressExpression(ctx context.Context, managerClient ManagerC
 	return nil
 }
 
-func applyManagedPathExpression(ctx context.Context, managerClient ManagerClient, write *ManagedGroupWrite) error {
+func applyManagedPathExpression(ctx context.Context, managerClient managerPathExpressionWriter, write *ManagedGroupWrite) error {
 	if len(write.SegmentPaths) == 0 {
 		if write.PathExpressionID != "" {
 			err := managerClient.DeleteGroupPathExpression(ctx, write.Key.GroupID, write.PathExpressionID)

@@ -1,0 +1,22 @@
+Focused pointer/copy/interface review for task 06.
+
+Commands and observations:
+
+- `make project-lint` exited 0 in `baseline-make-project-lint.log`.
+- `.bin/golangci-lint run ./...` exited 0 in `baseline-golangci-lint.log`; this includes the task linters for `gocritic`, `interfacebloat`, `iface`, `forcetypeassert`, `copyloopvar`, `exhaustive`, `unconvert`, `unparam`, and `usestdlibvars`.
+- `go vet ./...` exited 0 in `baseline-go-vet.log`; no copied-lock findings were reported.
+- `rg -n "\\*\\[\\]|\\*map\\[|\\*chan\\b|\\*interface\\b|\\*any\\b" internal api cmd scripts` found no pointer-to-reference-type shapes.
+- `rg -n "//nolint:(gocritic|interfacebloat|iface|forcetypeassert)|//nolint:.*(gocritic|interfacebloat|iface|forcetypeassert)" .` found public value-option `gocritic` exemptions in kubeapi, nsxclient, startup, operator/stateoperator planning APIs, broad test-fixture exemptions in stateoperator tests, and one active `interfacebloat` exemption on `internal/stateoperator.ManagerClient`.
+- The `ManagerClient` exemption was a real cleanup candidate. Removing its `interfacebloat` nolint made `.bin/golangci-lint run ./internal/stateoperator` fail with `the interface has more than 5 methods: 9`; see `red-interfacebloat-stateoperator.log`.
+- The boundary was fixed by splitting `ManagerClient` into small consumer-side route-family interfaces while keeping `ManagerClient` as the public composite contract and narrowing helper parameters to the writer families they actually use.
+- `green-stateoperator-lint.log`, `green-stateoperator-test-envtest.log`, and `green-nsxclient-test.log` verify the cleanup.
+
+Remaining `nolint:gocritic` classifications:
+
+- `internal/kubeapi/client.go`: Kubernetes-style public client methods keep metav1 option values by value; private helpers avoid repeated copies.
+- `internal/nsxclient/client.go` and `internal/nsxclient/routes.go`: public NSX client constructor/search methods keep value option literals for caller ergonomics.
+- `internal/startup/startup.go`, `internal/startup/manager.go`, and `internal/stateoperator/operator.go`: public option APIs keep value options so callers can pass literals.
+- `internal/stateoperator/manager_pipeline.go`: planning/conversion APIs keep value snapshots/DTOs/cloud objects/plans so tests and callers can pass decoded literals. Internal loops use index-based iteration where needed.
+- `internal/stateoperator/*_test.go`: test fixtures use large Kubernetes literals and envtest setup where pointer plumbing would obscure behavior-focused assertions.
+
+No `iface` or `forcetypeassert` nolint exemptions remain in the focused scan.
