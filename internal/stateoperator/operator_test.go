@@ -1,4 +1,4 @@
-//nolint:gocritic,govet,nilnil,noinlineerr // operator tests use large Kubernetes fixtures, nil fake-client sentinels, and log entries where value assertions keep cases readable.
+//nolint:gocritic,govet,noinlineerr // operator tests use large Kubernetes fixtures, nil fake-client sentinels, and log entries where value assertions keep cases readable.
 package stateoperator_test
 
 import (
@@ -318,13 +318,7 @@ func TestNetworkCloudReconcileCanceledContextReturnsError(t *testing.T) {
 
 func TestGroupReconcileObservesEventWithoutClientOrNSXMutation(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
-	reconciler := stateoperator.GroupReconciler{
-		Logger: zap.New(core),
-		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
-			t.Fatalf("observer reconcile constructed NSX manager client")
-			return nil, nil
-		},
-	}
+	reconciler := stateoperator.GroupReconciler{Logger: zap.New(core)}
 
 	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: "group-a"},

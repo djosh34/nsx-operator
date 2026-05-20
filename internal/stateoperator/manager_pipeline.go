@@ -557,6 +557,9 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (*ManagerPl
 				}
 				continue
 			}
+			if !slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
+				addManagedFinalizerPatchRequest(&plan, &localBinding.Group)
+			}
 			if !exists {
 				write := managedWriteFromLocal(&localBinding.Group, &RemoteGroup{})
 				plan.ManagedWrites = append(plan.ManagedWrites, write)

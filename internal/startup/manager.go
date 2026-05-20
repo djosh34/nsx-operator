@@ -156,7 +156,6 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		Named("nsxnetworkcloud").
 		For(&nsxv1alpha.NSXNetworkCloud{}).
 		Complete(&stateoperator.NetworkCloudReconciler{
-			Client: runtimeManager.GetClient(),
 			Logger: logger,
 		})
 	if err != nil {
@@ -167,10 +166,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		Named("nsxgroup").
 		For(&nsxv1alpha.NSXGroup{}).
 		Complete(&stateoperator.GroupReconciler{
-			Client:               runtimeManager.GetClient(),
-			ManagerClientFactory: managerClientFactory,
-			Logger:               logger,
-			Clock:                options.Clock,
+			Logger: logger,
 		})
 	if err != nil {
 		logger.Info("nsx group controller registration failed", logging.Component("startup"), zap.Error(err))

@@ -539,6 +539,41 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 	requireCondition(t, statusFor(t, plan.GroupStatuses, "manage-missing").Conditions, nsxv1alpha.ConditionDeleting, metav1.ConditionFalse, "NotDeleting", "no NSX delete is planned", now)
 }
 
+func TestProcessManagerSnapshotManageGroupPlansFinalizerAdditionThroughBatchPatch(t *testing.T) {
+	now := time.Date(2026, 5, 19, 13, 50, 0, 0, time.UTC)
+	managed := managerGroup("manage-needs-finalizer", "nsx-a.example.test", "app-finalizer", nsxv1alpha.NSXGroupModeManage)
+	managed.ResourceVersion = "rv-manage-finalizer"
+	managed.Finalizers = []string{"example.test/keep"}
+
+	plan, err := stateoperator.ProcessManagerSnapshot(stateoperator.ManagerSnapshot{
+		Cloud:            *networkCloud("cloud-a", "nsx-a.example.test"),
+		NetworkCloudFQDN: "nsx-a.example.test",
+		LocalGroups:      []nsxv1alpha.NSXGroup{*managed},
+		RemoteGroups: []stateoperator.RemoteGroup{{
+			Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-finalizer"},
+			DisplayName: "App Finalizer",
+		}},
+	}, now)
+	if err != nil {
+		t.Fatalf("ProcessManagerSnapshot() error = %v", err)
+	}
+
+	patchKey := kubeapi.BatchKey{Operation: "patchFinalizers", Resource: "nsxgroups", Subresource: "finalizers", Name: "manage-needs-finalizer"}
+	patchRequest, found := plan.KubeWrites.GroupFinalizerPatches[patchKey]
+	if !found {
+		t.Fatalf("GroupFinalizerPatches = %#v, want typed finalizer patch for managed group", plan.KubeWrites.GroupFinalizerPatches)
+	}
+	if patchRequest.ResourceVersion != "rv-manage-finalizer" {
+		t.Fatalf("patch resourceVersion = %q, want gathered rv-manage-finalizer", patchRequest.ResourceVersion)
+	}
+	if !reflect.DeepEqual(patchRequest.Finalizers, []string{"example.test/keep", stateoperator.GroupFinalizer}) {
+		t.Fatalf("patch finalizers = %#v, want unrelated finalizer plus operator finalizer", patchRequest.Finalizers)
+	}
+	if len(plan.ManagedDeletes) != 0 {
+		t.Fatalf("ManagedDeletes = %#v, want no delete for non-deleting managed group", plan.ManagedDeletes)
+	}
+}
+
 func TestProcessManagerSnapshotSkipsAlreadyCorrectGroupStatus(t *testing.T) {
 	oldTime := time.Date(2026, 5, 19, 13, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 5, 19, 14, 0, 0, 0, time.UTC)

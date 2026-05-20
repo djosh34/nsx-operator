@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Wed May 20 09:50:44 CEST 2026
+Generated: Wed May 20 10:09:31 AM CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -490,6 +490,18 @@ NOW EXECUTE
 
 <description>
 Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/bugs/controller-reconcilers-bypass-batched-kubeapi.md`
+
+```
+## Bug: Controller Reconcilers Bypass Batched Kube API <status>done</status> <passes>true</passes> <priority>ultra high</priority>
+
+<plan>
+.ralph/tasks/bugs/controller-reconcilers-bypass-batched-kubeapi_plans/01-controller-reconcile-batch-boundary-verification.md
+</plan>
 ```
 
 ==============

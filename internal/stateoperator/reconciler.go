@@ -6,7 +6,6 @@ import (
 
 	"github.com/djosh34/nsx-operator/internal/logging"
 	"go.uber.org/zap"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -15,16 +14,12 @@ const GroupFinalizer = "nsx.ing.com/finalizer"
 
 // NetworkCloudReconciler observes NSXNetworkCloud changes.
 type NetworkCloudReconciler struct {
-	Client client.Client
 	Logger *zap.Logger
 }
 
-// GroupReconciler reconciles NSXGroup resources against NSX manager state.
+// GroupReconciler observes NSXGroup changes.
 type GroupReconciler struct {
-	Client               client.Client
-	ManagerClientFactory ManagerClientFactory
-	Logger               *zap.Logger
-	Clock                Clock
+	Logger *zap.Logger
 }
 
 var (

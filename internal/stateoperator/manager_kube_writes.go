@@ -137,6 +137,20 @@ func addGroupFinalizerPatchRequest(plan *ManagerPlan, group *nsxv1alpha.NSXGroup
 	}
 }
 
+func addManagedFinalizerPatchRequest(plan *ManagerPlan, group *nsxv1alpha.NSXGroup) {
+	ensureManagerKubeWrites(&plan.KubeWrites)
+	finalizers := copyStringSlice(group.Finalizers)
+	if !slices.Contains(finalizers, GroupFinalizer) {
+		finalizers = append(finalizers, GroupFinalizer)
+	}
+	key := groupBatchKey("patchFinalizers", "finalizers", group.Name)
+	plan.KubeWrites.GroupFinalizerPatches[key] = kubeapi.GroupFinalizerPatchRequest{
+		Name:            group.Name,
+		ResourceVersion: group.ResourceVersion,
+		Finalizers:      finalizers,
+	}
+}
+
 func groupWriteKeyOrStatusKey(groupWriteKey *kubeapi.BatchKey, statusKey *kubeapi.BatchKey) *kubeapi.BatchKey {
 	if statusKey != nil {
 		return statusKey
