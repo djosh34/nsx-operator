@@ -2785,7 +2785,7 @@ func alreadySyncedManagedStatus(t *testing.T, observedGeneration int64, transiti
 	if err != nil {
 		t.Fatalf("build already-synced managed status: %v", err)
 	}
-	return status
+	return *status
 }
 
 func alreadySweptCloudStatus(t *testing.T, observedGeneration int64, transitionTime time.Time) nsxv1alpha.NSXNetworkCloudStatus {
@@ -2801,7 +2801,7 @@ func alreadySweptCloudStatus(t *testing.T, observedGeneration int64, transitionT
 	if err != nil {
 		t.Fatalf("build already-swept cloud status: %v", err)
 	}
-	return status
+	return *status
 }
 
 func requireCondition(

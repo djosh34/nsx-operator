@@ -113,7 +113,7 @@ func TestBuildGroupStatusCarriesUnsupportedReasonWhenConditionIsTrue(t *testing.
 	}
 
 	cleared, err := statuscondition.BuildGroupStatus(
-		status,
+		*status,
 		12,
 		now.Add(time.Minute),
 		statuscondition.UnsupportedExpression(
@@ -370,16 +370,16 @@ func TestCompareGroupStatusDetectsMeaningfulDrift(t *testing.T) {
 		},
 	}
 
-	equalDecision := statuscondition.CompareGroupStatus(desired, desired)
+	equalDecision := statuscondition.CompareGroupStatus(*desired, *desired)
 	if equalDecision.Needed || equalDecision.Reason != "status_equal" {
 		t.Fatalf("CompareGroupStatus() equal decision = %#v, want status_equal with no write", equalDecision)
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			current := desired
+			current := *desired
 			current.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
 			tt.mutate(&current)
-			decision := statuscondition.CompareGroupStatus(current, desired)
+			decision := statuscondition.CompareGroupStatus(current, *desired)
 			if !decision.Needed || decision.Reason != tt.wantReason {
 				t.Fatalf("CompareGroupStatus() = %#v, want needed reason %q", decision, tt.wantReason)
 			}

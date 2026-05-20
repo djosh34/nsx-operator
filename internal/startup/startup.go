@@ -87,7 +87,7 @@ func Run(options Options) error {
 
 	if options.Constructors.Kubernetes != nil {
 		logger.Info("constructing kubernetes clients", logging.Component("startup"))
-		constructErr := options.Constructors.Kubernetes(loadedConfig)
+		constructErr := options.Constructors.Kubernetes(*loadedConfig)
 		if constructErr != nil {
 			return fmt.Errorf("construct kubernetes clients: %w", constructErr)
 		}
@@ -95,7 +95,7 @@ func Run(options Options) error {
 	}
 	if options.Constructors.NSX != nil {
 		logger.Info("constructing nsx clients", logging.Component("startup"))
-		constructErr := options.Constructors.NSX(loadedConfig)
+		constructErr := options.Constructors.NSX(*loadedConfig)
 		if constructErr != nil {
 			return fmt.Errorf("construct nsx clients: %w", constructErr)
 		}
@@ -108,7 +108,7 @@ func Run(options Options) error {
 		}
 		logger.Info("constructing controller runtime manager", logging.Component("startup"))
 		runtimeManager, managerErr := options.ManagerFactory(ManagerOptions{
-			Config: loadedConfig,
+			Config: *loadedConfig,
 			Logger: logger,
 		})
 		if managerErr != nil {

@@ -322,7 +322,7 @@ func (r *typedResource[Object, List]) list(ctx context.Context, options ListOpti
 	r.log.Info("listing typed kubernetes resources", zap.String("fieldSelector", listOptions.FieldSelector), zap.String("resourceVersion", listOptions.ResourceVersion))
 	err = r.restClient.Get().
 		Resource(r.resource).
-		VersionedParams(&listOptions, r.parameterCodec).
+		VersionedParams(listOptions, r.parameterCodec).
 		Do(ctx).
 		Into(result)
 	if err != nil {
@@ -494,7 +494,7 @@ func (r *typedResource[Object, List]) watch(ctx context.Context, options ListOpt
 	r.log.Info("watching typed kubernetes resources", zap.String("fieldSelector", listOptions.FieldSelector), zap.String("resourceVersion", listOptions.ResourceVersion))
 	watcher, err := r.restClient.Get().
 		Resource(r.resource).
-		VersionedParams(&listOptions, r.parameterCodec).
+		VersionedParams(listOptions, r.parameterCodec).
 		Watch(ctx)
 	if err != nil {
 		r.log.Debug("watch typed kubernetes resources failed", zap.Error(err))
@@ -504,12 +504,12 @@ func (r *typedResource[Object, List]) watch(ctx context.Context, options ListOpt
 	return watcher, nil
 }
 
-func (r *typedResource[Object, List]) listOptions(options ListOptions) (metav1.ListOptions, error) {
+func (r *typedResource[Object, List]) listOptions(options ListOptions) (*metav1.ListOptions, error) {
 	selector, err := r.fieldSelector(options.Filters)
 	if err != nil {
-		return metav1.ListOptions{}, err
+		return nil, err
 	}
-	return metav1.ListOptions{
+	return &metav1.ListOptions{
 		ResourceVersion: options.ResourceVersion,
 		FieldSelector:   selector.String(),
 		Limit:           options.Limit,

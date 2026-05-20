@@ -138,7 +138,7 @@ func TestLargeMixedGroupsThroughRealKubernetesClient(t *testing.T) {
 	if len(snapshot.LocalGroups) != largeKubernetesGroupCount {
 		t.Fatalf("snapshot local groups = %d, want %d", len(snapshot.LocalGroups), largeKubernetesGroupCount)
 	}
-	plan, err := stateoperator.ProcessManagerSnapshot(snapshot, time.Date(2026, 5, 19, 6, 30, 0, 0, time.UTC))
+	plan, err := stateoperator.ProcessManagerSnapshot(*snapshot, time.Date(2026, 5, 19, 6, 30, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("ProcessManagerSnapshot() error = %v", err)
 	}

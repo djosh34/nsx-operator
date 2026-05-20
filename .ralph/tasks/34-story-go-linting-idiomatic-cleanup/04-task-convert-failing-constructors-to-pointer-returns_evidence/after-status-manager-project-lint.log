@@ -1,0 +1,3 @@
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/projectlint ./...
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/internal/kubeapi/client.go:507:1: functions returning a struct and error must return *Struct, error so error paths can return nil, err: use *ListOptions, error
+make: *** [Makefile:31: project-lint] Error 3

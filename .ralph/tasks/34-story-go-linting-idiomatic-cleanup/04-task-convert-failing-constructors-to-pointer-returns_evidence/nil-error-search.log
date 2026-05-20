@@ -1,0 +1,58 @@
+./internal/stateoperator/manager_pipeline_test.go:1040:			return nil, nil
+./internal/stateoperator/manager_pipeline_test.go:1861:			return nil, nil
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:366:		return nil, nil
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:377:		return nil, nil
+./internal/nsxclient/routes.go:88:	err := c.do(ctx, http.MethodGet, "/api/v1/firewall/sections/"+pathEscape(sectionID), nil, nil, &result)
+./internal/nsxclient/routes.go:109:	return c.do(ctx, http.MethodDelete, "/api/v1/firewall/sections/"+pathEscape(sectionID), query, nil, nil)
+./internal/nsxclient/routes.go:163:	return doTyped[FirewallRule](ctx, c, http.MethodGet, path, nil, nil)
+./internal/nsxclient/routes.go:173:	return c.do(ctx, http.MethodDelete, path, nil, nil, nil)
+./internal/nsxclient/routes.go:190:	return doTyped[IPSet](ctx, c, http.MethodGet, "/api/v1/ip-sets/"+pathEscape(ipSetID), nil, nil)
+./internal/nsxclient/routes.go:198:	return c.do(ctx, http.MethodDelete, "/api/v1/ip-sets/"+pathEscape(ipSetID), nil, nil, nil)
+./internal/nsxclient/routes.go:230:	return doTyped[Group](ctx, c, http.MethodGet, groupPath(groupID), nil, nil)
+./internal/nsxclient/routes.go:234:	return c.do(ctx, http.MethodDelete, groupPath(groupID), nil, nil, nil)
+./internal/nsxclient/routes.go:250:	return c.do(ctx, http.MethodDelete, groupExpressionPath(groupID, "ip-address-expressions", expressionID), nil, nil, nil)
+./internal/nsxclient/routes.go:262:	return c.do(ctx, http.MethodDelete, groupExpressionPath(groupID, "path-expressions", expressionID), nil, nil, nil)
+./internal/nsxclient/routes.go:289:	return doTyped[ConsolidatedEffectiveIPAddresses](ctx, c, http.MethodGet, path, nil, nil)
+./internal/nsxclient/routes.go:293:	return doTyped[EULAAcceptance](ctx, c, http.MethodGet, "/policy/api/v1/eula/acceptance", nil, nil)
+./internal/nsxclient/routes.go:305:	return c.do(ctx, http.MethodDelete, securityPolicyPath(policyID), nil, nil, nil)
+./internal/nsxclient/routes.go:309:	return doTyped[SecurityPolicy](ctx, c, http.MethodGet, securityPolicyPath(policyID), nil, nil)
+./internal/nsxclient/routes.go:333:	return c.do(ctx, http.MethodDelete, securityRulePath(policyID, ruleID), nil, nil, nil)
+./internal/nsxclient/routes.go:341:	return doTyped[SecurityRule](ctx, c, http.MethodGet, securityRulePath(policyID, ruleID), nil, nil)
+./internal/nsxclient/routes.go:365:	return c.do(ctx, http.MethodDelete, infraSegmentPath(segmentID), nil, nil, nil)
+./internal/nsxclient/routes.go:377:	return doTyped[SegmentState](ctx, c, http.MethodGet, infraSegmentPath(segmentID)+"/state", nil, nil)
+./internal/nsxclient/routes.go:381:	return doTyped[SegmentStatistics](ctx, c, http.MethodGet, infraSegmentPath(segmentID)+"/statistics", nil, nil)
+./internal/nsxclient/routes.go:393:	return doTyped[Tier1](ctx, c, http.MethodGet, tier1Path(tier1ID), nil, nil)
+./internal/nsxclient/routes.go:397:	return doTyped[Tier1State](ctx, c, http.MethodGet, tier1Path(tier1ID)+"/state", nil, nil)
+./internal/nsxclient/routes.go:409:	return c.do(ctx, http.MethodDelete, tier1SegmentPath(tier1ID, segmentID), nil, nil, nil)
+./internal/nsxclient/routes.go:425:	return doTyped[SegmentState](ctx, c, http.MethodGet, tier1SegmentPath(tier1ID, segmentID)+"/state", nil, nil)
+./internal/nsxclient/routes.go:429:	return doTyped[SegmentStatistics](ctx, c, http.MethodGet, tier1SegmentPath(tier1ID, segmentID)+"/statistics", nil, nil)
+./internal/nsxclient/routes.go:434:	return doTyped[SegmentState](ctx, c, http.MethodGet, path, nil, nil)
+./internal/nsxclient/routes.go:439:	return doTyped[SegmentStatistics](ctx, c, http.MethodGet, path, nil, nil)
+./internal/nsxclient/routes.go:447:	return doTyped[Segment](ctx, c, http.MethodGet, path, nil, nil)
+./internal/stateoperator/operator_test.go:423:			return nil, nil
+./internal/stateoperator/operator_test.go:458:			return nil, nil
+./internal/stateoperator/operator_test.go:539:			return nil, nil
+./internal/stateoperator/operator_test.go:1095:			return nil, nil
+./internal/operatormetrics/metrics_test.go:102:	_, err := NewRecorder(nil, nil)
+./internal/stateoperator/reconciler.go:52:		return reconcile.Result{}, err
+./internal/stateoperator/reconciler.go:55:		return reconcile.Result{}, fmt.Errorf("network cloud reconciler client is required")
+./internal/stateoperator/reconciler.go:79:		return reconcile.Result{}, fmt.Errorf("get nsx network cloud %q: %w", reconcileKey(req.NamespacedName), err)
+./internal/stateoperator/reconciler.go:98:		return reconcile.Result{}, err
+./internal/stateoperator/reconciler.go:101:		return reconcile.Result{}, fmt.Errorf("group reconciler client is required")
+./internal/stateoperator/reconciler.go:125:		return reconcile.Result{}, fmt.Errorf("get nsx group %q: %w", reconcileKey(req.NamespacedName), err)
+./internal/stateoperator/reconciler.go:140:			return reconcile.Result{}, err
+./internal/stateoperator/reconciler.go:147:			return reconcile.Result{}, err
+./internal/stateoperator/reconciler.go:154:			return reconcile.Result{}, err
+./internal/stateoperator/reconciler.go:166:			return reconcile.Result{}, fmt.Errorf("find cloud for nsx group %q: %w", group.Name, cloudErr)
+./internal/stateoperator/reconciler.go:169:			return reconcile.Result{}, fmt.Errorf("group reconciler manager client factory is required")
+./internal/stateoperator/reconciler.go:180:			return reconcile.Result{}, fmt.Errorf("construct nsx manager client for group %q: %w", group.Name, managerErr)
+./internal/stateoperator/reconciler.go:195:					return reconcile.Result{}, fmt.Errorf("update manage nsx group apply failure status %q: %w", group.Name, statusErr)
+./internal/stateoperator/reconciler.go:213:			return reconcile.Result{}, err
+./internal/stateoperator/reconciler.go:228:			return reconcile.Result{}, fmt.Errorf("update manage nsx group status %q: %w", group.Name, err)
+./internal/stateoperator/reconciler.go:250:			return reconcile.Result{}, fmt.Errorf("find cloud for deleting nsx group %q: %w", group.Name, cloudErr)
+./internal/stateoperator/reconciler.go:253:			return reconcile.Result{}, fmt.Errorf("group reconciler manager client factory is required")
+./internal/stateoperator/reconciler.go:264:			return reconcile.Result{}, fmt.Errorf("construct nsx manager client for deleting group %q: %w", group.Name, managerErr)
+./internal/stateoperator/reconciler.go:278:					return reconcile.Result{}, fmt.Errorf("update manage nsx group delete failure status %q: %w", group.Name, statusErr)
+./internal/stateoperator/reconciler.go:296:			return reconcile.Result{}, err
+./internal/stateoperator/reconciler.go:311:			return reconcile.Result{}, fmt.Errorf("update deleting nsx group status %q: %w", group.Name, err)
+./internal/kubeapi/batch.go:102:		return nil, nil, err

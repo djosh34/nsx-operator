@@ -1460,7 +1460,7 @@ func manageApplySubmittedStatusForTest(t *testing.T, observedGeneration int64, t
 	if err != nil {
 		t.Fatalf("build manage apply submitted status: %v", err)
 	}
-	return status
+	return *status
 }
 
 func manageDeleteSubmittedStatusForTest(t *testing.T, observedGeneration int64, transitionTime time.Time) nsxv1alpha.NSXGroupStatus {
@@ -1476,7 +1476,7 @@ func manageDeleteSubmittedStatusForTest(t *testing.T, observedGeneration int64, 
 	if err != nil {
 		t.Fatalf("build manage delete submitted status: %v", err)
 	}
-	return status
+	return *status
 }
 
 func requireLogField(t *testing.T, logs *observer.ObservedLogs, message string, key string, want string) {

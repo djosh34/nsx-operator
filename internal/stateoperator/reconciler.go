@@ -44,6 +44,8 @@ var (
 )
 
 // Reconcile logs observed network cloud changes.
+//
+//projectlint:allow struct-error-return controller-runtime reconcile.Reconciler requires reconcile.Result by value
 func (r *NetworkCloudReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	err := ctx.Err()
 	if err != nil {
@@ -88,6 +90,8 @@ func (r *NetworkCloudReconciler) Reconcile(ctx context.Context, req reconcile.Re
 }
 
 // Reconcile applies or cleans up one NSXGroup.
+//
+//projectlint:allow struct-error-return controller-runtime reconcile.Reconciler requires reconcile.Result by value
 func (r *GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	err := ctx.Err()
 	if err != nil {
@@ -164,7 +168,7 @@ func (r *GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		if r.ManagerClientFactory == nil {
 			return reconcile.Result{}, fmt.Errorf("group reconciler manager client factory is required")
 		}
-		managerClient, managerErr := r.ManagerClientFactory(ctx, cloud)
+		managerClient, managerErr := r.ManagerClientFactory(ctx, *cloud)
 		if managerErr != nil {
 			logger.Info(
 				"manage group nsx client construction failed",
@@ -212,7 +216,7 @@ func (r *GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		if statusErr != nil {
 			return reconcile.Result{}, statusErr
 		}
-		err = r.updateGroupStatus(ctx, &group, status)
+		err = r.updateGroupStatus(ctx, &group, *status)
 		if err != nil {
 			logger.Info(
 				"manage group status update failed",
@@ -248,7 +252,7 @@ func (r *GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		if r.ManagerClientFactory == nil {
 			return reconcile.Result{}, fmt.Errorf("group reconciler manager client factory is required")
 		}
-		managerClient, managerErr := r.ManagerClientFactory(ctx, cloud)
+		managerClient, managerErr := r.ManagerClientFactory(ctx, *cloud)
 		if managerErr != nil {
 			logger.Info(
 				"manage group delete nsx client construction failed",
@@ -295,7 +299,7 @@ func (r *GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		if statusErr != nil {
 			return reconcile.Result{}, statusErr
 		}
-		err = r.updateGroupStatus(ctx, &group, status)
+		err = r.updateGroupStatus(ctx, &group, *status)
 		if err != nil {
 			logger.Info(
 				"manage group delete status update failed",
@@ -376,23 +380,23 @@ func (r *GroupReconciler) removeGroupFinalizer(ctx context.Context, group *nsxv1
 	return nil
 }
 
-func (r *GroupReconciler) findNetworkCloud(ctx context.Context, networkCloudFQDN string) (nsxv1alpha.NSXNetworkCloud, error) {
+func (r *GroupReconciler) findNetworkCloud(ctx context.Context, networkCloudFQDN string) (*nsxv1alpha.NSXNetworkCloud, error) {
 	normalizedFQDN := names.NormalizeNetworkCloudFQDN(networkCloudFQDN)
 	var clouds nsxv1alpha.NSXNetworkCloudList
 	err := r.Client.List(ctx, &clouds)
 	if err != nil {
-		return nsxv1alpha.NSXNetworkCloud{}, fmt.Errorf("list nsx network clouds: %w", err)
+		return nil, fmt.Errorf("list nsx network clouds: %w", err)
 	}
 	for cloudIndex := range clouds.Items {
 		cloud := clouds.Items[cloudIndex]
 		if names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN) == normalizedFQDN {
-			return cloud, nil
+			return &cloud, nil
 		}
 	}
-	return nsxv1alpha.NSXNetworkCloud{}, fmt.Errorf("network cloud %q not found", normalizedFQDN)
+	return nil, fmt.Errorf("network cloud %q not found", normalizedFQDN)
 }
 
-func (r *GroupReconciler) manageApplySubmittedStatus(group *nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
+func (r *GroupReconciler) manageApplySubmittedStatus(group *nsxv1alpha.NSXGroup) (*nsxv1alpha.NSXGroupStatus, error) {
 	status, err := statuscondition.BuildGroupStatus(
 		group.Status,
 		group.Generation,
@@ -401,7 +405,7 @@ func (r *GroupReconciler) manageApplySubmittedStatus(group *nsxv1alpha.NSXGroup)
 		statuscondition.Synced(metav1.ConditionUnknown, metav1.ConditionUnknown, metav1.ConditionFalse, metav1.ConditionTrue, "Applying", "managed NSX group apply is awaiting sweep confirmation"),
 	)
 	if err != nil {
-		return nsxv1alpha.NSXGroupStatus{}, fmt.Errorf("build manage apply submitted status: %w", err)
+		return nil, fmt.Errorf("build manage apply submitted status: %w", err)
 	}
 	return status, nil
 }
@@ -494,10 +498,10 @@ func (r *GroupReconciler) buildManageApplyOutcomeStatus(
 	if err != nil {
 		return nsxv1alpha.NSXGroupStatus{}, false
 	}
-	return status, true
+	return *status, true
 }
 
-func (r *GroupReconciler) manageDeleteSubmittedStatus(group *nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
+func (r *GroupReconciler) manageDeleteSubmittedStatus(group *nsxv1alpha.NSXGroup) (*nsxv1alpha.NSXGroupStatus, error) {
 	status, err := statuscondition.BuildGroupStatus(
 		group.Status,
 		group.Generation,
@@ -506,7 +510,7 @@ func (r *GroupReconciler) manageDeleteSubmittedStatus(group *nsxv1alpha.NSXGroup
 		statuscondition.Synced(metav1.ConditionUnknown, metav1.ConditionUnknown, metav1.ConditionFalse, metav1.ConditionTrue, "Deleting", "managed NSX group delete is awaiting sweep confirmation"),
 	)
 	if err != nil {
-		return nsxv1alpha.NSXGroupStatus{}, fmt.Errorf("build manage delete submitted status: %w", err)
+		return nil, fmt.Errorf("build manage delete submitted status: %w", err)
 	}
 	return status, nil
 }
@@ -599,7 +603,7 @@ func (r *GroupReconciler) buildManageDeleteOutcomeStatus(
 	if err != nil {
 		return nsxv1alpha.NSXGroupStatus{}, false
 	}
-	return status, true
+	return *status, true
 }
 
 func writeDisabledConfigName(reason nsxclient.WriteDisabledReason) string {

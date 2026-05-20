@@ -94,16 +94,16 @@ func BuildGroupStatus(
 	observedGeneration int64,
 	now time.Time,
 	updates ...ConditionUpdate,
-) (nsxv1alpha.NSXGroupStatus, error) {
+) (*nsxv1alpha.NSXGroupStatus, error) {
 	conditions, err := buildConditions(previous.Conditions, groupConditionOrder, observedGeneration, now, updates)
 	if err != nil {
-		return nsxv1alpha.NSXGroupStatus{}, err
+		return nil, err
 	}
 	unsupportedReason, err := unsupportedReasonFromUpdates(updates)
 	if err != nil {
-		return nsxv1alpha.NSXGroupStatus{}, err
+		return nil, err
 	}
-	return nsxv1alpha.NSXGroupStatus{UnsupportedReason: unsupportedReason, Conditions: conditions}, nil
+	return &nsxv1alpha.NSXGroupStatus{UnsupportedReason: unsupportedReason, Conditions: conditions}, nil
 }
 
 // BuildNetworkCloudStatus returns a normalized NSXNetworkCloud status.
@@ -112,12 +112,12 @@ func BuildNetworkCloudStatus(
 	observedGeneration int64,
 	now time.Time,
 	updates ...ConditionUpdate,
-) (nsxv1alpha.NSXNetworkCloudStatus, error) {
+) (*nsxv1alpha.NSXNetworkCloudStatus, error) {
 	conditions, err := buildConditions(previous.Conditions, cloudConditionOrder, observedGeneration, now, updates)
 	if err != nil {
-		return nsxv1alpha.NSXNetworkCloudStatus{}, err
+		return nil, err
 	}
-	return nsxv1alpha.NSXNetworkCloudStatus{Conditions: conditions}, nil
+	return &nsxv1alpha.NSXNetworkCloudStatus{Conditions: conditions}, nil
 }
 
 // CompareGroupStatus reports whether a group status write is needed.

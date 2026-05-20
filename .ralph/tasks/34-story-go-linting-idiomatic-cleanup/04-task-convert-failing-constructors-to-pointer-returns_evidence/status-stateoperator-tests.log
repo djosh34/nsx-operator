@@ -1,0 +1,22 @@
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)
+--- FAIL: TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeAPI (0.00s)
+    manager_pipeline_test.go:1430: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepLogsUnsupportedRemoteReason (0.00s)
+    manager_pipeline_test.go:1569: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec (0.00s)
+    manager_pipeline_test.go:1630: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepRemovesManagedFinalizerAfterConfirmedRemoteAbsence (0.00s)
+    manager_pipeline_test.go:1727: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepUpdatesCloudStatusWhenGatherFails (0.00s)
+    manager_pipeline_test.go:1786: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI (1.10s)
+    manager_pipeline_test.go:1842: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestLifecycleObserveMissingRemoteDeletesCRAgainstMockAPIWithoutNSXDelete (0.96s)
+    manager_pipeline_test.go:1938: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestNetworkCloudAddAndRemoveLifecycleAgainstPublicMockAPI (0.99s)
+    manager_pipeline_test.go:1994: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestLifecycleCloudDeletionLeavesChildGroupsAndStopsDefaultSweepThroughTypedKubeAPI (0.00s)
+    manager_pipeline_test.go:2080: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+FAIL
+FAIL	github.com/djosh34/nsx-operator/internal/stateoperator	6.464s
+FAIL

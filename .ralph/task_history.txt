@@ -40,3 +40,4 @@ NONE
 .ralph/tasks/34-story-go-linting-idiomatic-cleanup/01-task-add-strict-golangci-lint-config.md
 .ralph/tasks/34-story-go-linting-idiomatic-cleanup/02-task-add-custom-project-linters.md
 .ralph/tasks/34-story-go-linting-idiomatic-cleanup/03-task-convert-methods-and-interface-assertions-to-pointers.md
+.ralph/tasks/34-story-go-linting-idiomatic-cleanup/04-task-convert-failing-constructors-to-pointer-returns.md

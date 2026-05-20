@@ -144,47 +144,47 @@ type rawLoggingConfig struct {
 }
 
 // Load reads, validates, and resolves the operator configuration.
-func Load(options Options) (Config, error) {
+func Load(options Options) (*Config, error) {
 	if options.Path == "" {
-		return Config{}, errors.New("config path is required")
+		return nil, errors.New("config path is required")
 	}
 
 	content, err := os.ReadFile(options.Path)
 	if err != nil {
-		return Config{}, fmt.Errorf("read config file: %w", err)
+		return nil, fmt.Errorf("read config file: %w", err)
 	}
 
 	var raw rawConfig
 	err = yaml.Unmarshal(content, &raw)
 	if err != nil {
-		return Config{}, fmt.Errorf("parse config yaml: %w", err)
+		return nil, fmt.Errorf("parse config yaml: %w", err)
 	}
 
 	tickInterval, err := parsePositiveDuration("operator.tickInterval", raw.Operator.TickInterval)
 	if err != nil {
-		return Config{}, err
+		return nil, err
 	}
 	if raw.HTTPRateLimiter.MaxRequestsInFlightPerHost <= 0 {
-		return Config{}, fmt.Errorf("httpRateLimiter.maxRequestsInFlightPerHost must be positive")
+		return nil, fmt.Errorf("httpRateLimiter.maxRequestsInFlightPerHost must be positive")
 	}
 	if raw.HTTPRateLimiter.MaxRequestsPerSecondPerHost <= 0 {
-		return Config{}, fmt.Errorf("httpRateLimiter.maxRequestsPerSecondPerHost must be positive")
+		return nil, fmt.Errorf("httpRateLimiter.maxRequestsPerSecondPerHost must be positive")
 	}
 	kubeAPI, err := parseKubeAPIConfig(raw.KubeAPI)
 	if err != nil {
-		return Config{}, err
+		return nil, err
 	}
 	if !isSupportedLogLevel(raw.Logging.Level) {
-		return Config{}, fmt.Errorf("logging.level must be one of debug, info, warn, or error")
+		return nil, fmt.Errorf("logging.level must be one of debug, info, warn, or error")
 	}
 	nsxURLScheme, err := parseNSXURLScheme(raw.NSX.URLScheme)
 	if err != nil {
-		return Config{}, err
+		return nil, err
 	}
 	if raw.NSX.TLS.CABundleFile != "" {
 		_, err = os.Stat(raw.NSX.TLS.CABundleFile)
 		if err != nil {
-			return Config{}, fmt.Errorf("validate nsx.tls.caBundleFile %q: %w", raw.NSX.TLS.CABundleFile, err)
+			return nil, fmt.Errorf("validate nsx.tls.caBundleFile %q: %w", raw.NSX.TLS.CABundleFile, err)
 		}
 	}
 
@@ -195,7 +195,7 @@ func Load(options Options) (Config, error) {
 
 	auth, err := resolveBasicAuth(raw.NSX.Auth, options.EnvScriptPath, options.Environ, options.FS, logger)
 	if err != nil {
-		return Config{}, err
+		return nil, err
 	}
 
 	writesEnabled := true
@@ -203,7 +203,7 @@ func Load(options Options) (Config, error) {
 		writesEnabled = *raw.NSX.WritesEnabled
 	}
 
-	return Config{
+	return &Config{
 		Operator: OperatorConfig{
 			TickInterval:       tickInterval,
 			MetricsBindAddress: parseMetricsBindAddress(raw.Operator.MetricsBindAddress),
@@ -212,12 +212,12 @@ func Load(options Options) (Config, error) {
 			MaxRequestsInFlightPerHost:  raw.HTTPRateLimiter.MaxRequestsInFlightPerHost,
 			MaxRequestsPerSecondPerHost: raw.HTTPRateLimiter.MaxRequestsPerSecondPerHost,
 		},
-		KubeAPI: kubeAPI,
+		KubeAPI: *kubeAPI,
 		NSX: NSXConfig{
 			URLScheme:               nsxURLScheme,
 			WritesEnabled:           writesEnabled,
 			WritesEnabledConfigured: true,
-			Auth:                    auth,
+			Auth:                    *auth,
 			TLS: TLSConfig{
 				CABundleFile: raw.NSX.TLS.CABundleFile,
 			},
@@ -228,15 +228,15 @@ func Load(options Options) (Config, error) {
 	}, nil
 }
 
-func parseKubeAPIConfig(raw rawKubeAPIConfig) (KubeAPIConfig, error) {
+func parseKubeAPIConfig(raw rawKubeAPIConfig) (*KubeAPIConfig, error) {
 	if raw.NumParallelWorkers < 0 {
-		return KubeAPIConfig{}, fmt.Errorf("kubeAPI.numParallelWorkers must not be negative")
+		return nil, fmt.Errorf("kubeAPI.numParallelWorkers must not be negative")
 	}
 	if raw.MaxRequestsPerSecond < 0 {
-		return KubeAPIConfig{}, fmt.Errorf("kubeAPI.maxRequestsPerSecond must not be negative")
+		return nil, fmt.Errorf("kubeAPI.maxRequestsPerSecond must not be negative")
 	}
 	if raw.MaxRequestsInFlight < 0 {
-		return KubeAPIConfig{}, fmt.Errorf("kubeAPI.maxRequestsInFlight must not be negative")
+		return nil, fmt.Errorf("kubeAPI.maxRequestsInFlight must not be negative")
 	}
 	cfg := KubeAPIConfig(raw)
 	if cfg.NumParallelWorkers == 0 {
@@ -248,7 +248,7 @@ func parseKubeAPIConfig(raw rawKubeAPIConfig) (KubeAPIConfig, error) {
 	if cfg.MaxRequestsInFlight == 0 {
 		cfg.MaxRequestsInFlight = 100
 	}
-	return cfg, nil
+	return &cfg, nil
 }
 
 func parseMetricsBindAddress(value string) string {
@@ -290,77 +290,77 @@ func parseNSXURLScheme(value string) (string, error) {
 	}
 }
 
-func resolveBasicAuth(raw rawAuthConfig, envScriptPath string, environ map[string]string, filesystem fs.FS, logger *zap.Logger) (BasicAuth, error) {
+func resolveBasicAuth(raw rawAuthConfig, envScriptPath string, environ map[string]string, filesystem fs.FS, logger *zap.Logger) (*BasicAuth, error) {
 	if envScriptPath != "" {
 		auth, err := resolveEnvScriptBasicAuth(envScriptPath, logger)
 		if err != nil {
-			return BasicAuth{}, err
+			return nil, err
 		}
 		return auth, nil
 	}
 	if hasPartialCredentialPair(environ["NSX_USERNAME"], environ["NSX_PASSWORD"]) {
-		return BasicAuth{}, fmt.Errorf("NSX_USERNAME and NSX_PASSWORD must both be set or both be unset")
+		return nil, fmt.Errorf("NSX_USERNAME and NSX_PASSWORD must both be set or both be unset")
 	}
 	if hasCompleteCredentialPair(environ["NSX_USERNAME"], environ["NSX_PASSWORD"]) {
-		return BasicAuth{
+		return &BasicAuth{
 			Username: environ["NSX_USERNAME"],
 			Password: environ["NSX_PASSWORD"],
 			Source:   CredentialSourceEnv,
 		}, nil
 	}
 	if hasPartialCredentialPair(environ["NSX_USERNAME_FILE"], environ["NSX_PASSWORD_FILE"]) {
-		return BasicAuth{}, fmt.Errorf("NSX_USERNAME_FILE and NSX_PASSWORD_FILE must both be set or both be unset")
+		return nil, fmt.Errorf("NSX_USERNAME_FILE and NSX_PASSWORD_FILE must both be set or both be unset")
 	}
 	if hasCompleteCredentialPair(environ["NSX_USERNAME_FILE"], environ["NSX_PASSWORD_FILE"]) {
 		username, err := readCredentialFile(filesystem, environ["NSX_USERNAME_FILE"])
 		if err != nil {
-			return BasicAuth{}, fmt.Errorf("read NSX_USERNAME_FILE: %w", err)
+			return nil, fmt.Errorf("read NSX_USERNAME_FILE: %w", err)
 		}
 		password, err := readCredentialFile(filesystem, environ["NSX_PASSWORD_FILE"])
 		if err != nil {
-			return BasicAuth{}, fmt.Errorf("read NSX_PASSWORD_FILE: %w", err)
+			return nil, fmt.Errorf("read NSX_PASSWORD_FILE: %w", err)
 		}
-		return BasicAuth{
+		return &BasicAuth{
 			Username: username,
 			Password: password,
 			Source:   CredentialSourceEnvFiles,
 		}, nil
 	}
 	if hasPartialCredentialPair(raw.Username, raw.Password) {
-		return BasicAuth{}, fmt.Errorf("nsx.auth.username and nsx.auth.password must both be set or both be unset")
+		return nil, fmt.Errorf("nsx.auth.username and nsx.auth.password must both be set or both be unset")
 	}
 	if hasCompleteCredentialPair(raw.Username, raw.Password) {
-		return BasicAuth{
+		return &BasicAuth{
 			Username: raw.Username,
 			Password: raw.Password,
 			Source:   CredentialSourceConfigValues,
 		}, nil
 	}
 	if hasPartialCredentialPair(raw.UsernameFile, raw.PasswordFile) {
-		return BasicAuth{}, fmt.Errorf("nsx.auth.usernameFile and nsx.auth.passwordFile must both be set or both be unset")
+		return nil, fmt.Errorf("nsx.auth.usernameFile and nsx.auth.passwordFile must both be set or both be unset")
 	}
 	if hasCompleteCredentialPair(raw.UsernameFile, raw.PasswordFile) {
 		username, err := readCredentialFile(filesystem, raw.UsernameFile)
 		if err != nil {
-			return BasicAuth{}, fmt.Errorf("read nsx.auth.usernameFile: %w", err)
+			return nil, fmt.Errorf("read nsx.auth.usernameFile: %w", err)
 		}
 		password, err := readCredentialFile(filesystem, raw.PasswordFile)
 		if err != nil {
-			return BasicAuth{}, fmt.Errorf("read nsx.auth.passwordFile: %w", err)
+			return nil, fmt.Errorf("read nsx.auth.passwordFile: %w", err)
 		}
-		return BasicAuth{
+		return &BasicAuth{
 			Username: username,
 			Password: password,
 			Source:   CredentialSourceConfigFiles,
 		}, nil
 	}
-	return BasicAuth{}, fmt.Errorf("nsx.auth must resolve one complete basic auth credential source")
+	return nil, fmt.Errorf("nsx.auth must resolve one complete basic auth credential source")
 }
 
-func resolveEnvScriptBasicAuth(path string, logger *zap.Logger) (BasicAuth, error) {
+func resolveEnvScriptBasicAuth(path string, logger *zap.Logger) (*BasicAuth, error) {
 	interpreter, args, err := readEnvScriptShebang(path)
 	if err != nil {
-		return BasicAuth{}, err
+		return nil, err
 	}
 	logger.Info(
 		"loading nsx credentials from env script",
@@ -399,12 +399,12 @@ func resolveEnvScriptBasicAuth(path string, logger *zap.Logger) (BasicAuth, erro
 			zap.Int("exit_code", exitCode),
 			zap.Error(err),
 		)
-		return BasicAuth{}, fmt.Errorf("execute env script %q with interpreter %q: %w", path, interpreter, err)
+		return nil, fmt.Errorf("execute env script %q with interpreter %q: %w", path, interpreter, err)
 	}
 
 	values, err := parseEnvScriptOutput(stdout.String())
 	if err != nil {
-		return BasicAuth{}, err
+		return nil, err
 	}
 	username := values["NSX_USERNAME"]
 	password := values["NSX_PASSWORD"]
@@ -416,12 +416,12 @@ func resolveEnvScriptBasicAuth(path string, logger *zap.Logger) (BasicAuth, erro
 		zap.Bool("has_nsx_password", password != ""),
 	)
 	if username == "" {
-		return BasicAuth{}, fmt.Errorf("env script %q did not provide NSX_USERNAME", path)
+		return nil, fmt.Errorf("env script %q did not provide NSX_USERNAME", path)
 	}
 	if password == "" {
-		return BasicAuth{}, fmt.Errorf("env script %q did not provide NSX_PASSWORD", path)
+		return nil, fmt.Errorf("env script %q did not provide NSX_PASSWORD", path)
 	}
-	return BasicAuth{
+	return &BasicAuth{
 		Username: username,
 		Password: password,
 		Source:   CredentialSourceEnvScript,

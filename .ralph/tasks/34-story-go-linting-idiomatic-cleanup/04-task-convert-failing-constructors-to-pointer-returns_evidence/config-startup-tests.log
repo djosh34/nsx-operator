@@ -1,0 +1,39 @@
+ok  	github.com/djosh34/nsx-operator/internal/config	0.033s
+--- FAIL: TestNewManagerReturnsErrorForInvalidTickInterval (0.00s)
+    manager_test.go:52: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestNewManagerUsesDefaultLogger (0.00s)
+    manager_test.go:80: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestNewManagerRegistersControllersAndPeriodicSweeper (0.00s)
+    manager_test.go:122: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestNewManagerDefaultSweepUpdatesCloudStatusWithoutCustomSweep (0.00s)
+    manager_test.go:204: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestNewManagerSharesRateLimitedTransportAcrossCloudSweeps (0.00s)
+    manager_test.go:265: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestNewManagerUsesConfiguredHTTPRateLimiterLimits (0.00s)
+    manager_test.go:347: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestNewManagerUsesConfiguredNSXURLScheme (0.00s)
+    manager_test.go:426: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+{"level":"debug","ts":1779241460.6389174,"msg":"loaded startup config","component":"startup","logging_level":"debug","credential_source":"config_values","nsx_writes_enabled":true,"operator_tick_interval":45,"operator_metrics_bind_address":":8080","http_max_requests_in_flight_per_host":9,"http_max_requests_per_second_per_host":21,"kubeapi_num_parallel_workers":1,"kubeapi_max_requests_per_second":100,"kubeapi_max_requests_in_flight":100}
+{"level":"info","ts":1779241460.6389277,"msg":"constructing kubernetes clients","component":"startup"}
+{"level":"debug","ts":1779241460.638929,"msg":"constructed kubernetes clients","component":"startup"}
+{"level":"info","ts":1779241460.6389296,"msg":"constructing nsx clients","component":"startup"}
+{"level":"debug","ts":1779241460.6389308,"msg":"constructed nsx clients","component":"startup"}
+{"level":"info","ts":1779241460.6389315,"msg":"startup completed","component":"startup"}
+{"level":"debug","ts":1779241460.6390991,"msg":"loaded startup config","component":"startup","logging_level":"debug","credential_source":"config_values","nsx_writes_enabled":true,"operator_tick_interval":45,"operator_metrics_bind_address":":8080","http_max_requests_in_flight_per_host":9,"http_max_requests_per_second_per_host":21,"kubeapi_num_parallel_workers":1,"kubeapi_max_requests_per_second":100,"kubeapi_max_requests_in_flight":100}
+{"level":"info","ts":1779241460.6391072,"msg":"constructing kubernetes clients","component":"startup"}
+{"level":"debug","ts":1779241460.639441,"msg":"loaded startup config","component":"startup","logging_level":"debug","credential_source":"config_values","nsx_writes_enabled":true,"operator_tick_interval":45,"operator_metrics_bind_address":":8080","http_max_requests_in_flight_per_host":9,"http_max_requests_per_second_per_host":21,"kubeapi_num_parallel_workers":1,"kubeapi_max_requests_per_second":100,"kubeapi_max_requests_in_flight":100}
+{"level":"info","ts":1779241460.639453,"msg":"constructing nsx clients","component":"startup"}
+{"level":"debug","ts":1779241460.6399097,"msg":"loaded startup config","component":"startup","logging_level":"debug","credential_source":"config_values","nsx_writes_enabled":true,"operator_tick_interval":45,"operator_metrics_bind_address":":8080","http_max_requests_in_flight_per_host":9,"http_max_requests_per_second_per_host":21,"kubeapi_num_parallel_workers":1,"kubeapi_max_requests_per_second":100,"kubeapi_max_requests_in_flight":100}
+{"level":"info","ts":1779241460.639919,"msg":"constructing controller runtime manager","component":"startup"}
+{"level":"info","ts":1779241460.6399207,"msg":"starting controller runtime manager","component":"startup"}
+{"level":"info","ts":1779241460.6399217,"msg":"controller runtime manager stopped","component":"startup"}
+{"level":"info","ts":1779241460.6399224,"msg":"startup completed","component":"startup"}
+{"level":"debug","ts":1779241460.6400862,"msg":"loaded startup config","component":"startup","logging_level":"debug","credential_source":"config_values","nsx_writes_enabled":true,"operator_tick_interval":45,"operator_metrics_bind_address":":8080","http_max_requests_in_flight_per_host":9,"http_max_requests_per_second_per_host":21,"kubeapi_num_parallel_workers":1,"kubeapi_max_requests_per_second":100,"kubeapi_max_requests_in_flight":100}
+{"level":"info","ts":1779241460.640107,"msg":"constructing controller runtime manager","component":"startup"}
+{"level":"debug","ts":1779241460.6402366,"msg":"loaded startup config","component":"startup","logging_level":"debug","credential_source":"config_values","nsx_writes_enabled":true,"operator_tick_interval":45,"operator_metrics_bind_address":":8080","http_max_requests_in_flight_per_host":9,"http_max_requests_per_second_per_host":21,"kubeapi_num_parallel_workers":1,"kubeapi_max_requests_per_second":100,"kubeapi_max_requests_in_flight":100}
+{"level":"info","ts":1779241460.640244,"msg":"constructing controller runtime manager","component":"startup"}
+{"level":"info","ts":1779241460.640245,"msg":"starting controller runtime manager","component":"startup"}
+FAIL
+FAIL	github.com/djosh34/nsx-operator/internal/startup	0.020s
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	0.023s
+FAIL

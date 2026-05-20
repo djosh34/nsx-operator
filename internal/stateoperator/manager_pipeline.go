@@ -164,7 +164,7 @@ type statusWriteLogDecision struct {
 // BuildBindings indexes local and remote groups from a manager snapshot.
 //
 //nolint:gocritic // public planning API keeps value snapshots so tests and callers can pass literals.
-func BuildBindings(snapshot ManagerSnapshot) (ManagerBindings, error) {
+func BuildBindings(snapshot ManagerSnapshot) (*ManagerBindings, error) {
 	localGroups := append([]nsxv1alpha.NSXGroup(nil), snapshot.LocalGroups...)
 	sort.Slice(localGroups, func(i int, j int) bool {
 		return localGroups[i].Name < localGroups[j].Name
@@ -185,7 +185,7 @@ func BuildBindings(snapshot ManagerSnapshot) (ManagerBindings, error) {
 		group := localGroups[groupIndex]
 		key := BindingKey{NetworkCloudFQDN: group.Spec.NetworkCloudFQDN, GroupID: group.Spec.GroupID}
 		if _, exists := bindings.LocalByKey[key]; exists {
-			return ManagerBindings{}, fmt.Errorf("duplicate local binding %s/%s", key.NetworkCloudFQDN, key.GroupID)
+			return nil, fmt.Errorf("duplicate local binding %s/%s", key.NetworkCloudFQDN, key.GroupID)
 		}
 		bindings.Local = append(bindings.Local, LocalBinding{Key: key, Group: group})
 		bindings.LocalByKey[key] = group
@@ -193,12 +193,12 @@ func BuildBindings(snapshot ManagerSnapshot) (ManagerBindings, error) {
 	for remoteIndex := range remoteGroups {
 		remote := remoteGroups[remoteIndex]
 		if _, exists := bindings.RemoteByKey[remote.Key]; exists {
-			return ManagerBindings{}, fmt.Errorf("duplicate remote binding %s/%s", remote.Key.NetworkCloudFQDN, remote.Key.GroupID)
+			return nil, fmt.Errorf("duplicate remote binding %s/%s", remote.Key.NetworkCloudFQDN, remote.Key.GroupID)
 		}
 		bindings.Remote = append(bindings.Remote, RemoteBinding{Key: remote.Key, Remote: remote})
 		bindings.RemoteByKey[remote.Key] = remote
 	}
-	return bindings, nil
+	return &bindings, nil
 }
 
 // RemoteGroupFromNSXGroup normalizes an NSX group into planning state.
@@ -357,17 +357,17 @@ func GatherManagerSnapshot(
 	cloud nsxv1alpha.NSXNetworkCloud,
 	listGroups GroupListFunc,
 	managerClientFactory ManagerClientFactory,
-) (ManagerSnapshot, error) {
+) (*ManagerSnapshot, error) {
 	normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
 	snapshot := ManagerSnapshot{
 		Cloud:            cloud,
 		NetworkCloudFQDN: normalizedFQDN,
 	}
 	if listGroups == nil {
-		return ManagerSnapshot{}, errors.New("group list function is required")
+		return nil, errors.New("group list function is required")
 	}
 	if managerClientFactory == nil {
-		return ManagerSnapshot{}, errors.New("manager client factory is required")
+		return nil, errors.New("manager client factory is required")
 	}
 	localGroups, err := listGroups(ctx, kubeapi.ListOptions{
 		Filters: []kubeapi.FieldFilter{
@@ -376,19 +376,19 @@ func GatherManagerSnapshot(
 	})
 	if err != nil {
 		snapshot.GatherError = fmt.Errorf("list local nsx groups for %q: %w", normalizedFQDN, err)
-		return snapshot, nil
+		return &snapshot, nil
 	}
 	snapshot.LocalGroups = append([]nsxv1alpha.NSXGroup(nil), localGroups.Items...)
 
 	managerClient, err := managerClientFactory(ctx, cloud)
 	if err != nil {
 		snapshot.GatherError = fmt.Errorf("construct nsx manager client for %q: %w", normalizedFQDN, err)
-		return snapshot, nil
+		return &snapshot, nil
 	}
 	remoteGroups, err := managerClient.ListGroups(ctx)
 	if err != nil {
 		snapshot.GatherError = fmt.Errorf("list remote nsx groups for %q: %w", normalizedFQDN, err)
-		return snapshot, nil
+		return &snapshot, nil
 	}
 	snapshot.RemoteGroups = make([]RemoteGroup, 0, len(remoteGroups))
 	for _, remoteGroup := range remoteGroups {
@@ -397,13 +397,13 @@ func GatherManagerSnapshot(
 		}
 		snapshot.RemoteGroups = append(snapshot.RemoteGroups, RemoteGroupFromNSXGroup(normalizedFQDN, *remoteGroup))
 	}
-	return snapshot, nil
+	return &snapshot, nil
 }
 
 // ProcessManagerSnapshot converts gathered state into Kubernetes and NSX writes.
 //
 //nolint:gocritic // public planning API keeps value snapshots so tests and callers can pass literals.
-func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPlan, error) {
+func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (*ManagerPlan, error) {
 	if snapshot.GatherError != nil {
 		cloudStatus, err := statuscondition.BuildNetworkCloudStatus(
 			snapshot.Cloud.Status,
@@ -413,15 +413,15 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 			statuscondition.Swept(metav1.ConditionFalse, "GatherFailed", snapshot.GatherError.Error()),
 		)
 		if err != nil {
-			return ManagerPlan{}, fmt.Errorf("build gather failure cloud status: %w", err)
+			return nil, fmt.Errorf("build gather failure cloud status: %w", err)
 		}
 		plan := ManagerPlan{}
-		setCloudStatusPlanIfNeeded(&plan, snapshot.Cloud.Name, snapshot.Cloud.ResourceVersion, snapshot.Cloud.Spec.NetworkCloudFQDN, snapshot.Cloud.Status, cloudStatus)
-		return plan, nil
+		setCloudStatusPlanIfNeeded(&plan, snapshot.Cloud.Name, snapshot.Cloud.ResourceVersion, snapshot.Cloud.Spec.NetworkCloudFQDN, snapshot.Cloud.Status, *cloudStatus)
+		return &plan, nil
 	}
 	bindings, err := BuildBindings(snapshot)
 	if err != nil {
-		return ManagerPlan{}, err
+		return nil, err
 	}
 	plan := ManagerPlan{}
 	cloudStatus, err := statuscondition.BuildNetworkCloudStatus(
@@ -432,9 +432,9 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 		statuscondition.Swept(metav1.ConditionTrue, "SweepPlanned", "manager snapshot was processed"),
 	)
 	if err != nil {
-		return ManagerPlan{}, fmt.Errorf("build successful cloud status: %w", err)
+		return nil, fmt.Errorf("build successful cloud status: %w", err)
 	}
-	setCloudStatusPlanIfNeeded(&plan, snapshot.Cloud.Name, snapshot.Cloud.ResourceVersion, snapshot.Cloud.Spec.NetworkCloudFQDN, snapshot.Cloud.Status, cloudStatus)
+	setCloudStatusPlanIfNeeded(&plan, snapshot.Cloud.Name, snapshot.Cloud.ResourceVersion, snapshot.Cloud.Spec.NetworkCloudFQDN, snapshot.Cloud.Status, *cloudStatus)
 	for remoteIndex := range bindings.Remote {
 		remoteBinding := bindings.Remote[remoteIndex]
 		if _, exists := bindings.LocalByKey[remoteBinding.Key]; exists {
@@ -451,9 +451,9 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 		plan.KubeWrites.GroupCreates[createKey] = kubeapi.GroupCreateRequest{Object: group.DeepCopy()}
 		status, statusErr := syncedRemoteStatus(nsxv1alpha.NSXGroupStatus{}, 0, &remoteBinding.Remote, now)
 		if statusErr != nil {
-			return ManagerPlan{}, fmt.Errorf("build observe import status %q: %w", name, statusErr)
+			return nil, fmt.Errorf("build observe import status %q: %w", name, statusErr)
 		}
-		appendGroupStatusPlanIfNeeded(&plan, name, "", remoteBinding.Key, nsxv1alpha.NSXGroupStatus{}, status, &createKey)
+		appendGroupStatusPlanIfNeeded(&plan, name, "", remoteBinding.Key, nsxv1alpha.NSXGroupStatus{}, *status, &createKey)
 	}
 	for localIndex := range bindings.Local {
 		localBinding := bindings.Local[localIndex]
@@ -484,9 +484,9 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 			}
 			status, statusErr := syncedRemoteStatus(localBinding.Group.Status, localBinding.Group.Generation, &remote, now)
 			if statusErr != nil {
-				return ManagerPlan{}, fmt.Errorf("build observe status %q: %w", localBinding.Group.Name, statusErr)
+				return nil, fmt.Errorf("build observe status %q: %w", localBinding.Group.Name, statusErr)
 			}
-			statusKey := appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, groupWriteKey)
+			statusKey := appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, groupWriteKey)
 			if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
 				addGroupFinalizerPatchRequest(&plan, &localBinding.Group, groupWriteKeyOrStatusKey(groupWriteKey, statusKey))
 			}
@@ -496,9 +496,9 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 					plan.ManagedDeletes = append(plan.ManagedDeletes, ManagedGroupDelete{GroupID: localBinding.Key.GroupID})
 					status, statusErr := deletingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, &remote, now)
 					if statusErr != nil {
-						return ManagerPlan{}, fmt.Errorf("build deleting managed status %q: %w", localBinding.Group.Name, statusErr)
+						return nil, fmt.Errorf("build deleting managed status %q: %w", localBinding.Group.Name, statusErr)
 					}
-					appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
+					appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
 					continue
 				}
 				if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
@@ -506,9 +506,9 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 				}
 				status, statusErr := deletedManageStatus(localBinding.Group.Status, localBinding.Group.Generation, now)
 				if statusErr != nil {
-					return ManagerPlan{}, fmt.Errorf("build deleted managed status %q: %w", localBinding.Group.Name, statusErr)
+					return nil, fmt.Errorf("build deleted managed status %q: %w", localBinding.Group.Name, statusErr)
 				}
-				statusKey := appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
+				statusKey := appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
 				if slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
 					addGroupFinalizerPatchRequest(&plan, &localBinding.Group, statusKey)
 				}
@@ -518,28 +518,28 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (ManagerPla
 				plan.ManagedWrites = append(plan.ManagedWrites, managedWriteFromLocal(&localBinding.Group, &RemoteGroup{}))
 				status, statusErr := missingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, now)
 				if statusErr != nil {
-					return ManagerPlan{}, fmt.Errorf("build missing managed status %q: %w", localBinding.Group.Name, statusErr)
+					return nil, fmt.Errorf("build missing managed status %q: %w", localBinding.Group.Name, statusErr)
 				}
-				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
+				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
 				continue
 			}
 			if !managedSpecMatchesRemote(&localBinding.Group.Spec, &remote) {
 				plan.ManagedWrites = append(plan.ManagedWrites, managedWriteFromLocal(&localBinding.Group, &remote))
 				status, statusErr := applyingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, &remote, now)
 				if statusErr != nil {
-					return ManagerPlan{}, fmt.Errorf("build applying managed status %q: %w", localBinding.Group.Name, statusErr)
+					return nil, fmt.Errorf("build applying managed status %q: %w", localBinding.Group.Name, statusErr)
 				}
-				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
+				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
 				continue
 			}
 			status, statusErr := matchingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, &remote, now)
 			if statusErr != nil {
-				return ManagerPlan{}, fmt.Errorf("build matching managed status %q: %w", localBinding.Group.Name, statusErr)
+				return nil, fmt.Errorf("build matching managed status %q: %w", localBinding.Group.Name, statusErr)
 			}
-			appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, status, nil)
+			appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
 		}
 	}
-	return plan, nil
+	return &plan, nil
 }
 
 func appendGroupStatusPlanIfNeeded(
@@ -715,7 +715,7 @@ func defaultManagerSweep(
 				zap.String("unsupportedReason", string(remote.UnsupportedReason)),
 			)...)
 		}
-		plan, err := ProcessManagerSnapshot(snapshot, clock.Now())
+		plan, err := ProcessManagerSnapshot(*snapshot, clock.Now())
 		if err != nil {
 			logger.Info("default manager processing failed", append(fields, zap.Error(err))...)
 			return err
@@ -735,12 +735,12 @@ func defaultManagerSweep(
 		)...)
 		logManagerStatusWriteDecisions(logger, fields, plan.statusWriteDecisions)
 		if snapshot.GatherError == nil {
-			metricsSnapshot, metricsErr := managerMetricsSnapshot(&snapshot, &plan)
+			metricsSnapshot, metricsErr := managerMetricsSnapshot(snapshot, plan)
 			if metricsErr != nil {
 				logger.Info("default manager metrics summary failed", append(fields, zap.Error(metricsErr))...)
 				return metricsErr
 			}
-			recorder.SetManagerGroupSnapshot(normalizedFQDN, metricsSnapshot)
+			recorder.SetManagerGroupSnapshot(normalizedFQDN, *metricsSnapshot)
 		}
 		var managerClient ManagerClient
 		if len(plan.ManagedWrites) > 0 || len(plan.ManagedDeletes) > 0 {
@@ -750,7 +750,7 @@ func defaultManagerSweep(
 				return fmt.Errorf("construct nsx manager client for apply: %w", err)
 			}
 		}
-		err = ApplyManagerPlan(ctx, &kubeAPIAdapter{client: kubeClient, logger: logger}, managerClient, plan)
+		err = ApplyManagerPlan(ctx, &kubeAPIAdapter{client: kubeClient, logger: logger}, managerClient, *plan)
 		if err != nil {
 			logger.Info("default manager apply failed", append(fields, zap.Error(err))...)
 			return err
@@ -768,10 +768,10 @@ func logManagerStatusWriteDecisions(logger *zap.Logger, baseFields []zap.Field, 
 	}
 }
 
-func managerMetricsSnapshot(snapshot *ManagerSnapshot, plan *ManagerPlan) (operatormetrics.ManagerGroupSnapshot, error) {
+func managerMetricsSnapshot(snapshot *ManagerSnapshot, plan *ManagerPlan) (*operatormetrics.ManagerGroupSnapshot, error) {
 	bindings, err := BuildBindings(*snapshot)
 	if err != nil {
-		return operatormetrics.ManagerGroupSnapshot{}, fmt.Errorf("build manager metrics bindings: %w", err)
+		return nil, fmt.Errorf("build manager metrics bindings: %w", err)
 	}
 
 	remoteOnlyCreates := 0
@@ -795,7 +795,7 @@ func managerMetricsSnapshot(snapshot *ManagerSnapshot, plan *ManagerPlan) (opera
 	}
 	observeGroups += remoteOnlyCreates
 
-	return operatormetrics.ManagerGroupSnapshot{
+	return &operatormetrics.ManagerGroupSnapshot{
 		ListedGroups:         len(snapshot.RemoteGroups),
 		ObserveGroups:        observeGroups,
 		ManageGroups:         manageGroups,
@@ -983,7 +983,7 @@ func managedWriteFromLocal(group *nsxv1alpha.NSXGroup, remote *RemoteGroup) Mana
 	}
 }
 
-func missingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+func missingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, now time.Time) (*nsxv1alpha.NSXGroupStatus, error) {
 	return statuscondition.BuildGroupStatus(
 		previous,
 		observedGeneration,
@@ -998,7 +998,7 @@ func missingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration 
 	)
 }
 
-func applyingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote *RemoteGroup, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+func applyingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote *RemoteGroup, now time.Time) (*nsxv1alpha.NSXGroupStatus, error) {
 	unsupportedStatus, unsupportedReason, unsupportedMessage := unsupportedExpressionCondition(remote)
 	realizedStatus, realizedReason, realizedMessage := realizedCondition(remote)
 	return statuscondition.BuildGroupStatus(
@@ -1015,7 +1015,7 @@ func applyingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration
 	)
 }
 
-func matchingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote *RemoteGroup, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+func matchingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote *RemoteGroup, now time.Time) (*nsxv1alpha.NSXGroupStatus, error) {
 	realizedStatus, realizedReason, realizedMessage := realizedCondition(remote)
 	syncedReason := "Synced"
 	syncedMessage := "local group matches remote NSX group"
@@ -1041,7 +1041,7 @@ func matchingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration
 	)
 }
 
-func deletingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote *RemoteGroup, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+func deletingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote *RemoteGroup, now time.Time) (*nsxv1alpha.NSXGroupStatus, error) {
 	unsupportedStatus, unsupportedReason, unsupportedMessage := unsupportedExpressionCondition(remote)
 	realizedStatus, realizedReason, realizedMessage := realizedCondition(remote)
 	return statuscondition.BuildGroupStatus(
@@ -1058,7 +1058,7 @@ func deletingManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration
 	)
 }
 
-func deletedManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+func deletedManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, now time.Time) (*nsxv1alpha.NSXGroupStatus, error) {
 	return statuscondition.BuildGroupStatus(
 		previous,
 		observedGeneration,
@@ -1073,7 +1073,7 @@ func deletedManageStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration 
 	)
 }
 
-func syncedRemoteStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote *RemoteGroup, now time.Time) (nsxv1alpha.NSXGroupStatus, error) {
+func syncedRemoteStatus(previous nsxv1alpha.NSXGroupStatus, observedGeneration int64, remote *RemoteGroup, now time.Time) (*nsxv1alpha.NSXGroupStatus, error) {
 	unsupportedStatus, unsupportedReason, unsupportedMessage := unsupportedExpressionCondition(remote)
 	realizedStatus, realizedReason, realizedMessage := realizedCondition(remote)
 	syncedReason := "Synced"

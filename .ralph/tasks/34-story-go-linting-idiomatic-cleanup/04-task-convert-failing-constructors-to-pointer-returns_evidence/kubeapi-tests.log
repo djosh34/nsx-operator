@@ -1,0 +1,23 @@
+--- FAIL: TestNetworkCloudClientCreatesGetsAndListsByFieldSelector (0.00s)
+    client_test.go:28: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestGroupClientCreatesGetsAndListsBySelectableFields (0.00s)
+    client_test.go:72: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestTypedClientRecordsKubernetesAPIMetrics (0.00s)
+    client_test.go:126: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestUpdateRequiresResourceVersionAndPersistsFetchedObjectChanges (0.00s)
+    client_test.go:212: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestStatusUpdateStoresStatusAndPreservesSpec (0.00s)
+    client_test.go:261: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestApplyRequiresFieldManagerAndUsesServerSideApply (0.00s)
+    client_test.go:323: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDeleteRemovesTypedObject (0.00s)
+    client_test.go:362: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestWatchEmitsTypedEventsForFieldSelector (0.00s)
+    client_test.go:402: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestInvalidResourceSpecificFiltersFailBeforeRequest (0.00s)
+    client_test.go:451: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestConstructorValidationNilLoggerAndStructuredLogs (0.00s)
+    client_test.go:481: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+FAIL
+FAIL	github.com/djosh34/nsx-operator/internal/kubeapi	1.133s
+FAIL
