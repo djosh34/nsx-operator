@@ -1,0 +1,3 @@
+command: go build -o .bin/projectlint ./cmd/projectlint
+
+exit_status=0

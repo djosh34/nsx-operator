@@ -1,4 +1,4 @@
-## Task: Add Custom Project Linters For Pointer Receivers And Struct Error Returns <status>not_started</status> <passes>false</passes>
+## Task: Add Custom Project Linters For Pointer Receivers And Struct Error Returns <status>done</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
@@ -17,17 +17,38 @@ All code added for the analyzers must follow the repository's error-handling rul
 
 </description>
 
+<plan>
+.ralph/tasks/34-story-go-linting-idiomatic-cleanup/02-task-add-custom-project-linters_plans/01-custom-project-linters-plan.md
+</plan>
+
 
 <acceptance_criteria>
-- [ ] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
-- [ ] The verification evidence is recorded in the task or linked artifact.
-- [ ] Completion is not based only on a shallow checkbox, assumption, or code inspection.
-- [ ] A custom project lint command or analyzer exists for the no-value-receivers rule.
-- [ ] A custom project lint command or analyzer exists for the no-`(Struct, error)` return rule.
-- [ ] The receiver analyzer flags every non-pointer method receiver by default.
-- [ ] The struct/error analyzer flags functions returning a named struct value and `error` by default.
-- [ ] Analyzer tests cover positive, negative, and exemption behavior for both rules.
-- [ ] The custom lint command is runnable locally with a documented command.
-- [ ] The verification evidence includes failing fixture output for intentionally bad examples and passing output for valid examples.
-- [ ] `go test ./...` passes after adding the analyzer package or command.
+- [x] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
+- [x] The verification evidence is recorded in the task or linked artifact.
+- [x] Completion is not based only on a shallow checkbox, assumption, or code inspection.
+- [x] A custom project lint command or analyzer exists for the no-value-receivers rule.
+- [x] A custom project lint command or analyzer exists for the no-`(Struct, error)` return rule.
+- [x] The receiver analyzer flags every non-pointer method receiver by default.
+- [x] The struct/error analyzer flags functions returning a named struct value and `error` by default.
+- [x] Analyzer tests cover positive, negative, and exemption behavior for both rules.
+- [x] The custom lint command is runnable locally with a documented command.
+- [x] The verification evidence includes failing fixture output for intentionally bad examples and passing output for valid examples.
+- [x] `go test ./...` passes after adding the analyzer package or command.
 </acceptance_criteria>
+
+<verification_evidence>
+Evidence directory: `.ralph/tasks/34-story-go-linting-idiomatic-cleanup/02-task-add-custom-project-linters_evidence/`
+
+- `go-test-internal-projectlint.txt`: `go test ./internal/projectlint`, exit status 0.
+- `go-test-cmd-and-internal.txt`: `go test ./cmd/projectlint ./internal/projectlint`, exit status 0.
+- `go-test-all-envtest.txt`: `KUBEBUILDER_ASSETS="$(.bin/setup-envtest use 1.32.x -p path)" go test ./...`, exit status 0.
+- `go-run-projectlint-fixtures.txt`: `go run ./cmd/projectlint ./internal/projectlint/testdata/src/novaluereceivers ./internal/projectlint/testdata/src/nostructerrorreturns`, expected exit status 1 because intentionally bad fixtures are reported.
+- `bin-projectlint-fixtures.txt`: `.bin/projectlint ./internal/projectlint/testdata/src/novaluereceivers ./internal/projectlint/testdata/src/nostructerrorreturns`, expected exit status 3 because intentionally bad fixtures are reported.
+- `make-project-lint.txt`: `make project-lint`, expected exit status 2 on the current repository because later story tasks have not yet converted existing value receivers and `(Struct, error)` returns.
+- `make-check.txt`: `make check`, exit status 0.
+- `make-test.txt`: `make test`, exit status 0.
+- `make-test-coverage.txt`: `make test-coverage`, exit status 0 with total coverage 86.0%.
+- `go-test-cover-new-packages.txt`: `go test -cover ./cmd/projectlint ./internal/projectlint`, exit status 0 with `cmd/projectlint` at 80.0% and `internal/projectlint` at 85.5%.
+
+Boundary review: analyzer rules and exemption parsing live in `internal/projectlint`; `cmd/projectlint` only registers analyzer values through `multichecker`; no generated-file skip, broad exemption, AST string matching for type-aware behavior, shell parser, ignored command error, or non-zap logging was added.
+</verification_evidence>

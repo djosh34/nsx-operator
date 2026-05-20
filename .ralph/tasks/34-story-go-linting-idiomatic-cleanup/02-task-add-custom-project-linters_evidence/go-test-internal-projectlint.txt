@@ -1,0 +1,4 @@
+command: go test ./internal/projectlint
+ok  	github.com/djosh34/nsx-operator/internal/projectlint	(cached)
+
+exit_status=0

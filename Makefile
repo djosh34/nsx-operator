@@ -11,9 +11,10 @@ COVERAGE_PROFILE := coverage.out
 
 GOFUMPT := $(BIN_DIR)/gofumpt
 GOLANGCI_LINT := $(BIN_DIR)/golangci-lint
+PROJECT_LINT := $(BIN_DIR)/projectlint
 SETUP_ENVTEST := $(BIN_DIR)/setup-envtest
 
-.PHONY: check fmt vet lint test test-race test-contract test-e2e test-large-chaos test-coverage
+.PHONY: check fmt vet lint project-lint test test-race test-contract test-e2e test-large-chaos test-coverage
 
 check: fmt vet lint test test-race test-contract test-e2e test-large-chaos test-coverage
 
@@ -25,6 +26,9 @@ vet:
 
 lint: fmt $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./...
+
+project-lint: $(PROJECT_LINT)
+	$(PROJECT_LINT) ./...
 
 test: $(SETUP_ENVTEST)
 	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./...
@@ -61,6 +65,9 @@ $(GOFUMPT): go.mod | $(BIN_DIR)
 
 $(GOLANGCI_LINT): | $(BIN_DIR)
 	curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) $(GOLANGCI_LINT_VERSION)
+
+$(PROJECT_LINT): go.mod go.sum $(shell find cmd/projectlint internal/projectlint -type f -name '*.go') | $(BIN_DIR)
+	go build -o $(PROJECT_LINT) ./cmd/projectlint
 
 $(SETUP_ENVTEST): go.mod | $(BIN_DIR)
 	GOBIN=$(BIN_DIR) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)

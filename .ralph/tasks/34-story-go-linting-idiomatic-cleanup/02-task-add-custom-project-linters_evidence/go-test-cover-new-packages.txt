@@ -1,0 +1,5 @@
+command: go test -cover ./cmd/projectlint ./internal/projectlint
+ok  	github.com/djosh34/nsx-operator/cmd/projectlint	(cached)	coverage: 80.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/projectlint	(cached)	coverage: 85.5% of statements
+
+exit_status=0

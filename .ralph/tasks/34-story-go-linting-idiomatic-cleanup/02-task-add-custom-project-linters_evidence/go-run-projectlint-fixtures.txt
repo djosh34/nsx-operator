@@ -1,0 +1,7 @@
+command: go run ./cmd/projectlint ./internal/projectlint/testdata/src/novaluereceivers ./internal/projectlint/testdata/src/nostructerrorreturns
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/internal/projectlint/testdata/src/novaluereceivers/generated_receiver.go:7:1: method receiver must be pointer receiver: use func (g *GeneratedController), not func (g GeneratedController)
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/internal/projectlint/testdata/src/novaluereceivers/value_receiver.go:5:1: method receiver must be pointer receiver: use func (c *Controller), not func (c Controller)
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/internal/projectlint/testdata/src/nostructerrorreturns/struct_error_return.go:7:1: functions returning a struct and error must return *Struct, error so error paths can return nil, err: use *Config, error
+exit status 3
+
+exit_status=1
