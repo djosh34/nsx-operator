@@ -152,7 +152,7 @@ logging:
 	var managerConfig config.Config
 	replaceNewRuntimeManager(t, func(options startup.ManagerOptions) (startup.RunnableManager, error) {
 		managerConfig = options.Config
-		return commandFakeManager{}, nil
+		return &commandFakeManager{}, nil
 	})
 
 	exitCode := run([]string{"--config", configPath, "--env-script", scriptPath})
@@ -449,12 +449,14 @@ func replaceNewRuntimeManager(t *testing.T, replacement func(startup.ManagerOpti
 }
 
 func successfulRuntimeManager(startup.ManagerOptions) (startup.RunnableManager, error) {
-	return commandFakeManager{}, nil
+	return &commandFakeManager{}, nil
 }
 
 type commandFakeManager struct{}
 
-func (commandFakeManager) Start(context.Context) error {
+var _ startup.RunnableManager = (*commandFakeManager)(nil)
+
+func (receiver *commandFakeManager) Start(context.Context) error {
 	return nil
 }
 
@@ -462,7 +464,7 @@ func newSyncErrorLogger() *zap.Logger {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	core := zapcore.NewCore(
 		zapcore.NewJSONEncoder(encoderConfig),
-		syncErrorWriteSyncer{},
+		&syncErrorWriteSyncer{},
 		zap.DebugLevel,
 	)
 	return zap.New(core)
@@ -470,11 +472,13 @@ func newSyncErrorLogger() *zap.Logger {
 
 type syncErrorWriteSyncer struct{}
 
-func (syncErrorWriteSyncer) Write(p []byte) (int, error) {
+var _ zapcore.WriteSyncer = (*syncErrorWriteSyncer)(nil)
+
+func (receiver *syncErrorWriteSyncer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (syncErrorWriteSyncer) Sync() error {
+func (receiver *syncErrorWriteSyncer) Sync() error {
 	return errors.New("sync boom")
 }
 

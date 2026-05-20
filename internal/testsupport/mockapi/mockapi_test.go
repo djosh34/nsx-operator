@@ -79,7 +79,8 @@ func TestDockerOutputReportsContextCancellation(t *testing.T) {
 }
 
 func TestEmptyProcessLogsAreEmpty(t *testing.T) {
-	if logs := (Process{}).Logs(); logs != "" {
+	process := &Process{}
+	if logs := process.Logs(); logs != "" {
 		t.Fatalf("empty process Logs() = %q, want empty", logs)
 	}
 }

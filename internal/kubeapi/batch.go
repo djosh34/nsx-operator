@@ -50,12 +50,12 @@ type BatchError struct {
 	Items     map[BatchKey]error
 }
 
-func (e BatchError) Error() string {
+func (e *BatchError) Error() string {
 	return fmt.Sprintf("batch %s/%s failed for %d items", e.Operation, e.Resource, len(e.Items))
 }
 
 // Errors returns a defensive copy of the per-item errors.
-func (e BatchError) Errors() map[BatchKey]error {
+func (e *BatchError) Errors() map[BatchKey]error {
 	copied := make(map[BatchKey]error, len(e.Items))
 	for key, err := range e.Items {
 		copied[key] = err
@@ -206,7 +206,7 @@ func ExecuteBatch[Request any, Result any](
 	)
 	if len(itemErrors) > 0 {
 		//nolint:nilnil // callers need both partial successes and per-item errors when a batch partially fails.
-		return results, itemErrors, BatchError{
+		return results, itemErrors, &BatchError{
 			Operation: operation.Operation,
 			Resource:  operation.Resource,
 			Items:     itemErrors,

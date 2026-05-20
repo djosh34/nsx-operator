@@ -34,8 +34,6 @@ type NSXNetworkCloudList struct {
 }
 
 // NSXNetworkCloudSpec is the desired state for an NSXNetworkCloud.
-//
-//nolint:recvcheck // Kubernetes deepcopy generation requires pointer receivers while NSXWritesEnabled is useful on literals.
 type NSXNetworkCloudSpec struct {
 	NetworkCloudFQDN string `json:"networkCloudFQDN"`
 	NetworkCloudID   string `json:"networkCloudId"`
@@ -44,7 +42,10 @@ type NSXNetworkCloudSpec struct {
 }
 
 // NSXWritesEnabled reports whether writes are enabled for the network cloud.
-func (in NSXNetworkCloudSpec) NSXWritesEnabled() bool {
+func (in *NSXNetworkCloudSpec) NSXWritesEnabled() bool {
+	if in == nil {
+		return true
+	}
 	if in.WritesEnabled == nil {
 		return true
 	}

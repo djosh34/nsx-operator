@@ -1,0 +1,7 @@
+internal/stateoperator/manager_kube_writes.go:220:var _ ManagerKubeApplier = (*kubeAPIAdapter)(nil)
+cmd/nsx-operator/main_test.go:457:var _ startup.RunnableManager = (*commandFakeManager)(nil)
+cmd/nsx-operator/main_test.go:475:var _ zapcore.WriteSyncer = (*syncErrorWriteSyncer)(nil)
+internal/stateoperator/manager_pipeline.go:81:var _ ManagerClient = (*nsxclient.Client)(nil)
+internal/logging/logging.go:89:var _ zapcore.WriteSyncer = (*stderrWriteSyncer)(nil)
+internal/operatormetrics/metrics.go:42:var _ Recorder = (*NopRecorder)(nil)
+internal/operatormetrics/metrics.go:75:var _ Recorder = (*PrometheusRecorder)(nil)

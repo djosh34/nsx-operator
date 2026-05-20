@@ -39,17 +39,19 @@ type ManagerGroupSnapshot struct {
 // NopRecorder discards all metric observations.
 type NopRecorder struct{}
 
+var _ Recorder = (*NopRecorder)(nil)
+
 // ObserveNSXCall discards an NSX client call observation.
-func (NopRecorder) ObserveNSXCall(string, string) {}
+func (receiver *NopRecorder) ObserveNSXCall(string, string) {}
 
 // ObserveNSXHTTP discards an NSX HTTP observation.
-func (NopRecorder) ObserveNSXHTTP(string, string, int64, int64, time.Duration) {}
+func (receiver *NopRecorder) ObserveNSXHTTP(string, string, int64, int64, time.Duration) {}
 
 // ObserveKubernetesAPI discards a Kubernetes API observation.
-func (NopRecorder) ObserveKubernetesAPI(string, int64, int64, time.Duration) {}
+func (receiver *NopRecorder) ObserveKubernetesAPI(string, int64, int64, time.Duration) {}
 
 // SetManagerGroupSnapshot discards a manager group snapshot.
-func (NopRecorder) SetManagerGroupSnapshot(string, ManagerGroupSnapshot) {}
+func (receiver *NopRecorder) SetManagerGroupSnapshot(string, ManagerGroupSnapshot) {}
 
 // PrometheusRecorder records operator metrics into Prometheus collectors.
 type PrometheusRecorder struct {
@@ -69,6 +71,8 @@ type PrometheusRecorder struct {
 	kubernetesAPIBytes       *prometheus.CounterVec
 	kubernetesAPIRoundTrip   *prometheus.HistogramVec
 }
+
+var _ Recorder = (*PrometheusRecorder)(nil)
 
 var processRecorder struct {
 	once     sync.Once

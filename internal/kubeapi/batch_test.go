@@ -242,7 +242,7 @@ func TestExecuteBatchGathersItemErrorsAndDoesNotRetry(t *testing.T) {
 	if err == nil {
 		t.Fatal("ExecuteBatch() error = nil, want aggregate batch error")
 	}
-	var batchError kubeapi.BatchError
+	var batchError *kubeapi.BatchError
 	if !errors.As(err, &batchError) {
 		t.Fatalf("ExecuteBatch() error type = %T, want BatchError", err)
 	}

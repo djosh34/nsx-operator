@@ -24,7 +24,7 @@ func New(options Options) (*zap.Logger, error) {
 
 	sink := options.Sink
 	if sink == nil {
-		sink = stderrWriteSyncer{}
+		sink = &stderrWriteSyncer{}
 	}
 
 	encoderConfig := zap.NewProductionEncoderConfig()
@@ -40,7 +40,7 @@ func New(options Options) (*zap.Logger, error) {
 func NewStderr(level string) (*zap.Logger, error) {
 	return New(Options{
 		Level: level,
-		Sink:  stderrWriteSyncer{},
+		Sink:  &stderrWriteSyncer{},
 	})
 }
 
@@ -86,7 +86,9 @@ func parseLevel(level string) (zapcore.Level, error) {
 
 type stderrWriteSyncer struct{}
 
-func (stderrWriteSyncer) Write(p []byte) (int, error) {
+var _ zapcore.WriteSyncer = (*stderrWriteSyncer)(nil)
+
+func (receiver *stderrWriteSyncer) Write(p []byte) (int, error) {
 	written, err := os.Stderr.Write(p)
 	if err != nil {
 		return written, fmt.Errorf("write stderr log: %w", err)
@@ -94,6 +96,6 @@ func (stderrWriteSyncer) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-func (stderrWriteSyncer) Sync() error {
+func (receiver *stderrWriteSyncer) Sync() error {
 	return nil
 }

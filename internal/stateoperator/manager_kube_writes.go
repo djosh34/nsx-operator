@@ -45,7 +45,7 @@ type GroupFinalizerAfterStatusWrite struct {
 }
 
 // Empty reports whether the plan contains no Kubernetes writes.
-func (writes ManagerKubeWritePlan) Empty() bool {
+func (writes *ManagerKubeWritePlan) Empty() bool {
 	return len(writes.GroupCreates) == 0 &&
 		len(writes.GroupUpdates) == 0 &&
 		len(writes.GroupDeletes) == 0 &&
@@ -217,7 +217,9 @@ type kubeAPIAdapter struct {
 	logger *zap.Logger
 }
 
-func (a kubeAPIAdapter) ApplyManagerKubeWrites(ctx context.Context, writes ManagerKubeWritePlan) error {
+var _ ManagerKubeApplier = (*kubeAPIAdapter)(nil)
+
+func (a *kubeAPIAdapter) ApplyManagerKubeWrites(ctx context.Context, writes ManagerKubeWritePlan) error {
 	logger := a.logger
 	if logger == nil {
 		logger = zap.NewNop()

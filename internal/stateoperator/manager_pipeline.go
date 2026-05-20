@@ -78,6 +78,8 @@ type ManagerKubeApplier interface {
 	ApplyManagerKubeWrites(ctx context.Context, writes ManagerKubeWritePlan) error
 }
 
+var _ ManagerClient = (*nsxclient.Client)(nil)
+
 // ManagerSnapshot contains local and remote group state for one network cloud sweep.
 type ManagerSnapshot struct {
 	Cloud            nsxv1alpha.NSXNetworkCloud
@@ -665,7 +667,7 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 }
 
 func isWriteDisabled(err error) bool {
-	var writeDisabled nsxclient.WriteDisabledError
+	var writeDisabled *nsxclient.WriteDisabledError
 	return errors.As(err, &writeDisabled)
 }
 
@@ -680,7 +682,7 @@ func defaultManagerSweep(
 		logger = zap.NewNop()
 	}
 	if recorder == nil {
-		recorder = operatormetrics.NopRecorder{}
+		recorder = &operatormetrics.NopRecorder{}
 	}
 	return func(ctx context.Context, cloud nsxv1alpha.NSXNetworkCloud, sweep SweepContext) error {
 		normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
@@ -748,7 +750,7 @@ func defaultManagerSweep(
 				return fmt.Errorf("construct nsx manager client for apply: %w", err)
 			}
 		}
-		err = ApplyManagerPlan(ctx, kubeAPIAdapter{client: kubeClient, logger: logger}, managerClient, plan)
+		err = ApplyManagerPlan(ctx, &kubeAPIAdapter{client: kubeClient, logger: logger}, managerClient, plan)
 		if err != nil {
 			logger.Info("default manager apply failed", append(fields, zap.Error(err))...)
 			return err

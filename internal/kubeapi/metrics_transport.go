@@ -20,7 +20,7 @@ func wrapKubernetesMetricsTransport(
 	logger *zap.Logger,
 ) transport.WrapperFunc {
 	if recorder == nil {
-		recorder = operatormetrics.NopRecorder{}
+		recorder = &operatormetrics.NopRecorder{}
 	}
 	if logger == nil {
 		logger = zap.NewNop()
@@ -29,7 +29,7 @@ func wrapKubernetesMetricsTransport(
 		if existing != nil {
 			rt = existing(rt)
 		}
-		return kubernetesMetricsRoundTripper{
+		return &kubernetesMetricsRoundTripper{
 			next:     rt,
 			recorder: recorder,
 			log:      logger,
@@ -43,7 +43,7 @@ type kubernetesMetricsRoundTripper struct {
 	log      *zap.Logger
 }
 
-func (rt kubernetesMetricsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+func (rt *kubernetesMetricsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	function := kubernetesFunction(req)
 	requestBody := wrapRequestBody(req)
 	start := time.Now()

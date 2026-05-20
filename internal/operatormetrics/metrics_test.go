@@ -93,7 +93,7 @@ nsx_operator_nsx_http_requests_total{manager="manager-a.example.test"} 1
 }
 
 func TestRecorderConstructorsAndNoopAreSafe(t *testing.T) {
-	nop := NopRecorder{}
+	nop := &NopRecorder{}
 	nop.ObserveNSXCall("manager", "function")
 	nop.ObserveNSXHTTP("manager", "function", 1, 2, time.Millisecond)
 	nop.ObserveKubernetesAPI("function", 1, 2, time.Millisecond)

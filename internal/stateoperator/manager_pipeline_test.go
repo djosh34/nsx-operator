@@ -1194,7 +1194,7 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 
 func TestApplyManagerPlanWriteDisabledSkipsRemainingNSXWritesButAppliesStatuses(t *testing.T) {
 	recorder := &operationRecorder{
-		patchGroupErr: nsxclient.WriteDisabledError{
+		patchGroupErr: &nsxclient.WriteDisabledError{
 			Method:           "PATCH",
 			URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/managed-write",
 			Reason:           nsxclient.WriteDisabledReasonGlobalConfig,
@@ -2388,7 +2388,7 @@ type stateoperatorClients struct {
 
 func startStateoperatorClients(t *testing.T) (stateoperatorClients, func()) {
 	t.Helper()
-	return startStateoperatorClientsWithRecorder(t, operatormetrics.NopRecorder{})
+	return startStateoperatorClientsWithRecorder(t, &operatormetrics.NopRecorder{})
 }
 
 func startStateoperatorClientsWithRecorder(t *testing.T, recorder operatormetrics.Recorder) (stateoperatorClients, func()) {

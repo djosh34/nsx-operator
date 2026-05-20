@@ -24,13 +24,13 @@ func TestRoundTripperSharesInFlightBucketAcrossWrappersForSameEffectiveHostPort(
 		MaxRequestsPerSecondPerHost: 100,
 	}
 	firstClient := &http.Client{
-		Transport: httpratelimit.NewRoundTripper(roundTripFunc(func(*http.Request) (*http.Response, error) {
+		Transport: httpratelimit.NewRoundTripper(newRoundTripFunc(func(*http.Request) (*http.Response, error) {
 			firstEntered <- struct{}{}
 			return okResponse(), nil
 		}), cfg, zap.NewNop()),
 	}
 	secondClient := &http.Client{
-		Transport: httpratelimit.NewRoundTripper(roundTripFunc(func(*http.Request) (*http.Response, error) {
+		Transport: httpratelimit.NewRoundTripper(newRoundTripFunc(func(*http.Request) (*http.Response, error) {
 			secondEntered <- struct{}{}
 			return okResponse(), nil
 		}), cfg, zap.NewNop()),
@@ -95,7 +95,7 @@ func TestRoundTripperIsolatesDifferentPorts(t *testing.T) {
 		MaxRequestsPerSecondPerHost: 100,
 	}
 	client := &http.Client{
-		Transport: httpratelimit.NewRoundTripper(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		Transport: httpratelimit.NewRoundTripper(newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.Port() {
 			case "":
 				firstEntered <- struct{}{}
@@ -166,7 +166,7 @@ func TestRoundTripperNormalizesHTTPDefaultPort(t *testing.T) {
 		MaxRequestsPerSecondPerHost: 100,
 	}
 	client := &http.Client{
-		Transport: httpratelimit.NewRoundTripper(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		Transport: httpratelimit.NewRoundTripper(newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.Host {
 			case "HTTP-DEFAULT.test":
 				firstEntered <- struct{}{}
@@ -238,7 +238,7 @@ func TestRoundTripperReturnsContextErrorWhileWaitingForInFlightSlot(t *testing.T
 		MaxRequestsPerSecondPerHost: 100,
 	}
 	client := &http.Client{
-		Transport: httpratelimit.NewRoundTripper(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		Transport: httpratelimit.NewRoundTripper(newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.Path {
 			case "/hold":
 				firstEntered <- struct{}{}
@@ -303,7 +303,7 @@ func TestRoundTripperReleasesInFlightSlotAfterBaseError(t *testing.T) {
 		MaxRequestsPerSecondPerHost: 100,
 	}
 	client := &http.Client{
-		Transport: httpratelimit.NewRoundTripper(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		Transport: httpratelimit.NewRoundTripper(newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.Path {
 			case "/fail":
 				return nil, baseErr
@@ -358,7 +358,7 @@ func TestRoundTripperReleasesInFlightSlotOnceWhenBodyClosedMultipleTimes(t *test
 		MaxRequestsPerSecondPerHost: 100,
 	}
 	client := &http.Client{
-		Transport: httpratelimit.NewRoundTripper(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		Transport: httpratelimit.NewRoundTripper(newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			entered <- req.URL.Path
 			return okResponse(), nil
 		}), cfg, zap.NewNop()),
@@ -451,7 +451,7 @@ func TestRoundTripperReturnsContextErrorWhileWaitingForRatePermit(t *testing.T) 
 		MaxRequestsPerSecondPerHost: 1,
 	}
 	client := &http.Client{
-		Transport: httpratelimit.NewRoundTripper(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		Transport: httpratelimit.NewRoundTripper(newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.Path {
 			case "/first":
 				firstEntered <- struct{}{}
@@ -544,7 +544,7 @@ func TestRoundTripperReleasesInFlightSlotForNilResponseBody(t *testing.T) {
 		MaxRequestsInFlightPerHost:  1,
 		MaxRequestsPerSecondPerHost: 1000,
 	}
-	transport := httpratelimit.NewRoundTripper(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	transport := httpratelimit.NewRoundTripper(newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.Path {
 		case "/nil-body":
 			firstEntered <- struct{}{}
@@ -598,8 +598,13 @@ func TestRoundTripperReleasesInFlightSlotForNilResponseBody(t *testing.T) {
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
-func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return fn(req)
+func newRoundTripFunc(fn func(*http.Request) (*http.Response, error)) *roundTripFunc {
+	roundTripper := roundTripFunc(fn)
+	return &roundTripper
+}
+
+func (fn *roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return (*fn)(req)
 }
 
 type requestResult struct {

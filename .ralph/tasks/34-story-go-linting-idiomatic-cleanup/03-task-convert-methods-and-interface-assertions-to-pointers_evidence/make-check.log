@@ -1,0 +1,72 @@
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/gofumpt -w .
+go vet ./...
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/golangci-lint run ./...
+0 issues.
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./...
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	(cached)
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	0.024s
+ok  	github.com/djosh34/nsx-operator/cmd/projectlint	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	59.383s
+ok  	github.com/djosh34/nsx-operator/internal/logging	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/names	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/operatormetrics	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/projectlint	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/startup	36.595s
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	59.643s
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/testsupport/mockapi	(cached)
+ok  	github.com/djosh34/nsx-operator/scripts	(cached)
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -race ./...
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	(cached)
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	1.068s
+ok  	github.com/djosh34/nsx-operator/cmd/projectlint	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	61.287s
+ok  	github.com/djosh34/nsx-operator/internal/logging	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/names	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/operatormetrics	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/projectlint	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/startup	37.833s
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	61.203s
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/testsupport/mockapi	(cached)
+ok  	github.com/djosh34/nsx-operator/scripts	(cached)
+go test ./internal/nsxclient -run 'Test(MockAPIRouteInventoryIsSupportedAndContracted|TypedClientContractsAgainstMockAPI|SharedRateLimitedClientConcurrencyAgainstMockAPI)' -count=1
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	3.065s
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./internal/stateoperator -run 'Test(NetworkCloudAddAndRemoveLifecycleAgainstPublicMockAPI|LifecycleObserveAndManageDeletionDifferAgainstMockAPI)' -count=1
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	14.651s
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./api/v1alpha ./internal/kubeapi ./internal/startup ./internal/stateoperator ./cmd/nsx-operator -count=1
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	6.261s
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	60.518s
+ok  	github.com/djosh34/nsx-operator/internal/startup	35.855s
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	58.985s
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	0.028s
+GOMEMLIMIT=768MiB KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -tags largechaos ./internal/nsxclient ./internal/stateoperator -run 'Test(Large|Chaos|GroupReconcileManageUnavailableSetsUnknownConditionsAndDoNotRequeue)' -count=1 -timeout 20m
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	0.058s
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	17.679s
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -coverprofile=coverage.out -covermode=atomic ./...
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	(cached)	coverage: 98.7% of statements
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	0.032s	coverage: 83.1% of statements
+ok  	github.com/djosh34/nsx-operator/cmd/projectlint	(cached)	coverage: 80.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)	coverage: 100.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)	coverage: 89.3% of statements
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	(cached)	coverage: 88.2% of statements
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	60.200s	coverage: 80.7% of statements
+ok  	github.com/djosh34/nsx-operator/internal/logging	(cached)	coverage: 96.2% of statements
+ok  	github.com/djosh34/nsx-operator/internal/names	(cached)	coverage: 100.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	(cached)	coverage: 84.9% of statements
+ok  	github.com/djosh34/nsx-operator/internal/operatormetrics	(cached)	coverage: 95.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/projectlint	(cached)	coverage: 85.5% of statements
+ok  	github.com/djosh34/nsx-operator/internal/startup	37.515s	coverage: 86.3% of statements
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	61.058s	coverage: 85.8% of statements
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)	coverage: 86.9% of statements
+ok  	github.com/djosh34/nsx-operator/internal/testsupport/mockapi	(cached)	coverage: 84.0% of statements
+ok  	github.com/djosh34/nsx-operator/scripts	(cached)	coverage: [no statements]
+coverage 85.9% meets 80.0% threshold

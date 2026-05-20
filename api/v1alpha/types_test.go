@@ -152,12 +152,14 @@ func TestDeepCopyObjectKeepsNetworkCloudAndGroupIndependent(t *testing.T) {
 }
 
 func TestNetworkCloudSpecWritesEnabledDefaultsTrueAndAllowsFalse(t *testing.T) {
-	if !(NSXNetworkCloudSpec{}).NSXWritesEnabled() {
+	var defaultSpec NSXNetworkCloudSpec
+	if !defaultSpec.NSXWritesEnabled() {
 		t.Fatal("NSXWritesEnabled() = false for omitted field, want true")
 	}
 
 	disabled := false
-	if (NSXNetworkCloudSpec{WritesEnabled: &disabled}).NSXWritesEnabled() {
+	disabledSpec := NSXNetworkCloudSpec{WritesEnabled: &disabled}
+	if disabledSpec.NSXWritesEnabled() {
 		t.Fatal("NSXWritesEnabled() = true for explicit false, want false")
 	}
 }

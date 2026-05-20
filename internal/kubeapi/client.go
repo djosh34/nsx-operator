@@ -51,7 +51,7 @@ func NewClient(options Options) (*Client, error) {
 	}
 	recorder := options.Recorder
 	if recorder == nil {
-		recorder = operatormetrics.NopRecorder{}
+		recorder = &operatormetrics.NopRecorder{}
 	}
 	scheme := runtime.NewScheme()
 	err := nsxv1alpha.AddToScheme(scheme)
@@ -75,7 +75,7 @@ func NewClient(options Options) (*Client, error) {
 
 	return &Client{
 		networkClouds: &NetworkCloudClient{
-			resource: typedResource[*nsxv1alpha.NSXNetworkCloud, *nsxv1alpha.NSXNetworkCloudList]{
+			resource: &typedResource[*nsxv1alpha.NSXNetworkCloud, *nsxv1alpha.NSXNetworkCloudList]{
 				restClient:     restClient,
 				parameterCodec: parameterCodec,
 				resource:       networkCloudResource,
@@ -91,7 +91,7 @@ func NewClient(options Options) (*Client, error) {
 			},
 		},
 		groups: &GroupClient{
-			resource: typedResource[*nsxv1alpha.NSXGroup, *nsxv1alpha.NSXGroupList]{
+			resource: &typedResource[*nsxv1alpha.NSXGroup, *nsxv1alpha.NSXGroupList]{
 				restClient:     restClient,
 				parameterCodec: parameterCodec,
 				resource:       groupResource,
@@ -122,7 +122,7 @@ func (c *Client) Groups() *GroupClient {
 
 // NetworkCloudClient performs typed NSXNetworkCloud Kubernetes API calls.
 type NetworkCloudClient struct {
-	resource typedResource[*nsxv1alpha.NSXNetworkCloud, *nsxv1alpha.NSXNetworkCloudList]
+	resource *typedResource[*nsxv1alpha.NSXNetworkCloud, *nsxv1alpha.NSXNetworkCloudList]
 }
 
 // List returns NSXNetworkCloud resources matching the supplied list options.
@@ -182,7 +182,7 @@ func (c *NetworkCloudClient) Watch(ctx context.Context, options ListOptions) (wa
 
 // GroupClient performs typed NSXGroup Kubernetes API calls.
 type GroupClient struct {
-	resource typedResource[*nsxv1alpha.NSXGroup, *nsxv1alpha.NSXGroupList]
+	resource *typedResource[*nsxv1alpha.NSXGroup, *nsxv1alpha.NSXGroupList]
 }
 
 // List returns NSXGroup resources matching the supplied list options.
@@ -274,12 +274,12 @@ func FilterBy(field FieldSelectorField, value string) FieldFilter {
 }
 
 // Field returns the selected field.
-func (f FieldFilter) Field() FieldSelectorField {
+func (f *FieldFilter) Field() FieldSelectorField {
 	return f.field
 }
 
 // Value returns the selected field value.
-func (f FieldFilter) Value() string {
+func (f *FieldFilter) Value() string {
 	return f.value
 }
 
@@ -312,7 +312,7 @@ type typedResource[Object clientObject, List runtime.Object] struct {
 	newList        func() List
 }
 
-func (r typedResource[Object, List]) list(ctx context.Context, options ListOptions) (List, error) {
+func (r *typedResource[Object, List]) list(ctx context.Context, options ListOptions) (List, error) {
 	listOptions, err := r.listOptions(options)
 	if err != nil {
 		var zero List
@@ -335,7 +335,7 @@ func (r typedResource[Object, List]) list(ctx context.Context, options ListOptio
 	return result, nil
 }
 
-func (r typedResource[Object, List]) get(ctx context.Context, name string, options metav1.GetOptions) (Object, error) {
+func (r *typedResource[Object, List]) get(ctx context.Context, name string, options metav1.GetOptions) (Object, error) {
 	result := r.newObject()
 	r.log.Info("getting typed kubernetes resource", zap.String("name", name))
 	err := r.restClient.Get().
@@ -354,7 +354,7 @@ func (r typedResource[Object, List]) get(ctx context.Context, name string, optio
 	return result, nil
 }
 
-func (r typedResource[Object, List]) create(ctx context.Context, object Object, options *metav1.CreateOptions) (Object, error) {
+func (r *typedResource[Object, List]) create(ctx context.Context, object Object, options *metav1.CreateOptions) (Object, error) {
 	prepared, err := r.prepare(object)
 	if err != nil {
 		var zero Object
@@ -378,7 +378,7 @@ func (r typedResource[Object, List]) create(ctx context.Context, object Object, 
 	return result, nil
 }
 
-func (r typedResource[Object, List]) update(ctx context.Context, object Object, options *metav1.UpdateOptions) (Object, error) {
+func (r *typedResource[Object, List]) update(ctx context.Context, object Object, options *metav1.UpdateOptions) (Object, error) {
 	prepared, err := r.prepare(object)
 	if err != nil {
 		var zero Object
@@ -407,7 +407,7 @@ func (r typedResource[Object, List]) update(ctx context.Context, object Object, 
 	return result, nil
 }
 
-func (r typedResource[Object, List]) apply(ctx context.Context, object Object, options ApplyOptions) (Object, error) {
+func (r *typedResource[Object, List]) apply(ctx context.Context, object Object, options ApplyOptions) (Object, error) {
 	if options.FieldManager == "" {
 		var zero Object
 		return zero, fmt.Errorf("apply %s: fieldManager is required", r.resource)
@@ -443,7 +443,7 @@ func (r typedResource[Object, List]) apply(ctx context.Context, object Object, o
 	return result, nil
 }
 
-func (r typedResource[Object, List]) updateStatus(ctx context.Context, object Object, options *metav1.UpdateOptions) (Object, error) {
+func (r *typedResource[Object, List]) updateStatus(ctx context.Context, object Object, options *metav1.UpdateOptions) (Object, error) {
 	prepared, err := r.prepare(object)
 	if err != nil {
 		var zero Object
@@ -469,7 +469,7 @@ func (r typedResource[Object, List]) updateStatus(ctx context.Context, object Ob
 	return result, nil
 }
 
-func (r typedResource[Object, List]) delete(ctx context.Context, name string, options *metav1.DeleteOptions) error {
+func (r *typedResource[Object, List]) delete(ctx context.Context, name string, options *metav1.DeleteOptions) error {
 	r.log.Info("deleting typed kubernetes resource", zap.String("name", name))
 	err := r.restClient.Delete().
 		Resource(r.resource).
@@ -485,7 +485,7 @@ func (r typedResource[Object, List]) delete(ctx context.Context, name string, op
 	return nil
 }
 
-func (r typedResource[Object, List]) watch(ctx context.Context, options ListOptions) (watch.Interface, error) {
+func (r *typedResource[Object, List]) watch(ctx context.Context, options ListOptions) (watch.Interface, error) {
 	listOptions, err := r.listOptions(options)
 	if err != nil {
 		return nil, err
@@ -504,7 +504,7 @@ func (r typedResource[Object, List]) watch(ctx context.Context, options ListOpti
 	return watcher, nil
 }
 
-func (r typedResource[Object, List]) listOptions(options ListOptions) (metav1.ListOptions, error) {
+func (r *typedResource[Object, List]) listOptions(options ListOptions) (metav1.ListOptions, error) {
 	selector, err := r.fieldSelector(options.Filters)
 	if err != nil {
 		return metav1.ListOptions{}, err
@@ -517,7 +517,7 @@ func (r typedResource[Object, List]) listOptions(options ListOptions) (metav1.Li
 	}, nil
 }
 
-func (r typedResource[Object, List]) fieldSelector(filters []FieldFilter) (fields.Selector, error) {
+func (r *typedResource[Object, List]) fieldSelector(filters []FieldFilter) (fields.Selector, error) {
 	if len(filters) == 0 {
 		return fields.Everything(), nil
 	}
@@ -531,7 +531,7 @@ func (r typedResource[Object, List]) fieldSelector(filters []FieldFilter) (field
 	return fields.AndSelectors(selectors...), nil
 }
 
-func (r typedResource[Object, List]) prepare(object Object) (Object, error) {
+func (r *typedResource[Object, List]) prepare(object Object) (Object, error) {
 	if isNilObject(object) {
 		var zero Object
 		return zero, fmt.Errorf("%s object is required", r.resource)
@@ -550,7 +550,7 @@ func (r typedResource[Object, List]) prepare(object Object) (Object, error) {
 	return copied, nil
 }
 
-func (r typedResource[Object, List]) stampObject(object Object) {
+func (r *typedResource[Object, List]) stampObject(object Object) {
 	object.GetObjectKind().SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   nsxv1alpha.GroupName,
 		Version: nsxv1alpha.Version,
@@ -558,7 +558,7 @@ func (r typedResource[Object, List]) stampObject(object Object) {
 	})
 }
 
-func (r typedResource[Object, List]) stampList(list List) {
+func (r *typedResource[Object, List]) stampList(list List) {
 	list.GetObjectKind().SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   nsxv1alpha.GroupName,
 		Version: nsxv1alpha.Version,

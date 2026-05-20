@@ -104,7 +104,7 @@ func TestChaosLowRateSlowAndUnavailableManagerRequests(t *testing.T) {
 		if listErr == nil {
 			continue
 		}
-		var unavailable ServiceUnavailableError
+		var unavailable *ServiceUnavailableError
 		if !errors.As(listErr, &unavailable) {
 			t.Fatalf("list error = %T %[1]v, want ServiceUnavailableError or nil", listErr)
 		}

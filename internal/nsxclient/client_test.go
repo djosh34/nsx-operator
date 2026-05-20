@@ -30,7 +30,7 @@ func TestClientAddsBasicAuthToReadAndWriteRequests(t *testing.T) {
 		Username: "nsx_admin",
 		Password: "nsx_password",
 		Logger:   zap.NewNop(),
-		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		HTTPClient: &http.Client{Transport: newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			username, password, ok := req.BasicAuth()
 			if !ok {
 				t.Errorf("BasicAuth() ok = false")
@@ -280,7 +280,7 @@ func TestClientWriteControlBlocksNonGETAndAllowsReadRequests(t *testing.T) {
 			NetworkCloudName: "cloud-a",
 			NetworkCloudFQDN: "nsx.example.test",
 		},
-		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		HTTPClient: &http.Client{Transport: newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			seen = append(seen, req.Method+" "+req.URL.RequestURI())
 			switch req.Method {
 			case http.MethodGet:
@@ -335,7 +335,7 @@ func TestClientWriteControlBlocksNonGETAndAllowsReadRequests(t *testing.T) {
 			if callErr == nil {
 				t.Fatal("write call error = nil, want write disabled error")
 			}
-			var writeDisabled WriteDisabledError
+			var writeDisabled *WriteDisabledError
 			if !errors.As(callErr, &writeDisabled) {
 				t.Fatalf("write call error = %T %[1]v, want WriteDisabledError", callErr)
 			}
@@ -455,19 +455,19 @@ func TestStatusErrorsMapTypedCodes(t *testing.T) {
 		assert     func(error) bool
 	}{
 		{statusCode: http.StatusConflict, assert: func(err error) bool {
-			var target ConflictError
+			var target *ConflictError
 			return errors.As(err, &target)
 		}},
 		{statusCode: http.StatusPreconditionFailed, assert: func(err error) bool {
-			var target PreconditionFailedError
+			var target *PreconditionFailedError
 			return errors.As(err, &target)
 		}},
 		{statusCode: http.StatusTooManyRequests, assert: func(err error) bool {
-			var target RateLimitedError
+			var target *RateLimitedError
 			return errors.As(err, &target)
 		}},
 		{statusCode: http.StatusServiceUnavailable, assert: func(err error) bool {
-			var target ServiceUnavailableError
+			var target *ServiceUnavailableError
 			return errors.As(err, &target)
 		}},
 	}
@@ -498,19 +498,19 @@ func TestWriteStatusErrorsAreTypedAndNotRetried(t *testing.T) {
 		assert     func(error) bool
 	}{
 		{statusCode: http.StatusConflict, assert: func(err error) bool {
-			var target ConflictError
+			var target *ConflictError
 			return errors.As(err, &target)
 		}},
 		{statusCode: http.StatusPreconditionFailed, assert: func(err error) bool {
-			var target PreconditionFailedError
+			var target *PreconditionFailedError
 			return errors.As(err, &target)
 		}},
 		{statusCode: http.StatusTooManyRequests, assert: func(err error) bool {
-			var target RateLimitedError
+			var target *RateLimitedError
 			return errors.As(err, &target)
 		}},
 		{statusCode: http.StatusServiceUnavailable, assert: func(err error) bool {
-			var target ServiceUnavailableError
+			var target *ServiceUnavailableError
 			return errors.As(err, &target)
 		}},
 	}
@@ -523,7 +523,7 @@ func TestWriteStatusErrorsAreTypedAndNotRetried(t *testing.T) {
 				Username: "nsx_admin",
 				Password: "nsx_password",
 				Logger:   zap.NewNop(),
-				HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				HTTPClient: &http.Client{Transport: newRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 					count.Add(1)
 					if req.Method != http.MethodPatch {
 						t.Errorf("method = %s, want PATCH", req.Method)
@@ -568,8 +568,13 @@ func newTestClient(t *testing.T, baseURL string) *Client {
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
-func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return fn(req)
+func newRoundTripFunc(fn func(*http.Request) (*http.Response, error)) *roundTripFunc {
+	roundTripper := roundTripFunc(fn)
+	return &roundTripper
+}
+
+func (fn *roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return (*fn)(req)
 }
 
 func jsonResponse(req *http.Request, statusCode int, body string) *http.Response {

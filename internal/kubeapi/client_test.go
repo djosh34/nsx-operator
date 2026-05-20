@@ -529,7 +529,7 @@ func startClient(t *testing.T) (*kubeapi.Client, func()) {
 
 func startClientWithLogger(t *testing.T, logger *zap.Logger) (*kubeapi.Client, func()) {
 	t.Helper()
-	return startClientWithLoggerAndRecorder(t, logger, operatormetrics.NopRecorder{})
+	return startClientWithLoggerAndRecorder(t, logger, &operatormetrics.NopRecorder{})
 }
 
 func startClientWithLoggerAndRecorder(t *testing.T, logger *zap.Logger, recorder operatormetrics.Recorder) (*kubeapi.Client, func()) {

@@ -91,7 +91,7 @@ func TestTypedClientContractsAgainstMockAPI(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s contract call unexpectedly succeeded", routeName)
 		}
-		var statusErr StatusError
+		var statusErr *StatusError
 		if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusNotFound {
 			t.Fatalf("%s error = %T %[2]v, want 404 StatusError", routeName, err)
 		}
@@ -314,7 +314,7 @@ func TestSharedRateLimitedClientConcurrencyAgainstMockAPI(t *testing.T) {
 	}
 	gate := newMockAPIRateLimitGate(t, "nsx-mock-a.example.net", "nsx-mock-a.example.net:8080")
 	sharedHTTPClient := &http.Client{
-		Transport: httpratelimit.NewRoundTripper(mockAPIRoutingTransport{
+		Transport: httpratelimit.NewRoundTripper(&mockAPIRoutingTransport{
 			target: mockURL,
 			base:   http.DefaultTransport,
 			gate:   gate,
@@ -380,7 +380,7 @@ type mockAPIRoutingTransport struct {
 	gate   *mockAPIRateLimitGate
 }
 
-func (transport mockAPIRoutingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (transport *mockAPIRoutingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if transport.target == nil {
 		return nil, fmt.Errorf("mockapi routing transport target URL is required")
 	}

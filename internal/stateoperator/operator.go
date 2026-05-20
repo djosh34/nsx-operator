@@ -42,6 +42,12 @@ type SweepIDGenerator interface {
 	NewSweepID() string
 }
 
+var (
+	_ Clock            = (*realClock)(nil)
+	_ Timer            = (*realTimer)(nil)
+	_ SweepIDGenerator = (*timestampSweepIDGenerator)(nil)
+)
+
 // Options configures the NSX state operator.
 type Options struct {
 	Client               client.Client
@@ -82,13 +88,13 @@ func New(options Options) (*NSXStateOperator, error) {
 	}
 	recorder := options.Recorder
 	if recorder == nil {
-		recorder = operatormetrics.NopRecorder{}
+		recorder = &operatormetrics.NopRecorder{}
 	}
 
 	sweepCloud := options.SweepCloud
 	clock := options.Clock
 	if clock == nil {
-		clock = realClock{}
+		clock = &realClock{}
 	}
 	if sweepCloud == nil {
 		if options.KubeClient != nil && options.ManagerClientFactory != nil {
@@ -102,7 +108,7 @@ func New(options Options) (*NSXStateOperator, error) {
 
 	idGenerator := options.IDGenerator
 	if idGenerator == nil {
-		idGenerator = timestampSweepIDGenerator{clock: clock}
+		idGenerator = &timestampSweepIDGenerator{clock: clock}
 	}
 
 	return &NSXStateOperator{
@@ -220,19 +226,19 @@ func reconcileKey(name types.NamespacedName) string {
 
 type realClock struct{}
 
-func (realClock) Now() time.Time {
+func (receiver *realClock) Now() time.Time {
 	return time.Now()
 }
 
-func (realClock) NewTimer(duration time.Duration) Timer {
-	return realTimer{Timer: time.NewTimer(duration)}
+func (receiver *realClock) NewTimer(duration time.Duration) Timer {
+	return &realTimer{Timer: time.NewTimer(duration)}
 }
 
 type realTimer struct {
 	*time.Timer
 }
 
-func (t realTimer) C() <-chan time.Time {
+func (t *realTimer) C() <-chan time.Time {
 	return t.Timer.C
 }
 
@@ -240,6 +246,6 @@ type timestampSweepIDGenerator struct {
 	clock Clock
 }
 
-func (g timestampSweepIDGenerator) NewSweepID() string {
+func (g *timestampSweepIDGenerator) NewSweepID() string {
 	return g.clock.Now().UTC().Format("20060102T150405.000000000Z")
 }

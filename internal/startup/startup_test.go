@@ -331,7 +331,7 @@ logging:
 		},
 		ManagerFactory: func(options startup.ManagerOptions) (startup.RunnableManager, error) {
 			factoryTickInterval = options.Config.Operator.TickInterval.String()
-			return fakeRunnableManager{start: func(context.Context) error {
+			return &fakeRunnableManager{start: func(context.Context) error {
 				managerStarted = true
 				return nil
 			}}, nil
@@ -409,7 +409,7 @@ logging:
 			Environ: map[string]string{},
 		},
 		ManagerFactory: func(startup.ManagerOptions) (startup.RunnableManager, error) {
-			return fakeRunnableManager{start: func(context.Context) error {
+			return &fakeRunnableManager{start: func(context.Context) error {
 				return errors.New("manager start boom")
 			}}, nil
 		},
@@ -478,7 +478,7 @@ type fakeRunnableManager struct {
 	start func(context.Context) error
 }
 
-func (m fakeRunnableManager) Start(ctx context.Context) error {
+func (m *fakeRunnableManager) Start(ctx context.Context) error {
 	return m.start(ctx)
 }
 

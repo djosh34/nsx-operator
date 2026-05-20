@@ -259,7 +259,7 @@ func TestDisabledNSXWritesDoNotReachMockAPIRecorderWhileReadsStillDo(t *testing.
 		if err == nil {
 			t.Fatalf("%s error = nil, want write disabled error", tt.name)
 		}
-		var writeDisabled nsxclient.WriteDisabledError
+		var writeDisabled *nsxclient.WriteDisabledError
 		if !errors.As(err, &writeDisabled) {
 			t.Fatalf("%s error = %T %[2]v, want WriteDisabledError", tt.name, err)
 		}
@@ -290,7 +290,7 @@ func newStateoperatorMockAPIRecordingClientWithWriteControl(t *testing.T, baseUR
 		BaseURL: baseURL,
 		HTTPClient: &http.Client{
 			Timeout: 5 * time.Second,
-			Transport: recordingTransport{
+			Transport: &recordingTransport{
 				base:     http.DefaultTransport,
 				recorder: recorder,
 			},
@@ -341,7 +341,7 @@ type recordingTransport struct {
 	recorder *httpRequestRecorder
 }
 
-func (transport recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (transport *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	body, err := readAndRestoreRequestBody(req)
 	if err != nil {
 		return nil, err

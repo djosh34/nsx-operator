@@ -240,7 +240,7 @@ func TestStartLogsSweepAndCloudFields(t *testing.T) {
 		Client:       kubeClient,
 		TickInterval: time.Hour,
 		Logger:       zap.New(core),
-		IDGenerator:  fixedSweepIDGenerator{id: "sweep-123"},
+		IDGenerator:  &fixedSweepIDGenerator{id: "sweep-123"},
 		SweepCloud: func(context.Context, nsxv1alpha.NSXNetworkCloud, stateoperator.SweepContext) error {
 			cancel()
 			return fmt.Errorf("cloud failed")
@@ -858,7 +858,7 @@ func TestGroupReconcileManageDeleteWritesStaleDeleteStatusOnce(t *testing.T) {
 func TestGroupReconcileManageConflictSetsConditionsAndDoesNotRequeue(t *testing.T) {
 	now := time.Date(2026, 5, 19, 1, 45, 0, 0, time.UTC)
 	group, kubeClient, recorder := newManageReconcileFixture(t, now)
-	recorder.patchGroupErr = nsxclient.ConflictError{StatusError: nsxclient.StatusError{StatusCode: 409, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
+	recorder.patchGroupErr = &nsxclient.ConflictError{StatusError: nsxclient.StatusError{StatusCode: 409, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
 
 	reconciler := stateoperator.GroupReconciler{
 		Client: kubeClient,
@@ -889,7 +889,7 @@ func TestGroupReconcileManageConflictSetsConditionsAndDoesNotRequeue(t *testing.
 func TestGroupReconcileManagePreconditionFailedSetsConditionsAndDoesNotRequeue(t *testing.T) {
 	now := time.Date(2026, 5, 19, 2, 0, 0, 0, time.UTC)
 	group, kubeClient, recorder := newManageReconcileFixture(t, now)
-	recorder.patchGroupErr = nsxclient.PreconditionFailedError{StatusError: nsxclient.StatusError{StatusCode: 412, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
+	recorder.patchGroupErr = &nsxclient.PreconditionFailedError{StatusError: nsxclient.StatusError{StatusCode: 412, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
 
 	reconciler := stateoperator.GroupReconciler{
 		Client: kubeClient,
@@ -920,7 +920,7 @@ func TestGroupReconcileManagePreconditionFailedSetsConditionsAndDoesNotRequeue(t
 func TestGroupReconcileManageRateLimitedSetsUnknownConditionsAndDoesNotRequeue(t *testing.T) {
 	now := time.Date(2026, 5, 19, 2, 15, 0, 0, time.UTC)
 	group, kubeClient, recorder := newManageReconcileFixture(t, now)
-	recorder.patchGroupErr = nsxclient.RateLimitedError{StatusError: nsxclient.StatusError{StatusCode: 429, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
+	recorder.patchGroupErr = &nsxclient.RateLimitedError{StatusError: nsxclient.StatusError{StatusCode: 429, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
 
 	reconciler := stateoperator.GroupReconciler{
 		Client: kubeClient,
@@ -951,7 +951,7 @@ func TestGroupReconcileManageRateLimitedSetsUnknownConditionsAndDoesNotRequeue(t
 func TestGroupReconcileManageUnavailableSetsUnknownConditionsAndDoesNotRequeue(t *testing.T) {
 	now := time.Date(2026, 5, 19, 2, 30, 0, 0, time.UTC)
 	group, kubeClient, recorder := newManageReconcileFixture(t, now)
-	recorder.patchGroupErr = nsxclient.ServiceUnavailableError{StatusError: nsxclient.StatusError{StatusCode: 503, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
+	recorder.patchGroupErr = &nsxclient.ServiceUnavailableError{StatusError: nsxclient.StatusError{StatusCode: 503, Method: "PATCH", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}}
 
 	reconciler := stateoperator.GroupReconciler{
 		Client: kubeClient,
@@ -1013,7 +1013,7 @@ func TestGroupReconcileManageNetworkErrorSetsUnknownConditionsAndDoesNotRequeue(
 func TestGroupReconcileManageWriteDisabledSetsConditionsAndDoesNotRequeue(t *testing.T) {
 	now := time.Date(2026, 5, 19, 2, 50, 0, 0, time.UTC)
 	group, kubeClient, recorder := newManageReconcileFixture(t, now)
-	recorder.patchGroupErr = nsxclient.WriteDisabledError{
+	recorder.patchGroupErr = &nsxclient.WriteDisabledError{
 		Method:           "PATCH",
 		URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/group-a",
 		Reason:           nsxclient.WriteDisabledReasonGlobalConfig,
@@ -1050,7 +1050,7 @@ func TestGroupReconcileManageWriteDisabledSetsConditionsAndDoesNotRequeue(t *tes
 func TestGroupReconcileManageWriteDisabledUnknownReasonUsesConfigurationMessage(t *testing.T) {
 	now := time.Date(2026, 5, 19, 2, 55, 0, 0, time.UTC)
 	group, kubeClient, recorder := newManageReconcileFixture(t, now)
-	recorder.patchGroupErr = nsxclient.WriteDisabledError{
+	recorder.patchGroupErr = &nsxclient.WriteDisabledError{
 		Method: "PATCH",
 		URL:    "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/group-a",
 	}
@@ -1134,28 +1134,28 @@ func TestGroupReconcileManageDeleteClassifiedErrorsSetConditionsAndDoNotRequeue(
 	}{
 		{
 			name:            "conflict",
-			err:             nsxclient.ConflictError{StatusError: nsxclient.StatusError{StatusCode: 409, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
+			err:             &nsxclient.ConflictError{StatusError: nsxclient.StatusError{StatusCode: 409, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
 			deletingStatus:  metav1.ConditionFalse,
 			reason:          "DeleteConflict",
 			deletingMessage: "managed NSX group delete was rejected by NSX concurrency control",
 		},
 		{
 			name:            "precondition failed",
-			err:             nsxclient.PreconditionFailedError{StatusError: nsxclient.StatusError{StatusCode: 412, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
+			err:             &nsxclient.PreconditionFailedError{StatusError: nsxclient.StatusError{StatusCode: 412, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
 			deletingStatus:  metav1.ConditionFalse,
 			reason:          "DeletePreconditionFailed",
 			deletingMessage: "managed NSX group delete was rejected by NSX precondition checks",
 		},
 		{
 			name:            "rate limited",
-			err:             nsxclient.RateLimitedError{StatusError: nsxclient.StatusError{StatusCode: 429, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
+			err:             &nsxclient.RateLimitedError{StatusError: nsxclient.StatusError{StatusCode: 429, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
 			deletingStatus:  metav1.ConditionUnknown,
 			reason:          "DeleteRateLimited",
 			deletingMessage: "managed NSX group delete was rate limited by NSX",
 		},
 		{
 			name:            "unavailable",
-			err:             nsxclient.ServiceUnavailableError{StatusError: nsxclient.StatusError{StatusCode: 503, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
+			err:             &nsxclient.ServiceUnavailableError{StatusError: nsxclient.StatusError{StatusCode: 503, Method: "DELETE", URL: "/policy/api/v1/infra/domains/default/groups/group-a"}},
 			deletingStatus:  metav1.ConditionUnknown,
 			reason:          "DeleteUnavailable",
 			deletingMessage: "managed NSX group delete could not confirm because NSX is unavailable",
@@ -1205,7 +1205,7 @@ func TestGroupReconcileManageDeleteClassifiedErrorsSetConditionsAndDoNotRequeue(
 func TestGroupReconcileManageDeleteWriteDisabledSetsConditionsKeepsFinalizerAndDoesNotRequeue(t *testing.T) {
 	now := time.Date(2026, 5, 19, 3, 40, 0, 0, time.UTC)
 	group, kubeClient, recorder := newManageDeleteReconcileFixture(t, now)
-	recorder.deleteGroupErr = nsxclient.WriteDisabledError{
+	recorder.deleteGroupErr = &nsxclient.WriteDisabledError{
 		Method:           "DELETE",
 		URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/group-a",
 		Reason:           nsxclient.WriteDisabledReasonNetworkCloud,
@@ -1335,7 +1335,7 @@ func (c *manualClock) Set(now time.Time) {
 
 func (c *manualClock) NewTimer(duration time.Duration) stateoperator.Timer {
 	c.timerDurations <- duration
-	return manualTimer{ch: make(chan time.Time)}
+	return &manualTimer{ch: make(chan time.Time)}
 }
 
 func (c *manualClock) RequireNextTimerDuration(t *testing.T) time.Duration {
@@ -1354,11 +1354,11 @@ type manualTimer struct {
 	ch chan time.Time
 }
 
-func (t manualTimer) C() <-chan time.Time {
+func (t *manualTimer) C() <-chan time.Time {
 	return t.ch
 }
 
-func (t manualTimer) Stop() bool {
+func (t *manualTimer) Stop() bool {
 	return true
 }
 
@@ -1366,7 +1366,7 @@ type fixedSweepIDGenerator struct {
 	id string
 }
 
-func (g fixedSweepIDGenerator) NewSweepID() string {
+func (g *fixedSweepIDGenerator) NewSweepID() string {
 	return g.id
 }
 

@@ -99,19 +99,19 @@ search:
 }
 
 // BaseURL returns the HTTP base URL for the running mockapi process.
-func (process Process) BaseURL() string {
+func (process *Process) BaseURL() string {
 	return process.baseURL
 }
 
 // Logs returns recent mockapi container logs for diagnostics.
-func (process Process) Logs() string {
+func (process *Process) Logs() string {
 	logsCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return process.LogsContext(logsCtx)
 }
 
 // LogsContext returns recent mockapi container logs using the supplied context.
-func (process Process) LogsContext(ctx context.Context) string {
+func (process *Process) LogsContext(ctx context.Context) string {
 	if process.containerID == "" {
 		return ""
 	}

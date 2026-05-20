@@ -276,7 +276,7 @@ func TestNewManagerSharesRateLimitedTransportAcrossCloudSweeps(t *testing.T) {
 		t.Fatalf("parse httptest server URL: %v", err)
 	}
 	previousDefaultTransport := http.DefaultTransport
-	http.DefaultTransport = routingTransport{
+	http.DefaultTransport = &routingTransport{
 		target: serverURL,
 		base:   server.Client().Transport,
 	}
@@ -358,7 +358,7 @@ func TestNewManagerUsesConfiguredHTTPRateLimiterLimits(t *testing.T) {
 		t.Fatalf("parse httptest server URL: %v", err)
 	}
 	previousDefaultTransport := http.DefaultTransport
-	http.DefaultTransport = routingTransport{
+	http.DefaultTransport = &routingTransport{
 		target: serverURL,
 		base:   server.Client().Transport,
 	}
@@ -544,7 +544,7 @@ type routingTransport struct {
 	base   http.RoundTripper
 }
 
-func (transport routingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (transport *routingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if transport.target == nil {
 		return nil, fmt.Errorf("routing transport target URL is required")
 	}

@@ -155,7 +155,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	err = builder.ControllerManagedBy(runtimeManager).
 		Named("nsxnetworkcloud").
 		For(&nsxv1alpha.NSXNetworkCloud{}).
-		Complete(stateoperator.NetworkCloudReconciler{
+		Complete(&stateoperator.NetworkCloudReconciler{
 			Client: runtimeManager.GetClient(),
 			Logger: logger,
 		})
@@ -166,7 +166,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	err = builder.ControllerManagedBy(runtimeManager).
 		Named("nsxgroup").
 		For(&nsxv1alpha.NSXGroup{}).
-		Complete(stateoperator.GroupReconciler{
+		Complete(&stateoperator.GroupReconciler{
 			Client:               runtimeManager.GetClient(),
 			ManagerClientFactory: managerClientFactory,
 			Logger:               logger,

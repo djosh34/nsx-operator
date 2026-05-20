@@ -243,7 +243,7 @@ func (c *NetworkCloudClient) DeleteBatch(ctx context.Context, requests map[Batch
 	}, requests)
 }
 
-func (r typedResource[Object, List]) patchFinalizers(ctx context.Context, name string, resourceVersion string, finalizers []string, options *metav1.PatchOptions) (Object, error) {
+func (r *typedResource[Object, List]) patchFinalizers(ctx context.Context, name string, resourceVersion string, finalizers []string, options *metav1.PatchOptions) (Object, error) {
 	operations := make([]JSONPatchOperation, 0, 2)
 	if resourceVersion != "" {
 		operations = append(operations, JSONPatchOperation{

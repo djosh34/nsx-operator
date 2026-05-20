@@ -38,8 +38,13 @@ type GroupReconciler struct {
 	Clock                Clock
 }
 
+var (
+	_ reconcile.Reconciler = (*NetworkCloudReconciler)(nil)
+	_ reconcile.Reconciler = (*GroupReconciler)(nil)
+)
+
 // Reconcile logs observed network cloud changes.
-func (r NetworkCloudReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *NetworkCloudReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	err := ctx.Err()
 	if err != nil {
 		return reconcile.Result{}, err
@@ -83,7 +88,7 @@ func (r NetworkCloudReconciler) Reconcile(ctx context.Context, req reconcile.Req
 }
 
 // Reconcile applies or cleans up one NSXGroup.
-func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	err := ctx.Err()
 	if err != nil {
 		return reconcile.Result{}, err
@@ -313,7 +318,7 @@ func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 	return reconcile.Result{}, nil
 }
 
-func (r GroupReconciler) ensureGroupFinalizer(ctx context.Context, group *nsxv1alpha.NSXGroup, logger *zap.Logger, req reconcile.Request) error {
+func (r *GroupReconciler) ensureGroupFinalizer(ctx context.Context, group *nsxv1alpha.NSXGroup, logger *zap.Logger, req reconcile.Request) error {
 	if slices.Contains(group.Finalizers, GroupFinalizer) {
 		return nil
 	}
@@ -338,7 +343,7 @@ func (r GroupReconciler) ensureGroupFinalizer(ctx context.Context, group *nsxv1a
 	return nil
 }
 
-func (r GroupReconciler) removeGroupFinalizer(ctx context.Context, group *nsxv1alpha.NSXGroup, logger *zap.Logger, req reconcile.Request) error {
+func (r *GroupReconciler) removeGroupFinalizer(ctx context.Context, group *nsxv1alpha.NSXGroup, logger *zap.Logger, req reconcile.Request) error {
 	if !slices.Contains(group.Finalizers, GroupFinalizer) {
 		return nil
 	}
@@ -371,7 +376,7 @@ func (r GroupReconciler) removeGroupFinalizer(ctx context.Context, group *nsxv1a
 	return nil
 }
 
-func (r GroupReconciler) findNetworkCloud(ctx context.Context, networkCloudFQDN string) (nsxv1alpha.NSXNetworkCloud, error) {
+func (r *GroupReconciler) findNetworkCloud(ctx context.Context, networkCloudFQDN string) (nsxv1alpha.NSXNetworkCloud, error) {
 	normalizedFQDN := names.NormalizeNetworkCloudFQDN(networkCloudFQDN)
 	var clouds nsxv1alpha.NSXNetworkCloudList
 	err := r.Client.List(ctx, &clouds)
@@ -387,7 +392,7 @@ func (r GroupReconciler) findNetworkCloud(ctx context.Context, networkCloudFQDN 
 	return nsxv1alpha.NSXNetworkCloud{}, fmt.Errorf("network cloud %q not found", normalizedFQDN)
 }
 
-func (r GroupReconciler) manageApplySubmittedStatus(group *nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
+func (r *GroupReconciler) manageApplySubmittedStatus(group *nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
 	status, err := statuscondition.BuildGroupStatus(
 		group.Status,
 		group.Generation,
@@ -401,8 +406,8 @@ func (r GroupReconciler) manageApplySubmittedStatus(group *nsxv1alpha.NSXGroup) 
 	return status, nil
 }
 
-func (r GroupReconciler) manageApplyFailureStatus(group *nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
-	var writeDisabled nsxclient.WriteDisabledError
+func (r *GroupReconciler) manageApplyFailureStatus(group *nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
+	var writeDisabled *nsxclient.WriteDisabledError
 	if errors.As(err, &writeDisabled) {
 		return r.buildManageApplyOutcomeStatus(
 			group,
@@ -413,7 +418,7 @@ func (r GroupReconciler) manageApplyFailureStatus(group *nsxv1alpha.NSXGroup, er
 			"managed NSX group apply needs writes to be enabled before it can be synced",
 		)
 	}
-	var conflict nsxclient.ConflictError
+	var conflict *nsxclient.ConflictError
 	if errors.As(err, &conflict) {
 		return r.buildManageApplyOutcomeStatus(
 			group,
@@ -424,7 +429,7 @@ func (r GroupReconciler) manageApplyFailureStatus(group *nsxv1alpha.NSXGroup, er
 			"managed NSX group apply needs a later sweep or Kubernetes event",
 		)
 	}
-	var preconditionFailed nsxclient.PreconditionFailedError
+	var preconditionFailed *nsxclient.PreconditionFailedError
 	if errors.As(err, &preconditionFailed) {
 		return r.buildManageApplyOutcomeStatus(
 			group,
@@ -435,7 +440,7 @@ func (r GroupReconciler) manageApplyFailureStatus(group *nsxv1alpha.NSXGroup, er
 			"managed NSX group apply needs a later sweep or Kubernetes event",
 		)
 	}
-	var rateLimited nsxclient.RateLimitedError
+	var rateLimited *nsxclient.RateLimitedError
 	if errors.As(err, &rateLimited) {
 		return r.buildManageApplyOutcomeStatus(
 			group,
@@ -446,7 +451,7 @@ func (r GroupReconciler) manageApplyFailureStatus(group *nsxv1alpha.NSXGroup, er
 			"managed NSX group apply needs a later sweep or Kubernetes event",
 		)
 	}
-	var serviceUnavailable nsxclient.ServiceUnavailableError
+	var serviceUnavailable *nsxclient.ServiceUnavailableError
 	if errors.As(err, &serviceUnavailable) {
 		return r.buildManageApplyOutcomeStatus(
 			group,
@@ -471,7 +476,7 @@ func (r GroupReconciler) manageApplyFailureStatus(group *nsxv1alpha.NSXGroup, er
 	return nsxv1alpha.NSXGroupStatus{}, false
 }
 
-func (r GroupReconciler) buildManageApplyOutcomeStatus(
+func (r *GroupReconciler) buildManageApplyOutcomeStatus(
 	group *nsxv1alpha.NSXGroup,
 	applyingStatus metav1.ConditionStatus,
 	applyingReason string,
@@ -492,7 +497,7 @@ func (r GroupReconciler) buildManageApplyOutcomeStatus(
 	return status, true
 }
 
-func (r GroupReconciler) manageDeleteSubmittedStatus(group *nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
+func (r *GroupReconciler) manageDeleteSubmittedStatus(group *nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
 	status, err := statuscondition.BuildGroupStatus(
 		group.Status,
 		group.Generation,
@@ -506,8 +511,8 @@ func (r GroupReconciler) manageDeleteSubmittedStatus(group *nsxv1alpha.NSXGroup)
 	return status, nil
 }
 
-func (r GroupReconciler) manageDeleteFailureStatus(group *nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
-	var writeDisabled nsxclient.WriteDisabledError
+func (r *GroupReconciler) manageDeleteFailureStatus(group *nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
+	var writeDisabled *nsxclient.WriteDisabledError
 	if errors.As(err, &writeDisabled) {
 		return r.buildManageDeleteOutcomeStatus(
 			group,
@@ -518,7 +523,7 @@ func (r GroupReconciler) manageDeleteFailureStatus(group *nsxv1alpha.NSXGroup, e
 			"managed NSX group delete needs writes to be enabled before it can be synced",
 		)
 	}
-	var conflict nsxclient.ConflictError
+	var conflict *nsxclient.ConflictError
 	if errors.As(err, &conflict) {
 		return r.buildManageDeleteOutcomeStatus(
 			group,
@@ -529,7 +534,7 @@ func (r GroupReconciler) manageDeleteFailureStatus(group *nsxv1alpha.NSXGroup, e
 			"managed NSX group delete needs a later sweep or Kubernetes event",
 		)
 	}
-	var preconditionFailed nsxclient.PreconditionFailedError
+	var preconditionFailed *nsxclient.PreconditionFailedError
 	if errors.As(err, &preconditionFailed) {
 		return r.buildManageDeleteOutcomeStatus(
 			group,
@@ -540,7 +545,7 @@ func (r GroupReconciler) manageDeleteFailureStatus(group *nsxv1alpha.NSXGroup, e
 			"managed NSX group delete needs a later sweep or Kubernetes event",
 		)
 	}
-	var rateLimited nsxclient.RateLimitedError
+	var rateLimited *nsxclient.RateLimitedError
 	if errors.As(err, &rateLimited) {
 		return r.buildManageDeleteOutcomeStatus(
 			group,
@@ -551,7 +556,7 @@ func (r GroupReconciler) manageDeleteFailureStatus(group *nsxv1alpha.NSXGroup, e
 			"managed NSX group delete needs a later sweep or Kubernetes event",
 		)
 	}
-	var serviceUnavailable nsxclient.ServiceUnavailableError
+	var serviceUnavailable *nsxclient.ServiceUnavailableError
 	if errors.As(err, &serviceUnavailable) {
 		return r.buildManageDeleteOutcomeStatus(
 			group,
@@ -576,7 +581,7 @@ func (r GroupReconciler) manageDeleteFailureStatus(group *nsxv1alpha.NSXGroup, e
 	return nsxv1alpha.NSXGroupStatus{}, false
 }
 
-func (r GroupReconciler) buildManageDeleteOutcomeStatus(
+func (r *GroupReconciler) buildManageDeleteOutcomeStatus(
 	group *nsxv1alpha.NSXGroup,
 	deletingStatus metav1.ConditionStatus,
 	deletingReason string,
@@ -608,7 +613,7 @@ func writeDisabledConfigName(reason nsxclient.WriteDisabledReason) string {
 	}
 }
 
-func (r GroupReconciler) updateGroupStatus(ctx context.Context, group *nsxv1alpha.NSXGroup, status nsxv1alpha.NSXGroupStatus) error {
+func (r *GroupReconciler) updateGroupStatus(ctx context.Context, group *nsxv1alpha.NSXGroup, status nsxv1alpha.NSXGroupStatus) error {
 	logger := r.Logger
 	if logger == nil {
 		logger = zap.NewNop()
@@ -635,10 +640,10 @@ func (r GroupReconciler) updateGroupStatus(ctx context.Context, group *nsxv1alph
 	return nil
 }
 
-func (r GroupReconciler) now() time.Time {
+func (r *GroupReconciler) now() time.Time {
 	clock := r.Clock
 	if clock == nil {
-		clock = realClock{}
+		clock = &realClock{}
 	}
 	return clock.Now()
 }

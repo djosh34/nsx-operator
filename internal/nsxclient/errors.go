@@ -20,8 +20,10 @@ type WriteDisabledError struct {
 	NetworkCloudFQDN string
 }
 
-//nolint:gocritic // WriteDisabledError remains a value error so existing tests and callers can assign it directly to error fields.
-func (err WriteDisabledError) Error() string {
+func (err *WriteDisabledError) Error() string {
+	if err == nil {
+		return "nsx write disabled"
+	}
 	if err.Reason == "" {
 		return fmt.Sprintf("nsx %s %s skipped because writes are disabled", err.Method, err.URL)
 	}
@@ -36,7 +38,10 @@ type StatusError struct {
 	Body       string
 }
 
-func (err StatusError) Error() string {
+func (err *StatusError) Error() string {
+	if err == nil {
+		return "nsx returned unexpected status"
+	}
 	if err.Body == "" {
 		return fmt.Sprintf("nsx %s %s returned status %d", err.Method, err.URL, err.StatusCode)
 	}

@@ -81,7 +81,7 @@ func NewClient(options Options) (*Client, error) {
 	}
 	recorder := options.Recorder
 	if recorder == nil {
-		recorder = operatormetrics.NopRecorder{}
+		recorder = &operatormetrics.NopRecorder{}
 	}
 	baseURL.Path = strings.TrimRight(baseURL.Path, "/")
 
@@ -193,7 +193,7 @@ func (c *Client) requireWriteEnabled(method string, path string, query url.Value
 		zap.String("networkCloudName", writeErr.NetworkCloudName),
 		zap.String("networkCloudFQDN", writeErr.NetworkCloudFQDN),
 	)
-	return writeErr
+	return &writeErr
 }
 
 func (c *Client) requestURL(path string, query url.Values) url.URL {
@@ -405,15 +405,15 @@ func statusError(resp *http.Response, body string) error {
 	}
 	switch resp.StatusCode {
 	case http.StatusConflict:
-		return ConflictError{StatusError: base}
+		return &ConflictError{StatusError: base}
 	case http.StatusPreconditionFailed:
-		return PreconditionFailedError{StatusError: base}
+		return &PreconditionFailedError{StatusError: base}
 	case http.StatusTooManyRequests:
-		return RateLimitedError{StatusError: base}
+		return &RateLimitedError{StatusError: base}
 	case http.StatusServiceUnavailable:
-		return ServiceUnavailableError{StatusError: base}
+		return &ServiceUnavailableError{StatusError: base}
 	default:
-		return base
+		return &base
 	}
 }
 
