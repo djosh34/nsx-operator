@@ -217,12 +217,13 @@ func TestNewManagerDefaultSweepUpdatesCloudStatusWithoutCustomSweep(t *testing.T
 	}
 	defer stopEnvtest(t, testEnvironment)
 
+	core, logs := observer.New(zapcore.DebugLevel)
 	manager, err := startup.NewManager(startup.ManagerOptions{
 		Config: config.Config{
 			Operator: config.OperatorConfig{TickInterval: 50 * time.Millisecond},
 		},
 		RestConfig: restConfig,
-		Logger:     zap.NewNop(),
+		Logger:     zap.New(core),
 	})
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
@@ -250,8 +251,23 @@ func TestNewManagerDefaultSweepUpdatesCloudStatusWithoutCustomSweep(t *testing.T
 	if err != nil {
 		t.Fatalf("create NSXNetworkCloud: %v", err)
 	}
+	err = apiClient.Create(ctx, &nsxv1alpha.NSXGroup{
+		ObjectMeta: metav1.ObjectMeta{Name: "group-default"},
+		Spec: nsxv1alpha.NSXGroupSpec{
+			NetworkCloudFQDN: "nsx-default.example.test",
+			GroupID:          "group-default",
+			DisplayName:      "Group Default",
+			Mode:             nsxv1alpha.NSXGroupModeObserve,
+			CIDRs:            []string{"10.0.0.0/24"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create NSXGroup: %v", err)
+	}
 
 	requireCloudCondition(ctx, t, apiClient, "cloud-default", nsxv1alpha.ConditionReachable, metav1.ConditionFalse)
+	requireObservedLogField(ctx, t, logs, "starting network cloud reconcile pass", "triggerKind", "networkCloud")
+	requireObservedLogField(ctx, t, logs, "starting group reconcile pass", "triggerKind", "group")
 
 	stopManager()
 	err = <-managerErr

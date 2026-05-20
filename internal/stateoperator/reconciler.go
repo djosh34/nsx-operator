@@ -15,11 +15,13 @@ const GroupFinalizer = "nsx.ing.com/finalizer"
 // NetworkCloudReconciler observes NSXNetworkCloud changes.
 type NetworkCloudReconciler struct {
 	Logger *zap.Logger
+	Runner ReconcilePassRunner
 }
 
 // GroupReconciler observes NSXGroup changes.
 type GroupReconciler struct {
 	Logger *zap.Logger
+	Runner ReconcilePassRunner
 }
 
 var (
@@ -45,6 +47,38 @@ func (r *NetworkCloudReconciler) Reconcile(ctx context.Context, req reconcile.Re
 		logging.ReconcileKey(reconcileKey(req.NamespacedName)),
 		zap.String("networkCloudName", req.Name),
 	)
+	if r.Runner != nil {
+		trigger := ReconcileTrigger{
+			Kind: ReconcileTriggerNetworkCloud,
+			Name: req.Name,
+		}
+		logger.Debug(
+			"starting network cloud reconcile pass",
+			logging.Component("stateoperator"),
+			logging.ReconcileKey(reconcileKey(req.NamespacedName)),
+			zap.String("triggerKind", string(trigger.Kind)),
+			zap.String("networkCloudName", trigger.Name),
+		)
+		err = r.Runner.RunReconcilePass(ctx, trigger)
+		if err != nil {
+			logger.Info(
+				"network cloud reconcile pass failed",
+				logging.Component("stateoperator"),
+				logging.ReconcileKey(reconcileKey(req.NamespacedName)),
+				zap.String("triggerKind", string(trigger.Kind)),
+				zap.String("networkCloudName", trigger.Name),
+				zap.Error(err),
+			)
+			return reconcile.Result{}, err
+		}
+		logger.Debug(
+			"completed network cloud reconcile pass",
+			logging.Component("stateoperator"),
+			logging.ReconcileKey(reconcileKey(req.NamespacedName)),
+			zap.String("triggerKind", string(trigger.Kind)),
+			zap.String("networkCloudName", trigger.Name),
+		)
+	}
 	return reconcile.Result{}, nil
 }
 
@@ -66,5 +100,37 @@ func (r *GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		logging.ReconcileKey(reconcileKey(req.NamespacedName)),
 		zap.String("groupName", req.Name),
 	)
+	if r.Runner != nil {
+		trigger := ReconcileTrigger{
+			Kind: ReconcileTriggerGroup,
+			Name: req.Name,
+		}
+		logger.Debug(
+			"starting group reconcile pass",
+			logging.Component("stateoperator"),
+			logging.ReconcileKey(reconcileKey(req.NamespacedName)),
+			zap.String("triggerKind", string(trigger.Kind)),
+			zap.String("groupName", trigger.Name),
+		)
+		err = r.Runner.RunReconcilePass(ctx, trigger)
+		if err != nil {
+			logger.Info(
+				"group reconcile pass failed",
+				logging.Component("stateoperator"),
+				logging.ReconcileKey(reconcileKey(req.NamespacedName)),
+				zap.String("triggerKind", string(trigger.Kind)),
+				zap.String("groupName", trigger.Name),
+				zap.Error(err),
+			)
+			return reconcile.Result{}, err
+		}
+		logger.Debug(
+			"completed group reconcile pass",
+			logging.Component("stateoperator"),
+			logging.ReconcileKey(reconcileKey(req.NamespacedName)),
+			zap.String("triggerKind", string(trigger.Kind)),
+			zap.String("groupName", trigger.Name),
+		)
+	}
 	return reconcile.Result{}, nil
 }

@@ -130,6 +130,16 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		}
 		return managerClient, nil
 	}
+	var reconcileRunner stateoperator.ReconcilePassRunner
+	if options.SweepCloud == nil {
+		reconcileRunner = stateoperator.NewDefaultReconcilePassRunner(stateoperator.ReconcilePassRunnerOptions{
+			KubeClient:           stateoperator.NewKubeReconcilePassClient(typedKubeClient, logger),
+			ManagerClientFactory: managerClientFactory,
+			Logger:               logger,
+			Clock:                options.Clock,
+			Recorder:             operatorRecorder,
+		})
+	}
 
 	operator, err := stateoperator.New(stateoperator.Options{
 		Client:               runtimeManager.GetClient(),
@@ -137,6 +147,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		TickInterval:         options.Config.Operator.TickInterval,
 		Logger:               logger,
 		SweepCloud:           options.SweepCloud,
+		Runner:               reconcileRunner,
 		ManagerClientFactory: managerClientFactory,
 		Clock:                options.Clock,
 		IDGenerator:          options.IDGenerator,
@@ -157,6 +168,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		For(&nsxv1alpha.NSXNetworkCloud{}).
 		Complete(&stateoperator.NetworkCloudReconciler{
 			Logger: logger,
+			Runner: reconcileRunner,
 		})
 	if err != nil {
 		logger.Info("nsx network cloud controller registration failed", logging.Component("startup"), zap.Error(err))
@@ -167,6 +179,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		For(&nsxv1alpha.NSXGroup{}).
 		Complete(&stateoperator.GroupReconciler{
 			Logger: logger,
+			Runner: reconcileRunner,
 		})
 	if err != nil {
 		logger.Info("nsx group controller registration failed", logging.Component("startup"), zap.Error(err))

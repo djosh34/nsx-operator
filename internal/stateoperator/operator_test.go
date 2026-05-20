@@ -3,6 +3,7 @@ package stateoperator_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -66,6 +67,40 @@ func TestStartImmediatelySweepsAllNetworkClouds(t *testing.T) {
 	if !slices.Equal(swept, want) {
 		t.Fatalf("swept clouds = %v, want %v", swept, want)
 	}
+}
+
+func TestStartRunsSharedRunnerForSweep(t *testing.T) {
+	scheme := newScheme(t)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(
+			networkCloud("cloud-a", "nsx-a.example.test"),
+			networkCloud("cloud-b", "nsx-b.example.test"),
+		).
+		Build()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runner := &recordingReconcilePassRunner{afterRun: cancel}
+	operator, err := stateoperator.New(stateoperator.Options{
+		Client:       kubeClient,
+		TickInterval: time.Hour,
+		IDGenerator:  &fixedSweepIDGenerator{id: "sweep-123"},
+		Runner:       runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = operator.Start(ctx)
+	if err != nil && ctx.Err() == nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	runner.requireSingleTrigger(t, stateoperator.ReconcileTrigger{
+		Kind:  stateoperator.ReconcileTriggerSweep,
+		Sweep: stateoperator.SweepContext{ID: "sweep-123"},
+	})
 }
 
 func TestStartWaitsForHealthyCloudWhenAnotherCloudFails(t *testing.T) {
@@ -305,14 +340,49 @@ func TestNetworkCloudReconcileObservesEventWithoutClient(t *testing.T) {
 	requireLogField(t, logs, "observed network cloud reconcile event", "networkCloudName", "cloud-a")
 }
 
+func TestNetworkCloudReconcileRunsSharedPassRunner(t *testing.T) {
+	runner := &recordingReconcilePassRunner{}
+	reconciler := stateoperator.NetworkCloudReconciler{Runner: runner}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "cloud-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	runner.requireSingleTrigger(t, stateoperator.ReconcileTrigger{
+		Kind: stateoperator.ReconcileTriggerNetworkCloud,
+		Name: "cloud-a",
+	})
+}
+
 func TestNetworkCloudReconcileCanceledContextReturnsError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	reconciler := stateoperator.NetworkCloudReconciler{}
+	runner := &recordingReconcilePassRunner{}
+	reconciler := stateoperator.NetworkCloudReconciler{Runner: runner}
 
 	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cloud-a"}})
 	if err == nil {
 		t.Fatal("Reconcile() error = nil, want context cancellation")
+	}
+	if len(runner.triggers) != 0 {
+		t.Fatalf("runner trigger count = %d, want 0 after context cancellation", len(runner.triggers))
+	}
+}
+
+func TestNetworkCloudReconcileReturnsRunnerError(t *testing.T) {
+	wantErr := errors.New("runner failed")
+	reconciler := stateoperator.NetworkCloudReconciler{Runner: &recordingReconcilePassRunner{err: wantErr}}
+
+	_, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "cloud-a"},
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Reconcile() error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -332,14 +402,49 @@ func TestGroupReconcileObservesEventWithoutClientOrNSXMutation(t *testing.T) {
 	requireLogField(t, logs, "observed group reconcile event", "groupName", "group-a")
 }
 
+func TestGroupReconcileRunsSharedPassRunner(t *testing.T) {
+	runner := &recordingReconcilePassRunner{}
+	reconciler := stateoperator.GroupReconciler{Runner: runner}
+
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result != (reconcile.Result{}) {
+		t.Fatalf("Reconcile() result = %#v, want empty result", result)
+	}
+	runner.requireSingleTrigger(t, stateoperator.ReconcileTrigger{
+		Kind: stateoperator.ReconcileTriggerGroup,
+		Name: "group-a",
+	})
+}
+
 func TestGroupReconcileCanceledContextReturnsError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	reconciler := stateoperator.GroupReconciler{}
+	runner := &recordingReconcilePassRunner{}
+	reconciler := stateoperator.GroupReconciler{Runner: runner}
 
 	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "group-a"}})
 	if err == nil {
 		t.Fatal("Reconcile() error = nil, want context cancellation")
+	}
+	if len(runner.triggers) != 0 {
+		t.Fatalf("runner trigger count = %d, want 0 after context cancellation", len(runner.triggers))
+	}
+}
+
+func TestGroupReconcileReturnsRunnerError(t *testing.T) {
+	wantErr := errors.New("runner failed")
+	reconciler := stateoperator.GroupReconciler{Runner: &recordingReconcilePassRunner{err: wantErr}}
+
+	_, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "group-a"},
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Reconcile() error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -522,5 +627,30 @@ func networkCloud(name string, fqdn string) *nsxv1alpha.NSXNetworkCloud {
 			NetworkCloudID:   name,
 			Name:             name,
 		},
+	}
+}
+
+type recordingReconcilePassRunner struct {
+	err      error
+	afterRun func()
+	triggers []stateoperator.ReconcileTrigger
+}
+
+func (r *recordingReconcilePassRunner) RunReconcilePass(_ context.Context, trigger stateoperator.ReconcileTrigger) error {
+	r.triggers = append(r.triggers, trigger)
+	if r.afterRun != nil {
+		r.afterRun()
+	}
+	return r.err
+}
+
+func (r *recordingReconcilePassRunner) requireSingleTrigger(t *testing.T, want stateoperator.ReconcileTrigger) {
+	t.Helper()
+
+	if len(r.triggers) != 1 {
+		t.Fatalf("runner trigger count = %d, want 1", len(r.triggers))
+	}
+	if r.triggers[0] != want {
+		t.Fatalf("runner trigger = %#v, want %#v", r.triggers[0], want)
 	}
 }

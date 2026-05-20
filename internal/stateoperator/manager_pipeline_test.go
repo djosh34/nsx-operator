@@ -1888,9 +1888,9 @@ func TestDefaultManagerSweepLogsUnsupportedRemoteReason(t *testing.T) {
 		t.Fatalf("operator Start() error = %v", err)
 	}
 
-	requireObservedLogField(t, logs, "default manager remote group has unsupported expression", "networkCloudFQDN", "nsx-a.example.test")
-	requireObservedLogField(t, logs, "default manager remote group has unsupported expression", "groupID", "remote-unsupported")
-	requireObservedLogField(t, logs, "default manager remote group has unsupported expression", "unsupportedReason", string(nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType))
+	requireObservedLogField(t, logs, "reconcile pass remote group has unsupported expression", "networkCloudFQDN", "nsx-a.example.test")
+	requireObservedLogField(t, logs, "reconcile pass remote group has unsupported expression", "groupID", "remote-unsupported")
+	requireObservedLogField(t, logs, "reconcile pass remote group has unsupported expression", "unsupportedReason", string(nsxv1alpha.UnsupportedExpressionReasonUnsupportedExpressionType))
 }
 
 func TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec(t *testing.T) {

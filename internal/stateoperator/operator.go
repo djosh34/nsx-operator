@@ -54,6 +54,7 @@ type Options struct {
 	TickInterval         time.Duration
 	Logger               *zap.Logger
 	SweepCloud           CloudSweepFunc
+	Runner               ReconcilePassRunner
 	ManagerClientFactory ManagerClientFactory
 	Clock                Clock
 	IDGenerator          SweepIDGenerator
@@ -66,6 +67,7 @@ type NSXStateOperator struct {
 	tickInterval time.Duration
 	logger       *zap.Logger
 	sweepCloud   CloudSweepFunc
+	runner       ReconcilePassRunner
 	clock        Clock
 	idGenerator  SweepIDGenerator
 }
@@ -89,19 +91,26 @@ func New(options Options) (*NSXStateOperator, error) {
 	if recorder == nil {
 		recorder = &operatormetrics.NopRecorder{}
 	}
-
-	sweepCloud := options.SweepCloud
 	clock := options.Clock
 	if clock == nil {
 		clock = &realClock{}
 	}
-	if sweepCloud == nil {
-		if options.KubeClient != nil && options.ManagerClientFactory != nil {
-			sweepCloud = defaultManagerSweep(options.KubeClient, options.ManagerClientFactory, logger, clock, recorder)
-		} else {
-			sweepCloud = func(context.Context, nsxv1alpha.NSXNetworkCloud, SweepContext) error {
-				return nil
-			}
+
+	runner := options.Runner
+	if runner == nil && options.SweepCloud == nil && options.KubeClient != nil && options.ManagerClientFactory != nil {
+		runner = NewDefaultReconcilePassRunner(ReconcilePassRunnerOptions{
+			KubeClient:           NewKubeReconcilePassClient(options.KubeClient, logger),
+			ManagerClientFactory: options.ManagerClientFactory,
+			Logger:               logger,
+			Clock:                clock,
+			Recorder:             recorder,
+		})
+	}
+
+	sweepCloud := options.SweepCloud
+	if sweepCloud == nil && runner == nil {
+		sweepCloud = func(context.Context, nsxv1alpha.NSXNetworkCloud, SweepContext) error {
+			return nil
 		}
 	}
 
@@ -115,6 +124,7 @@ func New(options Options) (*NSXStateOperator, error) {
 		tickInterval: options.TickInterval,
 		logger:       logger,
 		sweepCloud:   sweepCloud,
+		runner:       runner,
 		clock:        clock,
 		idGenerator:  idGenerator,
 	}, nil
@@ -128,7 +138,7 @@ func (o *NSXStateOperator) Start(ctx context.Context) error {
 	for {
 		err := o.runSweep(ctx)
 		if err != nil {
-			return err
+			return o.sweepError(ctx, err)
 		}
 
 		now := o.clock.Now()
@@ -149,9 +159,32 @@ func (o *NSXStateOperator) Start(ctx context.Context) error {
 	}
 }
 
+func (o *NSXStateOperator) sweepError(ctx context.Context, err error) error {
+	ctxErr := ctx.Err()
+	if ctxErr == nil {
+		return err
+	}
+	o.logger.Info("stopping state operator sweeper", logging.Component("stateoperator"), zap.Error(ctxErr))
+	return nil
+}
+
 func (o *NSXStateOperator) runSweep(ctx context.Context) error {
 	sweep := SweepContext{ID: o.idGenerator.NewSweepID()}
 	o.logger.Info("starting global sweep", logging.Component("stateoperator"), logging.SweepID(sweep.ID))
+
+	if o.runner != nil {
+		trigger := ReconcileTrigger{
+			Kind:  ReconcileTriggerSweep,
+			Sweep: sweep,
+		}
+		err := o.runner.RunReconcilePass(ctx, trigger)
+		if err != nil {
+			o.logger.Info("global sweep reconcile pass failed", logging.Component("stateoperator"), logging.SweepID(sweep.ID), zap.Error(err))
+			return err
+		}
+		o.logger.Info("completed global sweep", logging.Component("stateoperator"), logging.SweepID(sweep.ID))
+		return nil
+	}
 
 	var clouds nsxv1alpha.NSXNetworkCloudList
 	err := o.client.List(ctx, &clouds)

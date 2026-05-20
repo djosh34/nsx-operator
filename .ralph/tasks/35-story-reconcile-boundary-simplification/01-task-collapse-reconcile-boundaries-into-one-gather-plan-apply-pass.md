@@ -1,4 +1,4 @@
-## Task: Collapse Reconcile Boundaries Into One Gather Plan Apply Pass <status>not_started</status> <passes>false</passes>
+## Task: Collapse Reconcile Boundaries Into One Gather Plan Apply Pass <status>done</status> <passes>true</passes>
 
 <description>
 Must be manually verified with concrete evidence that it works.
@@ -31,13 +31,42 @@ This story is intentionally large. It should be split into focused child tasks b
 
 
 <acceptance_criteria>
-- [ ] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
-- [ ] The verification evidence is recorded in the task or linked artifact.
-- [ ] Completion is not based only on a shallow checkbox, assumption, or code inspection.
-- [ ] Controller-runtime event reconcilers and periodic sweeps use the same gather/process/apply reconcile boundary.
-- [ ] Production reconcile code has no direct Kubernetes write bypass around the shared batched write boundary.
-- [ ] A single pass never queries the same Kubernetes resource twice.
-- [ ] Kubernetes writes are bucketed and submitted through one maximum batch apply boundary per pass.
-- [ ] Existing behavior for observe imports, observe drift repair, observe deletion, manage apply, manage deletion, finalizers, and status conditions is preserved.
-- [ ] Verification includes the duplicate-query regression test, controller reconcile tests, manager sweep tests, large-count tests, and `go test ./...`.
+- [x] Manual verification was performed with concrete calls, commands, logs, screenshots, external service status, or other evidence proving the feature/functionality/task works.
+- [x] The verification evidence is recorded in the task or linked artifact.
+- [x] Completion is not based only on a shallow checkbox, assumption, or code inspection.
+- [x] Controller-runtime event reconcilers and periodic sweeps use the same gather/process/apply reconcile boundary.
+- [x] Production reconcile code has no direct Kubernetes write bypass around the shared batched write boundary.
+- [x] A single pass never queries the same Kubernetes resource twice.
+- [x] Kubernetes writes are bucketed and submitted through one maximum batch apply boundary per pass.
+- [x] Existing behavior for observe imports, observe drift repair, observe deletion, manage apply, manage deletion, finalizers, and status conditions is preserved.
+- [x] Verification includes the duplicate-query regression test, controller reconcile tests, manager sweep tests, large-count tests, and `go test ./...`.
 </acceptance_criteria>
+
+<plan>
+.ralph/tasks/35-story-reconcile-boundary-simplification/01-task-collapse-reconcile-boundaries-into-one-gather-plan-apply-pass_plans/01-unified-reconcile-pass.md
+
+NOW EXECUTE
+</plan>
+
+<verification_evidence>
+Implementation summary:
+- Added `internal/stateoperator/reconcile_pass.go` with `ReconcileTrigger`, `ReconcilePassRunner`, `DefaultReconcilePassRunner`, and `ReconcilePassKubeClient`.
+- `DefaultReconcilePassRunner` gathers all `NSXNetworkCloud` and `NSXGroup` resources exactly once per pass, narrows sweep/networkCloud/group triggers in memory, gathers NSX manager groups per selected cloud, reuses gathered local groups to build `ManagerSnapshot`, and applies through `ApplyManagerPlan`.
+- `NetworkCloudReconciler` and `GroupReconciler` now call the shared runner with event triggers; context cancellation returns before invoking the runner, and runner errors propagate.
+- `NSXStateOperator.runSweep` now calls the shared runner with `ReconcileTriggerSweep`; sweep cloud processing inside the pass remains concurrent and per-cloud failures are logged without stopping the sweeper, preserving prior sweep behavior.
+- `startup.NewManager` builds one production runner for normal construction and passes it to the operator plus both controller-runtime reconcilers. Explicit `SweepCloud` remains a test-only compatibility override.
+- Removed the old `defaultManagerSweep` duplicate pipeline from `manager_pipeline.go`.
+
+Concrete test evidence:
+- `make check` passed after implementation. This ran gofumpt, `go vet ./...`, `golangci-lint run ./...` with `0 issues`, `projectlint ./...`, envtest-backed `go test ./...`, `go test -race ./...`, mockapi contract/lifecycle subsets, selected non-cached API/startup/stateoperator/cmd tests, largechaos tests, and coverage.
+- `make test` passed: envtest-backed `go test ./...` passed for all packages.
+- `make test-coverage` passed: `coverage 87.2% meets 80.0% threshold`; package coverage included `internal/stateoperator` at `89.9%` and `internal/startup` at `86.6%`.
+- Focused runner/startup tests passed while developing:
+  - `go test ./internal/stateoperator -run 'TestDefaultReconcilePassRunner'`
+  - `KUBEBUILDER_ASSETS="$(.bin/setup-envtest use 1.32.x -p path)" go test ./internal/startup -run TestNewManagerDefaultSweepUpdatesCloudStatusWithoutCustomSweep`
+  - `KUBEBUILDER_ASSETS="$(.bin/setup-envtest use 1.32.x -p path)" go test -race ./internal/stateoperator -run TestDefaultReconcilePassRunnerSweepGathersKubernetesStateOnce`
+- Boundary review evidence:
+  - `rg` confirmed production reconcile writes go through `RunReconcilePass` -> `ApplyManagerPlan` -> `ApplyManagerKubeWrites`; direct typed Kubernetes create/update/status/delete calls found under `internal/stateoperator` are tests or the single `manager_kube_writes.go` batch boundary.
+  - The old `defaultManagerSweep` duplicate gather/process/apply implementation was removed.
+  - Same-pass duplicate Kubernetes reads are covered by `TestDefaultReconcilePassRunnerSweepGathersKubernetesStateOnce`, event-scope runner tests, existing duplicate-query operator coverage, and the full `make check` suite.
+</verification_evidence>
