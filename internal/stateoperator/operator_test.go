@@ -348,6 +348,38 @@ func TestStartSkipsCloudWhenRefreshFails(t *testing.T) {
 	}
 }
 
+func TestStartDoesNotQuerySameCloudTwiceInOneSweep(t *testing.T) {
+	scheme := newScheme(t)
+	baseClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(networkCloud("cloud-a", "nsx-a.example.test")).
+		Build()
+	countingClient := newDuplicateQueryDetectingClient(baseClient)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	operator, err := stateoperator.New(stateoperator.Options{
+		Client:       countingClient,
+		TickInterval: time.Hour,
+		SweepCloud: func(context.Context, nsxv1alpha.NSXNetworkCloud, stateoperator.SweepContext) error {
+			cancel()
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = operator.Start(ctx)
+	if err != nil && ctx.Err() == nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if duplicates := countingClient.duplicateQueries(); len(duplicates) != 0 {
+		t.Fatalf("duplicate resource queries in one sweep = %v, want none", duplicates)
+	}
+}
+
 func TestNetworkCloudReconcileLogsCloudAndDoesNotRequeue(t *testing.T) {
 	scheme := newScheme(t)
 	kubeClient := fake.NewClientBuilder().
@@ -1406,6 +1438,72 @@ func (c *getCloudErrorClient) Get(ctx context.Context, key client.ObjectKey, obj
 		return c.err
 	}
 	return c.Client.Get(ctx, key, object, opts...)
+}
+
+type duplicateQueryDetectingClient struct {
+	client.Client
+	mu         sync.Mutex
+	listed     map[string]struct{}
+	duplicates []string
+}
+
+func newDuplicateQueryDetectingClient(base client.Client) *duplicateQueryDetectingClient {
+	return &duplicateQueryDetectingClient{
+		Client: base,
+		listed: map[string]struct{}{},
+	}
+}
+
+func (c *duplicateQueryDetectingClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	err := c.Client.List(ctx, list, opts...)
+	if err != nil {
+		return err
+	}
+	c.recordListedObjects(list)
+	return nil
+}
+
+func (c *duplicateQueryDetectingClient) Get(ctx context.Context, key client.ObjectKey, object client.Object, opts ...client.GetOption) error {
+	resourceKey := duplicateQueryResourceKey(object, key.Name)
+	c.mu.Lock()
+	if _, ok := c.listed[resourceKey]; ok {
+		c.duplicates = append(c.duplicates, resourceKey)
+	}
+	c.mu.Unlock()
+	return c.Client.Get(ctx, key, object, opts...)
+}
+
+func (c *duplicateQueryDetectingClient) recordListedObjects(list client.ObjectList) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch typedList := list.(type) {
+	case *nsxv1alpha.NSXNetworkCloudList:
+		for itemIndex := range typedList.Items {
+			c.listed[duplicateQueryResourceKey(&typedList.Items[itemIndex], typedList.Items[itemIndex].Name)] = struct{}{}
+		}
+	case *nsxv1alpha.NSXGroupList:
+		for itemIndex := range typedList.Items {
+			c.listed[duplicateQueryResourceKey(&typedList.Items[itemIndex], typedList.Items[itemIndex].Name)] = struct{}{}
+		}
+	}
+}
+
+func (c *duplicateQueryDetectingClient) duplicateQueries() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.duplicates...)
+}
+
+func duplicateQueryResourceKey(object client.Object, name string) string {
+	switch object.(type) {
+	case *nsxv1alpha.NSXNetworkCloud:
+		return "NSXNetworkCloud/" + name
+	case *nsxv1alpha.NSXGroup:
+		return "NSXGroup/" + name
+	default:
+		return fmt.Sprintf("%T/%s", object, name)
+	}
 }
 
 type statusUpdateCountingClient struct {
