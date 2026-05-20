@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Wed May 20 09:36:52 CEST 2026
+Generated: Wed May 20 09:50:44 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -501,5 +501,17 @@ Must be manually verified with concrete evidence that it works.
 
 <description>
 The manager sweep uses typed batch APIs in places, but it does not satisfy the PO's hard end-to-end batching contract.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/bugs/state-operator-sweep-requeries-listed-cloud.md`
+
+```
+## Bug: State Operator Sweep Requeries Listed Cloud <status>completed</status> <passes>true</passes> <priority>ultra high</priority>
+
+<plan>
+.ralph/tasks/bugs/state-operator-sweep-requeries-listed-cloud_plans/01-verify-single-cloud-query-boundary.md
+</plan>
 ```
 

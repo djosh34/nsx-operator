@@ -45,3 +45,4 @@ NONE
 .ralph/tasks/34-story-go-linting-idiomatic-cleanup/06-task-fix-pointer-copy-and-interface-lint-findings.md
 .ralph/tasks/34-story-go-linting-idiomatic-cleanup/07-task-wire-linting-and-tests-into-ci.md
 .ralph/tasks/bugs/manager-sweep-uses-multiple-kube-batch-calls.md
+.ralph/tasks/bugs/state-operator-sweep-requeries-listed-cloud.md
