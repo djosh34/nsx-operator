@@ -1,0 +1,45 @@
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)
+--- FAIL: TestNetworkCloudClientCreatesGetsAndListsByFieldSelector (0.00s)
+    client_test.go:28: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestGroupClientCreatesGetsAndListsBySelectableFields (0.00s)
+    client_test.go:72: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestTypedClientRecordsKubernetesAPIMetrics (0.00s)
+    client_test.go:126: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestUpdateRequiresResourceVersionAndPersistsFetchedObjectChanges (0.00s)
+    client_test.go:212: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestStatusUpdateStoresStatusAndPreservesSpec (0.00s)
+    client_test.go:261: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestApplyRequiresFieldManagerAndUsesServerSideApply (0.00s)
+    client_test.go:323: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDeleteRemovesTypedObject (0.00s)
+    client_test.go:362: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestWatchEmitsTypedEventsForFieldSelector (0.00s)
+    client_test.go:402: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestInvalidResourceSpecificFiltersFailBeforeRequest (0.00s)
+    client_test.go:451: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestConstructorValidationNilLoggerAndStructuredLogs (0.00s)
+    client_test.go:481: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+FAIL
+FAIL	github.com/djosh34/nsx-operator/internal/kubeapi	1.156s
+--- FAIL: TestDefaultManagerSweepAppliesObserveUpsertStatusAndDeleteThroughTypedKubeAPI (0.00s)
+    manager_pipeline_test.go:1430: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepLogsUnsupportedRemoteReason (0.00s)
+    manager_pipeline_test.go:1569: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepRepairsManagedDriftWithoutRewritingSpec (0.00s)
+    manager_pipeline_test.go:1630: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepRemovesManagedFinalizerAfterConfirmedRemoteAbsence (0.00s)
+    manager_pipeline_test.go:1727: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestDefaultManagerSweepUpdatesCloudStatusWhenGatherFails (0.00s)
+    manager_pipeline_test.go:1786: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI (1.40s)
+    manager_pipeline_test.go:1842: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestLifecycleObserveMissingRemoteDeletesCRAgainstMockAPIWithoutNSXDelete (0.97s)
+    manager_pipeline_test.go:1938: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestNetworkCloudAddAndRemoveLifecycleAgainstPublicMockAPI (0.95s)
+    manager_pipeline_test.go:1994: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+--- FAIL: TestLifecycleCloudDeletionLeavesChildGroupsAndStopsDefaultSweepThroughTypedKubeAPI (0.00s)
+    manager_pipeline_test.go:2080: KUBEBUILDER_ASSETS is required; run through make test or set it with setup-envtest use 1.32.x -p path
+FAIL
+FAIL	github.com/djosh34/nsx-operator/internal/stateoperator	6.566s
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)
+FAIL

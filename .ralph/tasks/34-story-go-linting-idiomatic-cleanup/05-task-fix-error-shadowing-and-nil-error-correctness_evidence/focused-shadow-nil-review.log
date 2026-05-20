@@ -1,0 +1,121 @@
+## if err :=
+./internal/stateoperator/manager_pipeline_test.go:1267:	if err := json.Unmarshal(rawPatch, &payload); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1530:	if err := <-operatorErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1551:	if err := testutil.GatherAndCompare(
+./internal/stateoperator/manager_pipeline_test.go:1620:	if err := <-operatorErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1721:	if err := <-operatorErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1744:	if err := typedClient.Groups().Delete(ctx, localManage.Name, metav1.DeleteOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1775:	if err := <-operatorErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1824:	if err := <-operatorErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1835:	if err := managerClient.PatchGroup(ctx, "observe-remote", &nsxclient.GroupPatch{DisplayName: "Observe Remote", ResourceType: "Group"}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1838:	if err := managerClient.PatchGroup(ctx, "manage-remote", &nsxclient.GroupPatch{DisplayName: "Manage Remote", ResourceType: "Group"}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1854:	if err := clients.typed.Groups().Delete(ctx, observe.Name, metav1.DeleteOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1875:	if err := clients.typed.Groups().Delete(ctx, manage.Name, metav1.DeleteOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1916:	if err := <-operatorErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1929:	if err := managerClient.PatchGroup(ctx, "observe-missing-remote", &nsxclient.GroupPatch{DisplayName: "Observe Missing Remote", ResourceType: "Group"}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1933:	if err := managerClient.DeleteGroup(ctx, "observe-missing-remote"); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1971:	if err := <-operatorErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1986:	if err := managerClient.PatchGroup(ctx, "networkcloud-live-remote", &nsxclient.GroupPatch{
+./internal/stateoperator/manager_pipeline_test.go:2039:	if err := <-operatorErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2043:	if err := clients.typed.NetworkClouds().Delete(ctx, cloud.Name, metav1.DeleteOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2074:	if err := <-secondErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2116:	if err := <-firstErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2123:	if err := clients.typed.NetworkClouds().Delete(ctx, cloud.Name, metav1.DeleteOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2154:	if err := <-secondErr; err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2427:			if err := testEnvironment.Stop(); err != nil {
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:50:	if err := managerClient.PatchGroupIPAddressExpression(ctx, "managed-write-mock", "selected-ip", &nsxclient.IPAddressExpressionPatch{
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:57:	if err := managerClient.PatchGroupPathExpression(ctx, "managed-write-mock", "selected-path", &nsxclient.PathExpressionPatch{
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:157:	if err := managerClient.PatchGroupIPAddressExpression(ctx, "managed-delete-selected-ip", "selected-ip", &nsxclient.IPAddressExpressionPatch{
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:372:	if err := req.Body.Close(); err != nil {
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:380:	if err := json.Unmarshal(raw, &body); err != nil {
+./internal/nsxclient/large_chaos_test.go:55:		if err := json.NewEncoder(w).Encode(response); err != nil {
+./internal/stateoperator/operator_test.go:132:	if err := <-healthyCloudContextStillLive; err != nil {
+./internal/stateoperator/operator_test.go:437:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:473:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:554:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:610:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:710:	if err := countingClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:756:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:852:	if err := countingClient.Get(context.Background(), types.NamespacedName{Name: "group-a"}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:882:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:913:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:944:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:975:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:1006:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:1043:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:1077:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:1196:			if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:1234:	if err := kubeClient.Get(context.Background(), types.NamespacedName{Name: group.Name}, &updated); err != nil {
+./internal/stateoperator/operator_test.go:1248:	if err := nsxv1alpha.AddToScheme(scheme); err != nil {
+./internal/stateoperator/operator_test.go:1380:	if err := c.Client.List(ctx, list, opts...); err != nil {
+
+## if ..., err :=
+./internal/stateoperator/manager_pipeline_test.go:1077:			if _, err := io.WriteString(w, `{"results":[{"id":"remote-a","display_name":"Remote A"}],"cursor":"page-2","result_count":1}`); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1081:			if _, err := io.WriteString(w, `{"results":[{"id":"remote-b","display_name":"Remote B"}],"result_count":1}`); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1444:	if _, err := typedClient.Groups().Create(ctx, localObserve, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1451:	if _, err := typedClient.Groups().Create(ctx, driftedObserve, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1648:	if _, err := typedClient.Groups().Create(ctx, localManage, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1741:	if _, err := typedClient.Groups().Create(ctx, localManage, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1845:	if _, err := clients.typed.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1851:	if _, err := clients.typed.Groups().Create(ctx, observe, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1864:	if _, err := observeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: crclient.ObjectKey{Name: observe.Name}}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1872:	if _, err := clients.typed.Groups().Create(ctx, manage, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1885:	if _, err := manageReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: crclient.ObjectKey{Name: manage.Name}}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1941:	if _, err := clients.typed.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1946:	if _, err := clients.typed.Groups().Create(ctx, observe, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:1997:	if _, err := clients.typed.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2046:	if _, err := clients.typed.NetworkClouds().Get(ctx, cloud.Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+./internal/stateoperator/manager_pipeline_test.go:2049:	if _, err := clients.typed.Groups().Get(ctx, imported.Name, metav1.GetOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2087:	if _, err := clients.typed.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2092:	if _, err := clients.typed.Groups().Create(ctx, child, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2126:	if _, err := clients.typed.Groups().Get(ctx, child.Name, metav1.GetOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_test.go:2157:	if _, err := clients.typed.Groups().Get(ctx, child.Name, metav1.GetOptions{}); err != nil {
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:47:	if _, err := managerClient.PutGroup(ctx, "managed-write-mock", seedGroup); err != nil {
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:154:	if _, err := managerClient.PutGroup(ctx, "managed-delete-selected-ip", seedGroup); err != nil {
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:271:	if _, err := managerClient.ListGroups(ctx); err != nil {
+./internal/stateoperator/large_chaos_test.go:95:	if _, err := clients.typed.NetworkClouds().Create(ctx, cloud, metav1.CreateOptions{}); err != nil {
+./internal/stateoperator/large_chaos_test.go:107:		if _, err := clients.typed.Groups().Create(ctx, group, metav1.CreateOptions{}); err != nil {
+
+## for ..., err :=
+./internal/kubeapi/batch.go:60:	for key, err := range e.Items {
+
+## switch ..., err :=
+
+## nil, nil
+./internal/stateoperator/manager_pipeline_test.go:1040:			return nil, nil
+./internal/stateoperator/manager_pipeline_test.go:1861:			return nil, nil
+./internal/kubeapi/batch.go:102:		return nil, nil, err
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:366:		return nil, nil
+./internal/stateoperator/manager_pipeline_write_semantics_test.go:377:		return nil, nil
+./internal/stateoperator/operator_test.go:423:			return nil, nil
+./internal/stateoperator/operator_test.go:458:			return nil, nil
+./internal/stateoperator/operator_test.go:539:			return nil, nil
+./internal/stateoperator/operator_test.go:1095:			return nil, nil
+./internal/nsxclient/routes.go:88:	err := c.do(ctx, http.MethodGet, "/api/v1/firewall/sections/"+pathEscape(sectionID), nil, nil, &result)
+./internal/nsxclient/routes.go:109:	return c.do(ctx, http.MethodDelete, "/api/v1/firewall/sections/"+pathEscape(sectionID), query, nil, nil)
+./internal/nsxclient/routes.go:163:	return doTyped[FirewallRule](ctx, c, http.MethodGet, path, nil, nil)
+./internal/nsxclient/routes.go:173:	return c.do(ctx, http.MethodDelete, path, nil, nil, nil)
+./internal/nsxclient/routes.go:190:	return doTyped[IPSet](ctx, c, http.MethodGet, "/api/v1/ip-sets/"+pathEscape(ipSetID), nil, nil)
+./internal/nsxclient/routes.go:198:	return c.do(ctx, http.MethodDelete, "/api/v1/ip-sets/"+pathEscape(ipSetID), nil, nil, nil)
+./internal/nsxclient/routes.go:230:	return doTyped[Group](ctx, c, http.MethodGet, groupPath(groupID), nil, nil)
+./internal/nsxclient/routes.go:234:	return c.do(ctx, http.MethodDelete, groupPath(groupID), nil, nil, nil)
+./internal/nsxclient/routes.go:250:	return c.do(ctx, http.MethodDelete, groupExpressionPath(groupID, "ip-address-expressions", expressionID), nil, nil, nil)
+./internal/nsxclient/routes.go:262:	return c.do(ctx, http.MethodDelete, groupExpressionPath(groupID, "path-expressions", expressionID), nil, nil, nil)
+./internal/nsxclient/routes.go:289:	return doTyped[ConsolidatedEffectiveIPAddresses](ctx, c, http.MethodGet, path, nil, nil)
+./internal/nsxclient/routes.go:293:	return doTyped[EULAAcceptance](ctx, c, http.MethodGet, "/policy/api/v1/eula/acceptance", nil, nil)
+./internal/nsxclient/routes.go:305:	return c.do(ctx, http.MethodDelete, securityPolicyPath(policyID), nil, nil, nil)
+./internal/nsxclient/routes.go:309:	return doTyped[SecurityPolicy](ctx, c, http.MethodGet, securityPolicyPath(policyID), nil, nil)
+./internal/nsxclient/routes.go:333:	return c.do(ctx, http.MethodDelete, securityRulePath(policyID, ruleID), nil, nil, nil)
+./internal/nsxclient/routes.go:341:	return doTyped[SecurityRule](ctx, c, http.MethodGet, securityRulePath(policyID, ruleID), nil, nil)
+./internal/nsxclient/routes.go:365:	return c.do(ctx, http.MethodDelete, infraSegmentPath(segmentID), nil, nil, nil)
+./internal/nsxclient/routes.go:377:	return doTyped[SegmentState](ctx, c, http.MethodGet, infraSegmentPath(segmentID)+"/state", nil, nil)
+./internal/nsxclient/routes.go:381:	return doTyped[SegmentStatistics](ctx, c, http.MethodGet, infraSegmentPath(segmentID)+"/statistics", nil, nil)
+./internal/nsxclient/routes.go:393:	return doTyped[Tier1](ctx, c, http.MethodGet, tier1Path(tier1ID), nil, nil)
+./internal/nsxclient/routes.go:397:	return doTyped[Tier1State](ctx, c, http.MethodGet, tier1Path(tier1ID)+"/state", nil, nil)
+./internal/nsxclient/routes.go:409:	return c.do(ctx, http.MethodDelete, tier1SegmentPath(tier1ID, segmentID), nil, nil, nil)
+./internal/nsxclient/routes.go:425:	return doTyped[SegmentState](ctx, c, http.MethodGet, tier1SegmentPath(tier1ID, segmentID)+"/state", nil, nil)
+./internal/nsxclient/routes.go:429:	return doTyped[SegmentStatistics](ctx, c, http.MethodGet, tier1SegmentPath(tier1ID, segmentID)+"/statistics", nil, nil)
+./internal/nsxclient/routes.go:434:	return doTyped[SegmentState](ctx, c, http.MethodGet, path, nil, nil)
+./internal/nsxclient/routes.go:439:	return doTyped[SegmentStatistics](ctx, c, http.MethodGet, path, nil, nil)
+./internal/nsxclient/routes.go:447:	return doTyped[Segment](ctx, c, http.MethodGet, path, nil, nil)
+./internal/operatormetrics/metrics_test.go:102:	_, err := NewRecorder(nil, nil)

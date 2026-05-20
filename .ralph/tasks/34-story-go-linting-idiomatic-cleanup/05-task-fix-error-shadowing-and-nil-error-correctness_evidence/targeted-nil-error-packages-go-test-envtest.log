@@ -1,0 +1,4 @@
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	(cached)
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	60.159s
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)

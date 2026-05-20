@@ -1,0 +1,19 @@
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -coverprofile=coverage.out -covermode=atomic ./...
+ok  	github.com/djosh34/nsx-operator/api/v1alpha	(cached)	coverage: 98.7% of statements
+ok  	github.com/djosh34/nsx-operator/cmd/nsx-operator	(cached)	coverage: 83.1% of statements
+ok  	github.com/djosh34/nsx-operator/cmd/projectlint	(cached)	coverage: 80.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/buildinfo	(cached)	coverage: 100.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/config	(cached)	coverage: 89.3% of statements
+ok  	github.com/djosh34/nsx-operator/internal/httpratelimit	(cached)	coverage: 88.2% of statements
+ok  	github.com/djosh34/nsx-operator/internal/kubeapi	(cached)	coverage: 80.7% of statements
+ok  	github.com/djosh34/nsx-operator/internal/logging	(cached)	coverage: 96.2% of statements
+ok  	github.com/djosh34/nsx-operator/internal/names	(cached)	coverage: 100.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/nsxclient	(cached)	coverage: 84.9% of statements
+ok  	github.com/djosh34/nsx-operator/internal/operatormetrics	(cached)	coverage: 95.0% of statements
+ok  	github.com/djosh34/nsx-operator/internal/projectlint	(cached)	coverage: 85.5% of statements
+ok  	github.com/djosh34/nsx-operator/internal/startup	(cached)	coverage: 86.3% of statements
+ok  	github.com/djosh34/nsx-operator/internal/stateoperator	(cached)	coverage: 85.8% of statements
+ok  	github.com/djosh34/nsx-operator/internal/statuscondition	(cached)	coverage: 86.9% of statements
+ok  	github.com/djosh34/nsx-operator/internal/testsupport/mockapi	(cached)	coverage: 84.0% of statements
+ok  	github.com/djosh34/nsx-operator/scripts	(cached)	coverage: [no statements]
+coverage 85.9% meets 80.0% threshold
