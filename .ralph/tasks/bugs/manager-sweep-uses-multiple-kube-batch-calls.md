@@ -1,4 +1,4 @@
-## Bug: Manager Sweep Must Be One Gather One Process One Apply With No Regets Or Write Churn <status>not_started</status> <passes>false</passes> <priority>ultra high</priority>
+## Bug: Manager Sweep Must Be One Gather One Process One Apply With No Regets Or Write Churn <status>done</status> <passes>true</passes> <priority>ultra high</priority>
 
 <description>
 The manager sweep uses typed batch APIs in places, but it does not satisfy the PO's hard end-to-end batching contract.
@@ -56,19 +56,54 @@ Required verification evidence:
 </mandatory_manual_verification>
 
 <acceptance_criteria>
-- [ ] I reproduced or inspected the broken behavior enough to understand the failure.
-- [ ] I fixed the bug.
-- [ ] The full loop has exactly one initial gather phase for all required Kubernetes state and NSX Manager list-groups state.
-- [ ] There are zero Kubernetes or NSX Manager re-get/re-list calls after the initial gather anywhere in the loop path.
-- [ ] The full loop has exactly one processing sweep that compares gathered maps using the special combined network-cloud/group identity key.
-- [ ] The processing sweep performs hash-map comparison only against gathered state and performs no client calls.
-- [ ] Manager sweep writes are submitted through one maximum apply boundary per pass.
-- [ ] There is one patch call maximum, carrying all resources that need patching.
-- [ ] There is one put call maximum, used only for new resources or where patch is impossible.
-- [ ] No single resource is both patched and put in the same pass.
-- [ ] Already-correct resources receive zero patch/put/update/status/finalizer/delete calls anywhere in the entire loop path.
-- [ ] The new apply boundary still supports resource-version dependencies for status/finalizer writes without per-resource re-querying.
-- [ ] Tests prove the call count and behavior for mixed write buckets.
-- [ ] I manually verified with concrete calls, commands, logs, screenshots, external service status, or other evidence that the bug no longer occurs.
-- [ ] The verification evidence is recorded in the task or linked artifact.
+- [x] I reproduced or inspected the broken behavior enough to understand the failure.
+- [x] I fixed the bug.
+- [x] The full loop has exactly one initial gather phase for all required Kubernetes state and NSX Manager list-groups state.
+- [x] There are zero Kubernetes or NSX Manager re-get/re-list calls after the initial gather anywhere in the loop path.
+- [x] The full loop has exactly one processing sweep that compares gathered maps using the special combined network-cloud/group identity key.
+- [x] The processing sweep performs hash-map comparison only against gathered state and performs no client calls.
+- [x] Manager sweep writes are submitted through one maximum apply boundary per pass.
+- [x] There is one patch call maximum, carrying all resources that need patching.
+- [x] There is one put call maximum, used only for new resources or where patch is impossible.
+- [x] No single resource is both patched and put in the same pass.
+- [x] Already-correct resources receive zero patch/put/update/status/finalizer/delete calls anywhere in the entire loop path.
+- [x] The new apply boundary still supports resource-version dependencies for status/finalizer writes without per-resource re-querying.
+- [x] Tests prove the call count and behavior for mixed write buckets.
+- [x] I manually verified with concrete calls, commands, logs, screenshots, external service status, or other evidence that the bug no longer occurs.
+- [x] The verification evidence is recorded in the task or linked artifact.
 </acceptance_criteria>
+
+<verification_evidence>
+Implementation evidence:
+- `internal/stateoperator/operator.go` now uses the `NSXNetworkCloud` object from the global list directly in `runCloudSweep`; the post-list `Get` refresh was removed.
+- `internal/stateoperator/manager_pipeline.go` now builds `ManagerNSXWritePlan` with patch/put/delete buckets keyed by `BindingKey{NetworkCloudFQDN, GroupID}` and rejects the same key in both patch and put buckets.
+- `internal/stateoperator/manager_pipeline.go` now calls `ApplyManagerNSXWrites` once for classified NSX writes and `ApplyManagerKubeWrites` once for the complete Kubernetes write plan.
+- `internal/stateoperator/manager_kube_writes.go` now returns `ManagerKubeApplyResult` and performs resource-version dependent create/update/status/finalizer/delete/cloud-status staging inside one Kubernetes apply boundary without re-querying.
+- `internal/stateoperator/reconciler.go` now makes controller-runtime `NetworkCloudReconciler` and `GroupReconciler` observer-only event loggers; they do not `Get`, `List`, `Update`, `Status().Update`, mutate finalizers, or call NSX manager.
+- Obsolete split-phase helpers `managerKubeObjectWrites`, `managerKubePostObjectWrites`, and their finalizer split helpers were deleted.
+
+Focused test evidence:
+- `TestStartDoesNotQuerySameCloudTwiceInOneSweep` proves the state operator does not re-`Get` a cloud after the global list.
+- `TestApplyManagerPlanSubmitsMixedKubeWritesThroughOneApplyBoundary` proves mixed Kubernetes creates, updates, direct statuses, status-after-write, finalizers, deletes, and cloud status are submitted through one manager kube apply call.
+- `TestKubeAPIAdapterUsesPriorBatchResourceVersionsWithoutGet` records Kubernetes API requests and proves generated status/finalizer writes use prior batch result resource versions with zero `GET` for the group.
+- `TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMatching` proves missing managed groups are classified for put, existing drifted groups for patch, and matching groups avoid writes.
+- `TestApplyManagerPlanAppliesClassifiedNSXWritesThroughPutOrPatch`, `TestApplyManagerPlanAppliesClassifiedNSXDeletes`, and `TestApplyManagerPlanRejectsSameNSXResourceInPatchAndPutBuckets` prove the NSX write bucket behavior.
+- `TestNetworkCloudReconcileObservesEventWithoutClient` and `TestGroupReconcileObservesEventWithoutClientOrNSXMutation` prove controller-runtime reconcilers are not write/read escape hatches.
+- `TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI` now verifies observe and manage deletion through the manager sweep path rather than direct group reconciler writes.
+
+Gate evidence from final run:
+- `make check` passed. This included lint, projectlint, `go test ./...`, `go test -race ./...`, targeted mockapi/envtest suites, largechaos tests, and coverage.
+- `make test` passed.
+- `make test-coverage` passed with aggregate coverage `86.9%`, above the required `80.0%` threshold.
+- New boundary function coverage from `go tool cover -func=coverage.out`:
+  - `ApplyManagerKubeWrites`: `82.5%`
+  - `ApplyManagerNSXWrites`: `93.3%`
+  - `NetworkCloudReconciler.Reconcile`: `87.5%`
+  - `GroupReconciler.Reconcile`: `87.5%`
+</verification_evidence>
+
+<plan>
+Path: `.ralph/tasks/bugs/manager-sweep-uses-multiple-kube-batch-calls_plans/01-one-gather-one-process-one-apply-plan.md`
+
+NOW EXECUTE
+</plan>

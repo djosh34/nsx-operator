@@ -69,6 +69,7 @@ type managerGroupReader interface {
 
 type managerGroupWriter interface {
 	PatchGroup(ctx context.Context, groupID string, group *nsxclient.GroupPatch) error
+	PutGroup(ctx context.Context, groupID string, group *nsxclient.Group) (*nsxclient.Group, error)
 	DeleteGroup(ctx context.Context, groupID string) error
 }
 
@@ -95,7 +96,7 @@ type ManagerClientFactory func(context.Context, nsxv1alpha.NSXNetworkCloud) (Man
 
 // ManagerKubeApplier applies Kubernetes writes produced by a manager plan.
 type ManagerKubeApplier interface {
-	ApplyManagerKubeWrites(ctx context.Context, writes ManagerKubeWritePlan) error
+	ApplyManagerKubeWrites(ctx context.Context, writes ManagerKubeWritePlan) (*ManagerKubeApplyResult, error)
 }
 
 var _ ManagerClient = (*nsxclient.Client)(nil)
@@ -120,6 +121,7 @@ type ManagerPlan struct {
 	ObserveDeletes           []string
 	CloudStatus              *CloudStatusPlan
 	KubeWrites               ManagerKubeWritePlan
+	NSXWrites                ManagerNSXWritePlan
 	statusWriteDecisions     []statusWriteLogDecision
 }
 
@@ -154,9 +156,27 @@ type ManagedGroupWrite struct {
 	PathExpressionID      string
 }
 
+// ManagedGroupPatch describes a patchable NSX group update.
+type ManagedGroupPatch = ManagedGroupWrite
+
+// ManagedGroupPut describes a full NSX group put/upsert.
+type ManagedGroupPut = ManagedGroupWrite
+
 // ManagedGroupDelete describes a desired NSX group delete.
 type ManagedGroupDelete struct {
 	GroupID string
+}
+
+// ManagerNSXWritePlan classifies NSX manager writes for one manager pass.
+type ManagerNSXWritePlan struct {
+	Patches map[BindingKey]ManagedGroupPatch
+	Puts    map[BindingKey]ManagedGroupPut
+	Deletes map[BindingKey]ManagedGroupDelete
+}
+
+// Empty reports whether the plan contains no NSX writes.
+func (writes *ManagerNSXWritePlan) Empty() bool {
+	return len(writes.Patches) == 0 && len(writes.Puts) == 0 && len(writes.Deletes) == 0
 }
 
 // GroupStatusPlan describes a local group status update.
@@ -513,7 +533,10 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (*ManagerPl
 		case nsxv1alpha.NSXGroupModeManage:
 			if localBinding.Group.DeletionTimestamp != nil {
 				if exists {
-					plan.ManagedDeletes = append(plan.ManagedDeletes, ManagedGroupDelete{GroupID: localBinding.Key.GroupID})
+					deletion := ManagedGroupDelete{GroupID: localBinding.Key.GroupID}
+					plan.ManagedDeletes = append(plan.ManagedDeletes, deletion)
+					ensureManagerNSXWrites(&plan.NSXWrites)
+					plan.NSXWrites.Deletes[localBinding.Key] = deletion
 					status, statusErr := deletingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, &remote, now)
 					if statusErr != nil {
 						return nil, fmt.Errorf("build deleting managed status %q: %w", localBinding.Group.Name, statusErr)
@@ -535,7 +558,10 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (*ManagerPl
 				continue
 			}
 			if !exists {
-				plan.ManagedWrites = append(plan.ManagedWrites, managedWriteFromLocal(&localBinding.Group, &RemoteGroup{}))
+				write := managedWriteFromLocal(&localBinding.Group, &RemoteGroup{})
+				plan.ManagedWrites = append(plan.ManagedWrites, write)
+				ensureManagerNSXWrites(&plan.NSXWrites)
+				plan.NSXWrites.Puts[localBinding.Key] = write
 				status, statusErr := missingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, now)
 				if statusErr != nil {
 					return nil, fmt.Errorf("build missing managed status %q: %w", localBinding.Group.Name, statusErr)
@@ -544,7 +570,10 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (*ManagerPl
 				continue
 			}
 			if !managedSpecMatchesRemote(&localBinding.Group.Spec, &remote) {
-				plan.ManagedWrites = append(plan.ManagedWrites, managedWriteFromLocal(&localBinding.Group, &remote))
+				write := managedWriteFromLocal(&localBinding.Group, &remote)
+				plan.ManagedWrites = append(plan.ManagedWrites, write)
+				ensureManagerNSXWrites(&plan.NSXWrites)
+				plan.NSXWrites.Patches[localBinding.Key] = write
 				status, statusErr := applyingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, &remote, now)
 				if statusErr != nil {
 					return nil, fmt.Errorf("build applying managed status %q: %w", localBinding.Group.Name, statusErr)
@@ -635,6 +664,18 @@ func setCloudStatusPlanIfNeeded(
 	}
 }
 
+func ensureManagerNSXWrites(writes *ManagerNSXWritePlan) {
+	if writes.Patches == nil {
+		writes.Patches = map[BindingKey]ManagedGroupPatch{}
+	}
+	if writes.Puts == nil {
+		writes.Puts = map[BindingKey]ManagedGroupPut{}
+	}
+	if writes.Deletes == nil {
+		writes.Deletes = map[BindingKey]ManagedGroupDelete{}
+	}
+}
+
 // ApplyManagerPlan applies NSX writes first and then Kubernetes writes from a manager plan.
 //
 //nolint:gocritic // public planning API keeps value plans so tests and callers can pass literals.
@@ -642,22 +683,56 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 	if kubeApplier == nil {
 		return errors.New("kubernetes manager applier is required")
 	}
-	if managerClient == nil && (len(plan.ManagedWrites) > 0 || len(plan.ManagedDeletes) > 0) {
-		return errors.New("manager client is required for managed writes or deletes")
-	}
 	if plan.KubeWrites.Empty() {
 		plan.KubeWrites = legacyManagerKubeWrites(&plan)
 	}
-	if preWrites := managerKubeObjectWrites(plan.KubeWrites); !preWrites.Empty() {
-		err := kubeApplier.ApplyManagerKubeWrites(ctx, preWrites)
+	if plan.NSXWrites.Empty() {
+		plan.NSXWrites = legacyManagerNSXWrites(&plan)
+	}
+	if managerClient == nil && !plan.NSXWrites.Empty() {
+		return errors.New("manager client is required for managed writes or deletes")
+	}
+	if !plan.NSXWrites.Empty() {
+		err := ApplyManagerNSXWrites(ctx, managerClient, plan.NSXWrites)
 		if err != nil {
-			return fmt.Errorf("apply manager kubernetes object writes: %w", err)
+			return err
+		}
+	}
+	if !plan.KubeWrites.Empty() {
+		_, err := kubeApplier.ApplyManagerKubeWrites(ctx, plan.KubeWrites)
+		if err != nil {
+			return fmt.Errorf("apply manager kubernetes writes: %w", err)
+		}
+	}
+	return nil
+}
+
+func legacyManagerNSXWrites(plan *ManagerPlan) ManagerNSXWritePlan {
+	writes := ManagerNSXWritePlan{}
+	ensureManagerNSXWrites(&writes)
+	for writeIndex := range plan.ManagedWrites {
+		write := plan.ManagedWrites[writeIndex]
+		writes.Patches[write.Key] = write
+	}
+	for deleteIndex := range plan.ManagedDeletes {
+		deletion := plan.ManagedDeletes[deleteIndex]
+		key := BindingKey{GroupID: deletion.GroupID}
+		writes.Deletes[key] = deletion
+	}
+	return writes
+}
+
+// ApplyManagerNSXWrites applies classified NSX manager writes for one manager pass.
+func ApplyManagerNSXWrites(ctx context.Context, managerClient managerManagedWriteClient, writes ManagerNSXWritePlan) error {
+	for key := range writes.Patches {
+		if _, exists := writes.Puts[key]; exists {
+			return fmt.Errorf("managed nsx group %q/%q cannot be both patched and put", key.NetworkCloudFQDN, key.GroupID)
 		}
 	}
 	nsxWritesSkipped := false
-	for writeIndex := range plan.ManagedWrites {
-		write := &plan.ManagedWrites[writeIndex]
-		err := applyManagedWrite(ctx, managerClient, write)
+	for _, key := range sortedBindingKeys(writes.Patches) {
+		write := writes.Patches[key]
+		err := applyManagedWrite(ctx, managerClient, &write)
 		if err != nil {
 			if isWriteDisabled(err) {
 				nsxWritesSkipped = true
@@ -667,7 +742,21 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 		}
 	}
 	if !nsxWritesSkipped {
-		for _, deletion := range plan.ManagedDeletes {
+		for _, key := range sortedBindingKeys(writes.Puts) {
+			write := writes.Puts[key]
+			err := applyManagedPut(ctx, managerClient, &write)
+			if err != nil {
+				if isWriteDisabled(err) {
+					nsxWritesSkipped = true
+					break
+				}
+				return err
+			}
+		}
+	}
+	if !nsxWritesSkipped {
+		for _, key := range sortedBindingKeys(writes.Deletes) {
+			deletion := writes.Deletes[key]
 			err := managerClient.DeleteGroup(ctx, deletion.GroupID)
 			if err != nil {
 				if isWriteDisabled(err) {
@@ -677,13 +766,16 @@ func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, manag
 			}
 		}
 	}
-	if postWrites := managerKubePostObjectWrites(plan.KubeWrites); !postWrites.Empty() {
-		err := kubeApplier.ApplyManagerKubeWrites(ctx, postWrites)
-		if err != nil {
-			return fmt.Errorf("apply manager kubernetes post-object writes: %w", err)
-		}
-	}
 	return nil
+}
+
+func sortedBindingKeys[T any](items map[BindingKey]T) []BindingKey {
+	keys := make([]BindingKey, 0, len(items))
+	for key := range items {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, compareBindingKeys)
+	return keys
 }
 
 func isWriteDisabled(err error) bool {
@@ -887,6 +979,66 @@ func applyManagedWrite(ctx context.Context, managerClient managerManagedWriteCli
 		return err
 	}
 	return nil
+}
+
+func applyManagedPut(ctx context.Context, managerClient managerManagedWriteClient, write *ManagedGroupPut) error {
+	group, err := managedGroupPutPayload(write)
+	if err != nil {
+		return err
+	}
+	_, err = managerClient.PutGroup(ctx, write.Key.GroupID, group)
+	if err != nil {
+		return fmt.Errorf("put managed nsx group %q: %w", write.Key.GroupID, err)
+	}
+	return nil
+}
+
+func managedGroupPutPayload(write *ManagedGroupPut) (*nsxclient.Group, error) {
+	group := &nsxclient.Group{
+		Resource: nsxclient.Resource{
+			ID:           write.Key.GroupID,
+			DisplayName:  write.DisplayName,
+			ResourceType: "Group",
+		},
+		Expression: []json.RawMessage{},
+	}
+	if len(write.CIDRs) > 0 {
+		raw, err := json.Marshal(nsxclient.IPAddressExpression{
+			Resource: nsxclient.Resource{
+				ID:           "cidrs",
+				ResourceType: "IPAddressExpression",
+			},
+			IPAddresses: copyStringSlice(write.CIDRs),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("encode managed nsx group %q ip expression: %w", write.Key.GroupID, err)
+		}
+		group.Expression = append(group.Expression, raw)
+	}
+	if len(write.CIDRs) > 0 && len(write.SegmentPaths) > 0 {
+		raw, err := json.Marshal(map[string]string{
+			"resource_type":        "ConjunctionOperator",
+			"conjunction_operator": "OR",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("encode managed nsx group %q conjunction expression: %w", write.Key.GroupID, err)
+		}
+		group.Expression = append(group.Expression, raw)
+	}
+	if len(write.SegmentPaths) > 0 {
+		raw, err := json.Marshal(nsxclient.PathExpression{
+			Resource: nsxclient.Resource{
+				ID:           "segment",
+				ResourceType: "PathExpression",
+			},
+			Paths: copyStringSlice(write.SegmentPaths),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("encode managed nsx group %q path expression: %w", write.Key.GroupID, err)
+		}
+		group.Expression = append(group.Expression, raw)
+	}
+	return group, nil
 }
 
 func applyManagedIPAddressExpression(ctx context.Context, managerClient managerIPAddressExpressionWriter, write *ManagedGroupWrite) error {

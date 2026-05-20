@@ -189,8 +189,8 @@ func TestNewManagerRegistersControllersAndPeriodicSweeper(t *testing.T) {
 	}
 
 	requireSweptCloud(t, sweptClouds, "nsx-a.example.test")
-	requireObservedLogField(ctx, t, logs, "reconciled network cloud", "reconcileKey", "cloud-a")
-	requireObservedLogField(ctx, t, logs, "reconciling group", "reconcileKey", "group-a")
+	requireObservedLogField(ctx, t, logs, "observed network cloud reconcile event", "reconcileKey", "cloud-a")
+	requireObservedLogField(ctx, t, logs, "observed group reconcile event", "reconcileKey", "group-a")
 
 	stopManager()
 	err = <-managerErr

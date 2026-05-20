@@ -39,7 +39,6 @@ import (
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func TestProcessManagerSnapshotGatherFailureOnlyPlansCloudStatus(t *testing.T) {
@@ -495,6 +494,20 @@ func TestProcessManagerSnapshotManageGroupsWriteMissingAndDriftedAndOnlyStatusMa
 	}
 	if plan.ManagedWrites[1].Name != "manage-missing" || plan.ManagedWrites[1].IPAddressExpressionID != "" {
 		t.Fatalf("second ManagedWrite = %#v, want missing write without remote expression IDs", plan.ManagedWrites[1])
+	}
+	missingKey := stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-missing"}
+	if _, ok := plan.NSXWrites.Puts[missingKey]; !ok {
+		t.Fatalf("NSX puts = %#v, want missing managed group under %#v", plan.NSXWrites.Puts, missingKey)
+	}
+	if _, ok := plan.NSXWrites.Patches[missingKey]; ok {
+		t.Fatalf("missing managed group was classified for both patch and put: %#v", plan.NSXWrites.Patches[missingKey])
+	}
+	driftedKey := stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "app-drifted"}
+	if _, ok := plan.NSXWrites.Patches[driftedKey]; !ok {
+		t.Fatalf("NSX patches = %#v, want drifted existing managed group under %#v", plan.NSXWrites.Patches, driftedKey)
+	}
+	if _, ok := plan.NSXWrites.Puts[driftedKey]; ok {
+		t.Fatalf("drifted existing managed group was classified for both patch and put: %#v", plan.NSXWrites.Puts[driftedKey])
 	}
 	if len(plan.GroupStatuses) != 5 {
 		t.Fatalf("GroupStatuses = %#v, want status plans for all manage groups", plan.GroupStatuses)
@@ -1175,13 +1188,13 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 		t.Fatalf("ApplyManagerPlan() error = %v", err)
 	}
 	want := []string{
-		"apply-group:observe-import",
 		"patch-group:app-drifted",
 		"patch-ip:app-drifted:ip-expression",
 		"patch-path:app-drifted:path-expression",
 		"patch-group:app-missing",
 		"add-ip:app-missing:cidrs",
 		"delete-group:app-delete",
+		"apply-group:observe-import",
 		"group-status:manage-drifted",
 		"remove-finalizer:observe-missing:nsx.ing.com/finalizer",
 		"delete-group-cr:observe-missing",
@@ -1189,6 +1202,52 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(recorder.operations, want) {
 		t.Fatalf("operations = %v, want %v", recorder.operations, want)
+	}
+}
+
+func TestApplyManagerPlanSubmitsMixedKubeWritesThroughOneApplyBoundary(t *testing.T) {
+	recorder := &operationRecorder{}
+	createKey := kubeapi.BatchKey{Operation: "create", Resource: "nsxgroups", Name: "observe-import"}
+	updateKey := kubeapi.BatchKey{Operation: "update", Resource: "nsxgroups", Name: "observe-update"}
+	statusKey := kubeapi.BatchKey{Operation: "updateStatus", Resource: "nsxgroups", Subresource: "status", Name: "manage-status"}
+	plan := stateoperator.ManagerPlan{
+		KubeWrites: stateoperator.ManagerKubeWritePlan{
+			GroupCreates: map[kubeapi.BatchKey]kubeapi.GroupCreateRequest{
+				createKey: {Object: &nsxv1alpha.NSXGroup{ObjectMeta: metav1.ObjectMeta{Name: "observe-import"}}},
+			},
+			GroupUpdates: map[kubeapi.BatchKey]kubeapi.GroupUpdateRequest{
+				updateKey: {Object: &nsxv1alpha.NSXGroup{ObjectMeta: metav1.ObjectMeta{Name: "observe-update"}}},
+			},
+			GroupStatusUpdates: map[kubeapi.BatchKey]kubeapi.GroupStatusUpdateRequest{
+				statusKey: {Name: "manage-status"},
+			},
+			GroupStatusesAfterGroupWrite: map[kubeapi.BatchKey]stateoperator.GroupStatusAfterGroupWrite{
+				createKey: {Name: "observe-import"},
+			},
+			GroupFinalizerPatches: map[kubeapi.BatchKey]kubeapi.GroupFinalizerPatchRequest{
+				{Operation: "patchFinalizers", Resource: "nsxgroups", Subresource: "finalizers", Name: "direct-finalizer"}: {Name: "direct-finalizer"},
+			},
+			GroupFinalizersAfterGroupWrite: map[kubeapi.BatchKey]stateoperator.GroupFinalizerAfterGroupWrite{
+				updateKey: {Name: "observe-update"},
+			},
+			GroupFinalizersAfterStatusWrite: map[kubeapi.BatchKey]stateoperator.GroupFinalizerAfterStatusWrite{
+				statusKey: {Name: "manage-status"},
+			},
+			GroupDeletes: map[kubeapi.BatchKey]kubeapi.GroupDeleteRequest{
+				{Operation: "delete", Resource: "nsxgroups", Name: "observe-delete"}: {Name: "observe-delete"},
+			},
+			CloudStatusUpdates: map[kubeapi.BatchKey]kubeapi.NetworkCloudStatusUpdateRequest{
+				{Operation: "updateStatus", Resource: "nsxnetworkclouds", Subresource: "status", Name: "cloud-a"}: {Name: "cloud-a"},
+			},
+		},
+	}
+
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, nil, plan)
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	if recorder.kubeApplyCallCount != 1 {
+		t.Fatalf("ApplyManagerKubeWrites call count = %d, want 1", recorder.kubeApplyCallCount)
 	}
 }
 
@@ -1274,6 +1333,179 @@ func TestApplyManagerPlanPatchesOnlyRepresentedGroupWriteFields(t *testing.T) {
 	}
 	if !reflect.DeepEqual(payload, wantPayload) {
 		t.Fatalf("group patch payload = %#v, want only %#v", payload, wantPayload)
+	}
+}
+
+func TestApplyManagerPlanAppliesClassifiedNSXWritesThroughPutOrPatch(t *testing.T) {
+	recorder := &operationRecorder{}
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
+		NSXWrites: stateoperator.ManagerNSXWritePlan{
+			Patches: map[stateoperator.BindingKey]stateoperator.ManagedGroupPatch{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-patch"}: {
+					Key:                   stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-patch"},
+					DisplayName:           "Managed Patch",
+					CIDRs:                 []string{"10.42.0.0/24"},
+					IPAddressExpressionID: "selected-ip",
+				},
+			},
+			Puts: map[stateoperator.BindingKey]stateoperator.ManagedGroupPut{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-put"}: {
+					Key:          stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-put"},
+					DisplayName:  "Managed Put",
+					CIDRs:        []string{"10.43.0.0/24"},
+					SegmentPaths: []string{"/infra/segments/web"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	wantOperations := []string{
+		"patch-group:managed-patch",
+		"patch-ip:managed-patch:selected-ip",
+		"put-group:managed-put",
+	}
+	if !reflect.DeepEqual(recorder.operations, wantOperations) {
+		t.Fatalf("operations = %v, want %v", recorder.operations, wantOperations)
+	}
+	if recorder.groupPuts["managed-put"] == nil {
+		t.Fatal("managed-put was not recorded as a put group")
+	}
+	if recorder.groupPatches["managed-put"] != nil {
+		t.Fatalf("managed-put was also recorded as a patch: %#v", recorder.groupPatches["managed-put"])
+	}
+}
+
+func TestApplyManagerPlanRejectsSameNSXResourceInPatchAndPutBuckets(t *testing.T) {
+	key := stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-duplicate"}
+	err := stateoperator.ApplyManagerPlan(context.Background(), &operationRecorder{}, &operationRecorder{}, stateoperator.ManagerPlan{
+		NSXWrites: stateoperator.ManagerNSXWritePlan{
+			Patches: map[stateoperator.BindingKey]stateoperator.ManagedGroupPatch{key: {Key: key}},
+			Puts:    map[stateoperator.BindingKey]stateoperator.ManagedGroupPut{key: {Key: key}},
+		},
+	})
+	if err == nil {
+		t.Fatal("ApplyManagerPlan() error = nil, want duplicate patch/put classification error")
+	}
+}
+
+func TestApplyManagerPlanAppliesClassifiedNSXDeletes(t *testing.T) {
+	recorder := &operationRecorder{}
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
+		NSXWrites: stateoperator.ManagerNSXWritePlan{
+			Deletes: map[stateoperator.BindingKey]stateoperator.ManagedGroupDelete{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-delete"}: {GroupID: "managed-delete"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	wantOperations := []string{"delete-group:managed-delete"}
+	if !reflect.DeepEqual(recorder.operations, wantOperations) {
+		t.Fatalf("operations = %v, want %v", recorder.operations, wantOperations)
+	}
+}
+
+func TestApplyManagerPlanWriteDisabledSkipsClassifiedNSXPutAndDelete(t *testing.T) {
+	recorder := &operationRecorder{
+		patchGroupErr: &nsxclient.WriteDisabledError{
+			Method:           "PATCH",
+			URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/managed-patch",
+			Reason:           nsxclient.WriteDisabledReasonGlobalConfig,
+			NetworkCloudName: "cloud-a",
+			NetworkCloudFQDN: "nsx-a.example.test",
+		},
+	}
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
+		NSXWrites: stateoperator.ManagerNSXWritePlan{
+			Patches: map[stateoperator.BindingKey]stateoperator.ManagedGroupPatch{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-patch"}: {
+					Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-patch"},
+					DisplayName: "Managed Patch",
+				},
+			},
+			Puts: map[stateoperator.BindingKey]stateoperator.ManagedGroupPut{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-put"}: {
+					Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-put"},
+					DisplayName: "Managed Put",
+				},
+			},
+			Deletes: map[stateoperator.BindingKey]stateoperator.ManagedGroupDelete{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-delete"}: {GroupID: "managed-delete"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	wantOperations := []string{"patch-group:managed-patch"}
+	if !reflect.DeepEqual(recorder.operations, wantOperations) {
+		t.Fatalf("operations = %v, want only disabled patch attempt %v", recorder.operations, wantOperations)
+	}
+}
+
+func TestApplyManagerPlanReturnsClassifiedNSXPatchError(t *testing.T) {
+	recorder := &operationRecorder{patchGroupErr: errors.New("patch failed")}
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
+		NSXWrites: stateoperator.ManagerNSXWritePlan{
+			Patches: map[stateoperator.BindingKey]stateoperator.ManagedGroupPatch{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-patch"}: {
+					Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-patch"},
+					DisplayName: "Managed Patch",
+				},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("ApplyManagerPlan() error = nil, want patch error")
+	}
+}
+
+func TestApplyManagerPlanWriteDisabledPutSkipsClassifiedDelete(t *testing.T) {
+	recorder := &operationRecorder{
+		putGroupErr: &nsxclient.WriteDisabledError{
+			Method:           "PUT",
+			URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/managed-put",
+			Reason:           nsxclient.WriteDisabledReasonGlobalConfig,
+			NetworkCloudName: "cloud-a",
+			NetworkCloudFQDN: "nsx-a.example.test",
+		},
+	}
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
+		NSXWrites: stateoperator.ManagerNSXWritePlan{
+			Puts: map[stateoperator.BindingKey]stateoperator.ManagedGroupPut{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-put"}: {
+					Key:         stateoperator.BindingKey{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-put"},
+					DisplayName: "Managed Put",
+				},
+			},
+			Deletes: map[stateoperator.BindingKey]stateoperator.ManagedGroupDelete{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-delete"}: {GroupID: "managed-delete"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyManagerPlan() error = %v", err)
+	}
+	wantOperations := []string{"put-group:managed-put"}
+	if !reflect.DeepEqual(recorder.operations, wantOperations) {
+		t.Fatalf("operations = %v, want only disabled put attempt %v", recorder.operations, wantOperations)
+	}
+}
+
+func TestApplyManagerPlanReturnsClassifiedNSXDeleteError(t *testing.T) {
+	recorder := &operationRecorder{deleteGroupErr: errors.New("delete failed")}
+	err := stateoperator.ApplyManagerPlan(context.Background(), recorder, recorder, stateoperator.ManagerPlan{
+		NSXWrites: stateoperator.ManagerNSXWritePlan{
+			Deletes: map[stateoperator.BindingKey]stateoperator.ManagedGroupDelete{
+				{NetworkCloudFQDN: "nsx-a.example.test", GroupID: "managed-delete"}: {GroupID: "managed-delete"},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("ApplyManagerPlan() error = nil, want delete error")
 	}
 }
 
@@ -1854,18 +2086,6 @@ func TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI(t *testing.T) {
 	if err := clients.typed.Groups().Delete(ctx, observe.Name, metav1.DeleteOptions{}); err != nil {
 		t.Fatalf("delete observe group: %v", err)
 	}
-	observeReconciler := stateoperator.GroupReconciler{
-		Client: clients.controller,
-		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
-			t.Fatal("observe deletion constructed NSX manager client")
-			return nil, nil
-		},
-	}
-	if _, err := observeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: crclient.ObjectKey{Name: observe.Name}}); err != nil {
-		t.Fatalf("reconcile observe deletion: %v", err)
-	}
-	requireTypedGroupDeleted(ctx, t, clients.typed, observe.Name)
-	requireMockAPIGroupPresent(ctx, t, managerClient, "observe-remote")
 
 	manage := managerGroup("manage-delete", "nsx-a.example.test", "manage-remote", nsxv1alpha.NSXGroupModeManage)
 	manage.Finalizers = []string{stateoperator.GroupFinalizer}
@@ -1875,29 +2095,11 @@ func TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI(t *testing.T) {
 	if err := clients.typed.Groups().Delete(ctx, manage.Name, metav1.DeleteOptions{}); err != nil {
 		t.Fatalf("delete manage group: %v", err)
 	}
-	manageReconciler := stateoperator.GroupReconciler{
-		Client: clients.controller,
-		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
-			return managerClient, nil
-		},
-		Clock: newManualClock(time.Date(2026, 5, 19, 5, 0, 0, 0, time.UTC)),
-	}
-	if _, err := manageReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: crclient.ObjectKey{Name: manage.Name}}); err != nil {
-		t.Fatalf("reconcile manage deletion: %v\nmockapi logs:\n%s", err, mock.Logs())
-	}
-	deletingManage, err := clients.typed.Groups().Get(ctx, manage.Name, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get deleting manage group: %v", err)
-	}
-	if !slices.Contains(deletingManage.Finalizers, stateoperator.GroupFinalizer) {
-		t.Fatalf("manage finalizers after delete submit = %v, want %q kept", deletingManage.Finalizers, stateoperator.GroupFinalizer)
-	}
-	requireMockAPIGroupAbsent(ctx, t, managerClient, "manage-remote")
 
 	operator, err := stateoperator.New(stateoperator.Options{
 		Client:       clients.controller,
 		KubeClient:   clients.typed,
-		TickInterval: time.Hour,
+		TickInterval: 50 * time.Millisecond,
 		Logger:       zap.NewNop(),
 		ManagerClientFactory: func(context.Context, nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
 			return managerClient, nil
@@ -1911,9 +2113,10 @@ func TestLifecycleObserveAndManageDeletionDifferAgainstMockAPI(t *testing.T) {
 	go func() {
 		operatorErr <- operator.Start(operatorCtx)
 	}()
+	requireTypedGroupDeleted(ctx, t, clients.typed, observe.Name)
 	requireTypedGroupDeleted(ctx, t, clients.typed, manage.Name)
 	stopOperator()
-	if err := <-operatorErr; err != nil {
+	if err := <-operatorErr; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("operator Start() error = %v", err)
 	}
 	requireMockAPIGroupPresent(ctx, t, managerClient, "observe-remote")
@@ -2173,13 +2376,16 @@ func managerGroup(name string, fqdn string, groupID string, mode nsxv1alpha.NSXG
 }
 
 type operationRecorder struct {
-	operations      []string
-	listGroups      []*nsxclient.Group
-	groupPatches    map[string]*nsxclient.GroupPatch
-	ipExpressions   map[string]*nsxclient.IPAddressExpressionPatch
-	pathExpressions map[string]*nsxclient.PathExpressionPatch
-	patchGroupErr   error
-	deleteGroupErr  error
+	operations         []string
+	kubeApplyCallCount int
+	listGroups         []*nsxclient.Group
+	groupPatches       map[string]*nsxclient.GroupPatch
+	groupPuts          map[string]*nsxclient.Group
+	ipExpressions      map[string]*nsxclient.IPAddressExpressionPatch
+	pathExpressions    map[string]*nsxclient.PathExpressionPatch
+	patchGroupErr      error
+	putGroupErr        error
+	deleteGroupErr     error
 }
 
 type deleteRecordingManagerClient struct {
@@ -2206,7 +2412,8 @@ func (r *operationRecorder) ApplyGroup(_ context.Context, group nsxv1alpha.NSXGr
 	return nil
 }
 
-func (r *operationRecorder) ApplyManagerKubeWrites(_ context.Context, writes stateoperator.ManagerKubeWritePlan) error {
+func (r *operationRecorder) ApplyManagerKubeWrites(_ context.Context, writes stateoperator.ManagerKubeWritePlan) (*stateoperator.ManagerKubeApplyResult, error) {
+	r.kubeApplyCallCount++
 	for _, key := range sortedTestBatchKeys(writes.GroupCreates) {
 		request := writes.GroupCreates[key]
 		r.operations = append(r.operations, "apply-group:"+request.Object.Name)
@@ -2243,7 +2450,7 @@ func (r *operationRecorder) ApplyManagerKubeWrites(_ context.Context, writes sta
 		request := writes.CloudStatusUpdates[key]
 		r.operations = append(r.operations, "cloud-status:"+request.Name)
 	}
-	return nil
+	return &stateoperator.ManagerKubeApplyResult{}, nil
 }
 
 func sortedTestBatchKeys[T any](items map[kubeapi.BatchKey]T) []kubeapi.BatchKey {
@@ -2298,6 +2505,19 @@ func (r *operationRecorder) PatchGroup(_ context.Context, groupID string, group 
 	copied := *group
 	r.groupPatches[groupID] = &copied
 	return r.patchGroupErr
+}
+
+func (r *operationRecorder) PutGroup(_ context.Context, groupID string, group *nsxclient.Group) (*nsxclient.Group, error) {
+	r.operations = append(r.operations, "put-group:"+groupID)
+	if r.groupPuts == nil {
+		r.groupPuts = map[string]*nsxclient.Group{}
+	}
+	copied := *group
+	copied.GroupType = append([]string(nil), group.GroupType...)
+	copied.Expression = append([]json.RawMessage(nil), group.Expression...)
+	copied.ExtendedExpression = append([]json.RawMessage(nil), group.ExtendedExpression...)
+	r.groupPuts[groupID] = &copied
+	return &copied, r.putGroupErr
 }
 
 func (r *operationRecorder) PatchGroupIPAddressExpression(_ context.Context, groupID string, expressionID string, expression *nsxclient.IPAddressExpressionPatch) error {

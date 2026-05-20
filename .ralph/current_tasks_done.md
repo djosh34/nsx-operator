@@ -1,6 +1,6 @@
 # Done Tasks Summary
 
-Generated: Wed May 20 04:42:55 AM CEST 2026
+Generated: Wed May 20 09:36:52 CEST 2026
 
 # Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/00-story-golang-setup/01-task-setup-golang-make-targets.md`
 
@@ -490,5 +490,16 @@ NOW EXECUTE
 
 <description>
 Must be manually verified with concrete evidence that it works.
+```
+
+==============
+
+# Task `/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.ralph/tasks/bugs/manager-sweep-uses-multiple-kube-batch-calls.md`
+
+```
+## Bug: Manager Sweep Must Be One Gather One Process One Apply With No Regets Or Write Churn <status>done</status> <passes>true</passes> <priority>ultra high</priority>
+
+<description>
+The manager sweep uses typed batch APIs in places, but it does not satisfy the PO's hard end-to-end batching contract.
 ```
 
