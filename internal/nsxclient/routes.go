@@ -1,3 +1,4 @@
+//nolint:revive // route method names directly mirror NSX API operations; per-method comments would duplicate the names.
 package nsxclient
 
 import (
@@ -8,23 +9,27 @@ import (
 	"strings"
 )
 
+//nolint:gocritic // public search methods keep value options so callers can pass literals.
 func (c *Client) SearchManagerQuery(ctx context.Context, options SearchQueryOptions) ([]*SearchResult, error) {
-	return c.search(ctx, "/api/v1/search/query", options)
+	return c.search(ctx, "/api/v1/search/query", &options)
 }
 
+//nolint:gocritic // public search methods keep value options so callers can pass literals.
 func (c *Client) SearchManagerDSL(ctx context.Context, options SearchQueryOptions) ([]*SearchResult, error) {
-	return c.search(ctx, "/api/v1/search/dsl", options)
+	return c.search(ctx, "/api/v1/search/dsl", &options)
 }
 
+//nolint:gocritic // public search methods keep value options so callers can pass literals.
 func (c *Client) SearchPolicyQuery(ctx context.Context, options SearchQueryOptions) ([]*SearchResult, error) {
-	return c.search(ctx, "/policy/api/v1/search/query", options)
+	return c.search(ctx, "/policy/api/v1/search/query", &options)
 }
 
+//nolint:gocritic // public search methods keep value options so callers can pass literals.
 func (c *Client) SearchPolicyDSL(ctx context.Context, options SearchQueryOptions) ([]*SearchResult, error) {
-	return c.search(ctx, "/policy/api/v1/search/dsl", options)
+	return c.search(ctx, "/policy/api/v1/search/dsl", &options)
 }
 
-func (c *Client) search(ctx context.Context, path string, options SearchQueryOptions) ([]*SearchResult, error) {
+func (c *Client) search(ctx context.Context, path string, options *SearchQueryOptions) ([]*SearchResult, error) {
 	query := url.Values{}
 	if options.Query != "" {
 		query.Set("query", options.Query)
@@ -47,13 +52,23 @@ func (c *Client) search(ctx context.Context, path string, options SearchQueryOpt
 	return listAllTyped[SearchResult](ctx, c, path, query)
 }
 
+func doTyped[T any](ctx context.Context, c *Client, method string, path string, query url.Values, payload any) (*T, error) {
+	var result T
+	err := c.do(ctx, method, path, query, payload, &result)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) ListFirewallSections(ctx context.Context) ([]*FirewallSection, error) {
 	return listAllTyped[FirewallSection](ctx, c, "/api/v1/firewall/sections", nil)
 }
 
 func (c *Client) CreateFirewallSection(ctx context.Context, section *FirewallSection) (*FirewallSection, error) {
 	var result FirewallSection
-	if err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections", nil, section, &result); err != nil {
+	err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections", nil, section, &result)
+	if err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -61,7 +76,8 @@ func (c *Client) CreateFirewallSection(ctx context.Context, section *FirewallSec
 
 func (c *Client) CreateFirewallSectionWithRules(ctx context.Context, section *FirewallSection) (*FirewallSection, error) {
 	var result FirewallSection
-	if err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections", actionQuery("create_with_rules"), section, &result); err != nil {
+	err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections", actionQuery("create_with_rules"), section, &result)
+	if err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -69,7 +85,8 @@ func (c *Client) CreateFirewallSectionWithRules(ctx context.Context, section *Fi
 
 func (c *Client) GetFirewallSection(ctx context.Context, sectionID string) (*FirewallSection, error) {
 	var result FirewallSection
-	if err := c.do(ctx, http.MethodGet, "/api/v1/firewall/sections/"+pathEscape(sectionID), nil, nil, &result); err != nil {
+	err := c.do(ctx, http.MethodGet, "/api/v1/firewall/sections/"+pathEscape(sectionID), nil, nil, &result)
+	if err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -77,7 +94,8 @@ func (c *Client) GetFirewallSection(ctx context.Context, sectionID string) (*Fir
 
 func (c *Client) UpdateFirewallSection(ctx context.Context, sectionID string, section *FirewallSection) (*FirewallSection, error) {
 	var result FirewallSection
-	if err := c.do(ctx, http.MethodPut, "/api/v1/firewall/sections/"+pathEscape(sectionID), nil, section, &result); err != nil {
+	err := c.do(ctx, http.MethodPut, "/api/v1/firewall/sections/"+pathEscape(sectionID), nil, section, &result)
+	if err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -93,7 +111,8 @@ func (c *Client) DeleteFirewallSection(ctx context.Context, sectionID string, ca
 
 func (c *Client) ReviseFirewallSection(ctx context.Context, sectionID string, section *FirewallSection) (*FirewallSection, error) {
 	var result FirewallSection
-	if err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID), actionQuery("revise"), section, &result); err != nil {
+	err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID), actionQuery("revise"), section, &result)
+	if err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -101,26 +120,19 @@ func (c *Client) ReviseFirewallSection(ctx context.Context, sectionID string, se
 
 func (c *Client) ListFirewallSectionWithRules(ctx context.Context, sectionID string) (*FirewallSection, error) {
 	var result FirewallSection
-	if err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID), actionQuery("list_with_rules"), struct{}{}, &result); err != nil {
+	err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID), actionQuery("list_with_rules"), struct{}{}, &result)
+	if err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
 func (c *Client) UpdateFirewallSectionWithRules(ctx context.Context, sectionID string, section *FirewallSection) (*FirewallSection, error) {
-	var result FirewallSection
-	if err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID), actionQuery("update_with_rules"), section, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[FirewallSection](ctx, c, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID), actionQuery("update_with_rules"), section)
 }
 
 func (c *Client) ReviseFirewallSectionWithRules(ctx context.Context, sectionID string, section *FirewallSection) (*FirewallSection, error) {
-	var result FirewallSection
-	if err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID), actionQuery("revise_with_rules"), section, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[FirewallSection](ctx, c, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID), actionQuery("revise_with_rules"), section)
 }
 
 func (c *Client) ListFirewallRules(ctx context.Context, sectionID string) ([]*FirewallRule, error) {
@@ -128,18 +140,15 @@ func (c *Client) ListFirewallRules(ctx context.Context, sectionID string) ([]*Fi
 }
 
 func (c *Client) CreateFirewallRule(ctx context.Context, sectionID string, rule *FirewallRule) (*FirewallRule, error) {
-	var result FirewallRule
-	if err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID)+"/rules", nil, rule, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[FirewallRule](ctx, c, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID)+"/rules", nil, rule)
 }
 
 func (c *Client) CreateMultipleFirewallRules(ctx context.Context, sectionID string, rules []*FirewallRule) ([]*FirewallRule, error) {
 	var result struct {
 		Rules []*FirewallRule `json:"rules"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID)+"/rules", actionQuery("create_multiple"), map[string]any{"rules": rules}, &result); err != nil {
+	err := c.do(ctx, http.MethodPost, "/api/v1/firewall/sections/"+pathEscape(sectionID)+"/rules", actionQuery("create_multiple"), map[string]any{"rules": rules}, &result)
+	if err != nil {
 		return nil, err
 	}
 	return result.Rules, nil
@@ -150,21 +159,13 @@ func (c *Client) ListFirewallRuleStats(ctx context.Context, sectionID string) ([
 }
 
 func (c *Client) GetFirewallRule(ctx context.Context, sectionID string, ruleID string) (*FirewallRule, error) {
-	var result FirewallRule
 	path := "/api/v1/firewall/sections/" + pathEscape(sectionID) + "/rules/" + pathEscape(ruleID)
-	if err := c.do(ctx, http.MethodGet, path, nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[FirewallRule](ctx, c, http.MethodGet, path, nil, nil)
 }
 
 func (c *Client) UpdateFirewallRule(ctx context.Context, sectionID string, ruleID string, rule *FirewallRule) (*FirewallRule, error) {
-	var result FirewallRule
 	path := "/api/v1/firewall/sections/" + pathEscape(sectionID) + "/rules/" + pathEscape(ruleID)
-	if err := c.do(ctx, http.MethodPut, path, nil, rule, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[FirewallRule](ctx, c, http.MethodPut, path, nil, rule)
 }
 
 func (c *Client) DeleteFirewallRule(ctx context.Context, sectionID string, ruleID string) error {
@@ -173,12 +174,8 @@ func (c *Client) DeleteFirewallRule(ctx context.Context, sectionID string, ruleI
 }
 
 func (c *Client) ReviseFirewallRule(ctx context.Context, sectionID string, ruleID string, rule *FirewallRule) (*FirewallRule, error) {
-	var result FirewallRule
 	path := "/api/v1/firewall/sections/" + pathEscape(sectionID) + "/rules/" + pathEscape(ruleID)
-	if err := c.do(ctx, http.MethodPost, path, actionQuery("revise"), rule, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[FirewallRule](ctx, c, http.MethodPost, path, actionQuery("revise"), rule)
 }
 
 func (c *Client) ListIPSets(ctx context.Context) ([]*IPSet, error) {
@@ -186,27 +183,15 @@ func (c *Client) ListIPSets(ctx context.Context) ([]*IPSet, error) {
 }
 
 func (c *Client) CreateIPSet(ctx context.Context, ipSet *IPSet) (*IPSet, error) {
-	var result IPSet
-	if err := c.do(ctx, http.MethodPost, "/api/v1/ip-sets", nil, ipSet, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[IPSet](ctx, c, http.MethodPost, "/api/v1/ip-sets", nil, ipSet)
 }
 
 func (c *Client) GetIPSet(ctx context.Context, ipSetID string) (*IPSet, error) {
-	var result IPSet
-	if err := c.do(ctx, http.MethodGet, "/api/v1/ip-sets/"+pathEscape(ipSetID), nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[IPSet](ctx, c, http.MethodGet, "/api/v1/ip-sets/"+pathEscape(ipSetID), nil, nil)
 }
 
 func (c *Client) UpdateIPSet(ctx context.Context, ipSetID string, ipSet *IPSet) (*IPSet, error) {
-	var result IPSet
-	if err := c.do(ctx, http.MethodPut, "/api/v1/ip-sets/"+pathEscape(ipSetID), nil, ipSet, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[IPSet](ctx, c, http.MethodPut, "/api/v1/ip-sets/"+pathEscape(ipSetID), nil, ipSet)
 }
 
 func (c *Client) DeleteIPSet(ctx context.Context, ipSetID string) error {
@@ -222,11 +207,7 @@ func (c *Client) RemoveIPSetMember(ctx context.Context, ipSetID string, element 
 }
 
 func (c *Client) ipSetMemberAction(ctx context.Context, ipSetID string, action string, element IPElement) (*IPElement, error) {
-	var result IPElement
-	if err := c.do(ctx, http.MethodPost, "/api/v1/ip-sets/"+pathEscape(ipSetID), actionQuery(action), element, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[IPElement](ctx, c, http.MethodPost, "/api/v1/ip-sets/"+pathEscape(ipSetID), actionQuery(action), element)
 }
 
 func (c *Client) ListIPSetMembers(ctx context.Context, ipSetID string) ([]*IPElement, error) {
@@ -242,19 +223,11 @@ func (c *Client) PatchGroup(ctx context.Context, groupID string, group *GroupPat
 }
 
 func (c *Client) PutGroup(ctx context.Context, groupID string, group *Group) (*Group, error) {
-	var result Group
-	if err := c.do(ctx, http.MethodPut, groupPath(groupID), nil, group, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[Group](ctx, c, http.MethodPut, groupPath(groupID), nil, group)
 }
 
 func (c *Client) GetGroup(ctx context.Context, groupID string) (*Group, error) {
-	var result Group
-	if err := c.do(ctx, http.MethodGet, groupPath(groupID), nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[Group](ctx, c, http.MethodGet, groupPath(groupID), nil, nil)
 }
 
 func (c *Client) DeleteGroup(ctx context.Context, groupID string) error {
@@ -312,20 +285,12 @@ func (c *Client) ListGroupSegmentMembers(ctx context.Context, groupID string) ([
 }
 
 func (c *Client) GetGlobalConsolidatedEffectiveIPAddresses(ctx context.Context, groupID string) (*ConsolidatedEffectiveIPAddresses, error) {
-	var result ConsolidatedEffectiveIPAddresses
 	path := "/policy/api/v1/global-infra/domains/" + defaultDomainID + "/groups/" + pathEscape(groupID) + "/members/consolidated-effective-ip-addresses"
-	if err := c.do(ctx, http.MethodGet, path, nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[ConsolidatedEffectiveIPAddresses](ctx, c, http.MethodGet, path, nil, nil)
 }
 
 func (c *Client) GetEULAAcceptance(ctx context.Context) (*EULAAcceptance, error) {
-	var result EULAAcceptance
-	if err := c.do(ctx, http.MethodGet, "/policy/api/v1/eula/acceptance", nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[EULAAcceptance](ctx, c, http.MethodGet, "/policy/api/v1/eula/acceptance", nil, nil)
 }
 
 func (c *Client) ListSecurityPolicies(ctx context.Context) ([]*SecurityPolicy, error) {
@@ -333,11 +298,7 @@ func (c *Client) ListSecurityPolicies(ctx context.Context) ([]*SecurityPolicy, e
 }
 
 func (c *Client) PutSecurityPolicy(ctx context.Context, policyID string, policy *SecurityPolicy) (*SecurityPolicy, error) {
-	var result SecurityPolicy
-	if err := c.do(ctx, http.MethodPut, securityPolicyPath(policyID), nil, policy, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SecurityPolicy](ctx, c, http.MethodPut, securityPolicyPath(policyID), nil, policy)
 }
 
 func (c *Client) DeleteSecurityPolicy(ctx context.Context, policyID string) error {
@@ -345,11 +306,7 @@ func (c *Client) DeleteSecurityPolicy(ctx context.Context, policyID string) erro
 }
 
 func (c *Client) GetSecurityPolicy(ctx context.Context, policyID string) (*SecurityPolicy, error) {
-	var result SecurityPolicy
-	if err := c.do(ctx, http.MethodGet, securityPolicyPath(policyID), nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SecurityPolicy](ctx, c, http.MethodGet, securityPolicyPath(policyID), nil, nil)
 }
 
 func (c *Client) PatchSecurityPolicy(ctx context.Context, policyID string, policy *SecurityPolicy) error {
@@ -357,11 +314,7 @@ func (c *Client) PatchSecurityPolicy(ctx context.Context, policyID string, polic
 }
 
 func (c *Client) ReviseSecurityPolicy(ctx context.Context, policyID string, policy *SecurityPolicy) (*SecurityPolicy, error) {
-	var result SecurityPolicy
-	if err := c.do(ctx, http.MethodPost, securityPolicyPath(policyID), actionQuery("revise"), policy, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SecurityPolicy](ctx, c, http.MethodPost, securityPolicyPath(policyID), actionQuery("revise"), policy)
 }
 
 func (c *Client) ListSecurityPolicyStats(ctx context.Context, policyID string) ([]*SecurityPolicyStats, error) {
@@ -381,19 +334,11 @@ func (c *Client) DeleteSecurityRule(ctx context.Context, policyID string, ruleID
 }
 
 func (c *Client) PutSecurityRule(ctx context.Context, policyID string, ruleID string, rule *SecurityRule) (*SecurityRule, error) {
-	var result SecurityRule
-	if err := c.do(ctx, http.MethodPut, securityRulePath(policyID, ruleID), nil, rule, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SecurityRule](ctx, c, http.MethodPut, securityRulePath(policyID, ruleID), nil, rule)
 }
 
 func (c *Client) GetSecurityRule(ctx context.Context, policyID string, ruleID string) (*SecurityRule, error) {
-	var result SecurityRule
-	if err := c.do(ctx, http.MethodGet, securityRulePath(policyID, ruleID), nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SecurityRule](ctx, c, http.MethodGet, securityRulePath(policyID, ruleID), nil, nil)
 }
 
 func (c *Client) ListSecurityRuleStats(ctx context.Context, policyID string, ruleID string) ([]*SecurityRuleStats, error) {
@@ -401,11 +346,7 @@ func (c *Client) ListSecurityRuleStats(ctx context.Context, policyID string, rul
 }
 
 func (c *Client) ReviseSecurityRule(ctx context.Context, policyID string, ruleID string, rule *SecurityRule) (*SecurityRule, error) {
-	var result SecurityRule
-	if err := c.do(ctx, http.MethodPost, securityRulePath(policyID, ruleID), actionQuery("revise"), rule, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SecurityRule](ctx, c, http.MethodPost, securityRulePath(policyID, ruleID), actionQuery("revise"), rule)
 }
 
 func (c *Client) ListInfraSegments(ctx context.Context) ([]*Segment, error) {
@@ -433,19 +374,11 @@ func (c *Client) GetInfraSegment(ctx context.Context, segmentID string) (*Segmen
 }
 
 func (c *Client) GetInfraSegmentState(ctx context.Context, segmentID string) (*SegmentState, error) {
-	var result SegmentState
-	if err := c.do(ctx, http.MethodGet, infraSegmentPath(segmentID)+"/state", nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SegmentState](ctx, c, http.MethodGet, infraSegmentPath(segmentID)+"/state", nil, nil)
 }
 
 func (c *Client) GetInfraSegmentStatistics(ctx context.Context, segmentID string) (*SegmentStatistics, error) {
-	var result SegmentStatistics
-	if err := c.do(ctx, http.MethodGet, infraSegmentPath(segmentID)+"/statistics", nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SegmentStatistics](ctx, c, http.MethodGet, infraSegmentPath(segmentID)+"/statistics", nil, nil)
 }
 
 func (c *Client) ListTier0s(ctx context.Context) ([]*Tier0, error) {
@@ -457,19 +390,11 @@ func (c *Client) ListTier1s(ctx context.Context) ([]*Tier1, error) {
 }
 
 func (c *Client) GetTier1(ctx context.Context, tier1ID string) (*Tier1, error) {
-	var result Tier1
-	if err := c.do(ctx, http.MethodGet, tier1Path(tier1ID), nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[Tier1](ctx, c, http.MethodGet, tier1Path(tier1ID), nil, nil)
 }
 
 func (c *Client) GetTier1State(ctx context.Context, tier1ID string) (*Tier1State, error) {
-	var result Tier1State
-	if err := c.do(ctx, http.MethodGet, tier1Path(tier1ID)+"/state", nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[Tier1State](ctx, c, http.MethodGet, tier1Path(tier1ID)+"/state", nil, nil)
 }
 
 func (c *Client) ListTier1Segments(ctx context.Context, tier1ID string) ([]*Segment, error) {
@@ -497,53 +422,29 @@ func (c *Client) GetTier1Segment(ctx context.Context, tier1ID string, segmentID 
 }
 
 func (c *Client) GetTier1SegmentState(ctx context.Context, tier1ID string, segmentID string) (*SegmentState, error) {
-	var result SegmentState
-	if err := c.do(ctx, http.MethodGet, tier1SegmentPath(tier1ID, segmentID)+"/state", nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SegmentState](ctx, c, http.MethodGet, tier1SegmentPath(tier1ID, segmentID)+"/state", nil, nil)
 }
 
 func (c *Client) GetTier1SegmentStatistics(ctx context.Context, tier1ID string, segmentID string) (*SegmentStatistics, error) {
-	var result SegmentStatistics
-	if err := c.do(ctx, http.MethodGet, tier1SegmentPath(tier1ID, segmentID)+"/statistics", nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SegmentStatistics](ctx, c, http.MethodGet, tier1SegmentPath(tier1ID, segmentID)+"/statistics", nil, nil)
 }
 
 func (c *Client) GetGlobalTier1SegmentState(ctx context.Context, tier1ID string, segmentID string) (*SegmentState, error) {
-	var result SegmentState
 	path := "/policy/api/v1/global-infra/tier-1s/" + pathEscape(tier1ID) + "/segments/" + pathEscape(segmentID) + "/state"
-	if err := c.do(ctx, http.MethodGet, path, nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SegmentState](ctx, c, http.MethodGet, path, nil, nil)
 }
 
 func (c *Client) GetGlobalTier1SegmentStatistics(ctx context.Context, tier1ID string, segmentID string) (*SegmentStatistics, error) {
-	var result SegmentStatistics
 	path := "/policy/api/v1/global-infra/tier-1s/" + pathEscape(tier1ID) + "/segments/" + pathEscape(segmentID) + "/statistics"
-	if err := c.do(ctx, http.MethodGet, path, nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[SegmentStatistics](ctx, c, http.MethodGet, path, nil, nil)
 }
 
 func (c *Client) putSegment(ctx context.Context, path string, segment *Segment) (*Segment, error) {
-	var result Segment
-	if err := c.do(ctx, http.MethodPut, path, nil, segment, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[Segment](ctx, c, http.MethodPut, path, nil, segment)
 }
 
 func (c *Client) getSegment(ctx context.Context, path string) (*Segment, error) {
-	var result Segment
-	if err := c.do(ctx, http.MethodGet, path, nil, nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	return doTyped[Segment](ctx, c, http.MethodGet, path, nil, nil)
 }
 
 func defaultDomainPath() string {

@@ -57,10 +57,12 @@ func TestClientAddsBasicAuthToReadAndWriteRequests(t *testing.T) {
 		t.Fatalf("NewClient() error = %v", err)
 	}
 
-	if _, err := client.ListGroups(context.Background()); err != nil {
+	_, err = client.ListGroups(context.Background())
+	if err != nil {
 		t.Fatalf("ListGroups() error = %v", err)
 	}
-	if err := client.PatchGroup(context.Background(), "app", &GroupPatch{DisplayName: "App"}); err != nil {
+	err = client.PatchGroup(context.Background(), "app", &GroupPatch{DisplayName: "App"})
+	if err != nil {
 		t.Fatalf("PatchGroup() error = %v", err)
 	}
 	if got := seen.Load(); got != 2 {
@@ -81,16 +83,19 @@ func TestClientRecordsNSXMetricsForPublicCalls(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == defaultDomainPath()+"/groups":
-			if _, err := io.WriteString(w, `{"results":[{"id":"web","display_name":"Web"}],"result_count":1}`); err != nil {
-				t.Errorf("write list response: %v", err)
+			_, writeErr := io.WriteString(w, `{"results":[{"id":"web","display_name":"Web"}],"result_count":1}`)
+			if writeErr != nil {
+				t.Errorf("write list response: %v", writeErr)
 			}
 		case req.Method == http.MethodPatch && req.URL.Path == defaultDomainPath()+"/groups/web":
-			if _, err := io.Copy(io.Discard, req.Body); err != nil {
-				t.Errorf("read patch body: %v", err)
+			_, copyErr := io.Copy(io.Discard, req.Body)
+			if copyErr != nil {
+				t.Errorf("read patch body: %v", copyErr)
 			}
 			w.WriteHeader(http.StatusOK)
-			if _, err := io.WriteString(w, `{}`); err != nil {
-				t.Errorf("write patch response: %v", err)
+			_, writeErr := io.WriteString(w, `{}`)
+			if writeErr != nil {
+				t.Errorf("write patch response: %v", writeErr)
 			}
 		default:
 			t.Errorf("unexpected request %s %s", req.Method, req.URL.RequestURI())
@@ -114,10 +119,12 @@ func TestClientRecordsNSXMetricsForPublicCalls(t *testing.T) {
 		t.Fatalf("NewClient() error = %v", err)
 	}
 
-	if _, err := client.ListGroups(context.Background()); err != nil {
+	_, err = client.ListGroups(context.Background())
+	if err != nil {
 		t.Fatalf("ListGroups() error = %v", err)
 	}
-	if err := client.PatchGroup(context.Background(), "web", &GroupPatch{DisplayName: "Web"}); err != nil {
+	err = client.PatchGroup(context.Background(), "web", &GroupPatch{DisplayName: "Web"})
+	if err != nil {
 		t.Fatalf("PatchGroup() error = %v", err)
 	}
 
@@ -130,11 +137,12 @@ nsx_operator_nsx_client_calls_total{function="patch_group",manager="manager-a.ex
 # TYPE nsx_operator_nsx_http_requests_total counter
 nsx_operator_nsx_http_requests_total{manager="manager-a.example.test"} 2
 `
-	if err := testutil.GatherAndCompare(
+	err = testutil.GatherAndCompare(
 		registry, strings.NewReader(expected),
 		"nsx_operator_nsx_client_calls_total",
 		"nsx_operator_nsx_http_requests_total",
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("gather counters: %v", err)
 	}
 	if got := histogramSampleCount(t, registry, "nsx_operator_nsx_http_round_trip_seconds", map[string]string{"manager": "manager-a.example.test"}); got != 2 {
@@ -175,7 +183,13 @@ func TestResponseBodiesCloseForSuccessStatusErrorAndDecodeError(t *testing.T) {
 				Request:    req,
 			}
 			client := &Client{log: zap.NewNop()}
-			_ = client.handleResponse(resp, tt.target)
+			handleErr := client.handleResponse(resp, tt.target)
+			if tt.name == "success" && handleErr != nil {
+				t.Fatalf("handleResponse() error = %v", handleErr)
+			}
+			if tt.name != "success" && handleErr == nil {
+				t.Fatal("handleResponse() error = nil, want error")
+			}
 			if !body.closed.Load() {
 				t.Fatal("response body was not closed")
 			}
@@ -220,14 +234,16 @@ func TestListMethodsFollowPaginationUntilCursorIsEmpty(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		if req.URL.Query().Get("cursor") == "" {
 			w.WriteHeader(http.StatusOK)
-			if _, err := io.WriteString(w, `{"results":[{"id":"first"}],"cursor":"page-2","result_count":1}`); err != nil {
-				t.Errorf("write first page: %v", err)
+			_, writeErr := io.WriteString(w, `{"results":[{"id":"first"}],"cursor":"page-2","result_count":1}`)
+			if writeErr != nil {
+				t.Errorf("write first page: %v", writeErr)
 			}
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		if _, err := io.WriteString(w, `{"results":[{"id":"second"}],"result_count":1}`); err != nil {
-			t.Errorf("write second page: %v", err)
+		_, writeErr := io.WriteString(w, `{"results":[{"id":"second"}],"result_count":1}`)
+		if writeErr != nil {
+			t.Errorf("write second page: %v", writeErr)
 		}
 	}))
 	t.Cleanup(server.Close)
@@ -289,15 +305,15 @@ func TestClientWriteControlBlocksNonGETAndAllowsReadRequests(t *testing.T) {
 		{
 			name: "POST",
 			call: func(ctx context.Context) error {
-				_, err := client.CreateFirewallSection(ctx, &FirewallSection{Resource: Resource{ID: "section-a", DisplayName: "Section A"}})
-				return err
+				_, callErr := client.CreateFirewallSection(ctx, &FirewallSection{Resource: Resource{ID: "section-a", DisplayName: "Section A"}})
+				return callErr
 			},
 		},
 		{
 			name: "PUT",
 			call: func(ctx context.Context) error {
-				_, err := client.PutGroup(ctx, "app", &Group{Resource: Resource{ID: "app", DisplayName: "App", ResourceType: "Group"}})
-				return err
+				_, callErr := client.PutGroup(ctx, "app", &Group{Resource: Resource{ID: "app", DisplayName: "App", ResourceType: "Group"}})
+				return callErr
 			},
 		},
 		{
@@ -315,13 +331,13 @@ func TestClientWriteControlBlocksNonGETAndAllowsReadRequests(t *testing.T) {
 	}
 	for _, tt := range writeCalls {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.call(context.Background())
-			if err == nil {
+			callErr := tt.call(context.Background())
+			if callErr == nil {
 				t.Fatal("write call error = nil, want write disabled error")
 			}
 			var writeDisabled WriteDisabledError
-			if !errors.As(err, &writeDisabled) {
-				t.Fatalf("write call error = %T %[1]v, want WriteDisabledError", err)
+			if !errors.As(callErr, &writeDisabled) {
+				t.Fatalf("write call error = %T %[1]v, want WriteDisabledError", callErr)
 			}
 			if writeDisabled.Method != tt.name {
 				t.Fatalf("WriteDisabledError.Method = %q, want %q", writeDisabled.Method, tt.name)
@@ -332,10 +348,12 @@ func TestClientWriteControlBlocksNonGETAndAllowsReadRequests(t *testing.T) {
 		})
 	}
 
-	if _, err := client.GetGroup(context.Background(), "app"); err != nil {
+	_, err = client.GetGroup(context.Background(), "app")
+	if err != nil {
 		t.Fatalf("GetGroup() error = %v", err)
 	}
-	if _, err := client.ListGroups(context.Background()); err != nil {
+	_, err = client.ListGroups(context.Background())
+	if err != nil {
 		t.Fatalf("ListGroups() error = %v", err)
 	}
 	wantSeen := []string{
@@ -346,10 +364,10 @@ func TestClientWriteControlBlocksNonGETAndAllowsReadRequests(t *testing.T) {
 		t.Fatalf("transport saw requests = %v, want only reads %v", seen, wantSeen)
 	}
 
-	requireObservedLogField(t, logs, "skipped nsx write request because writes are disabled", "writeDisabledReason", string(WriteDisabledReasonNetworkCloud))
-	requireObservedLogField(t, logs, "skipped nsx write request because writes are disabled", "networkCloudName", "cloud-a")
-	requireObservedLogField(t, logs, "skipped nsx write request because writes are disabled", "networkCloudFQDN", "nsx.example.test")
-	requireObservedLogField(t, logs, "skipped nsx write request because writes are disabled", "method", http.MethodPatch)
+	requireObservedLogField(t, logs, "writeDisabledReason", string(WriteDisabledReasonNetworkCloud))
+	requireObservedLogField(t, logs, "networkCloudName", "cloud-a")
+	requireObservedLogField(t, logs, "networkCloudFQDN", "nsx.example.test")
+	requireObservedLogField(t, logs, "method", http.MethodPatch)
 }
 
 func TestGroupPathExpressionRoutesUsePolicyExpressionEndpoints(t *testing.T) {
@@ -370,8 +388,9 @@ func TestGroupPathExpressionRoutesUsePolicyExpressionEndpoints(t *testing.T) {
 			if req.URL.Query().Get("action") != "add" {
 				t.Errorf("add action query = %q, want add", req.URL.Query().Get("action"))
 			}
-			if err := json.NewDecoder(req.Body).Decode(&addPayload); err != nil {
-				t.Errorf("decode add payload: %v", err)
+			decodeErr := json.NewDecoder(req.Body).Decode(&addPayload)
+			if decodeErr != nil {
+				t.Errorf("decode add payload: %v", decodeErr)
 			}
 			w.WriteHeader(http.StatusOK)
 		case 2:
@@ -413,17 +432,19 @@ func TestGroupPathExpressionRoutesUsePolicyExpressionEndpoints(t *testing.T) {
 	}
 }
 
-func requireObservedLogField(t *testing.T, logs *observer.ObservedLogs, message string, key string, want string) {
+func requireObservedLogField(t *testing.T, logs *observer.ObservedLogs, key string, want string) {
 	t.Helper()
 
-	for _, entry := range logs.FilterMessage(message).All() {
+	entries := logs.FilterMessage("skipped nsx write request because writes are disabled").All()
+	for index := range entries {
+		entry := entries[index]
 		for _, field := range entry.Context {
 			if field.Key == key && field.String == want {
 				return
 			}
 		}
 	}
-	t.Fatalf("log %q did not contain %s=%q; logs: %v", message, key, want, logs.All())
+	t.Fatalf("write-disabled log did not contain %s=%q; logs: %v", key, want, logs.All())
 }
 
 func TestStatusErrorsMapTypedCodes(t *testing.T) {

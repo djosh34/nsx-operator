@@ -1,0 +1,98 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - errorlint
+    - ineffassign
+    - unused
+    - recvcheck
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noinlineerr
+    - gocritic
+    - bodyclose
+    - contextcheck
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - revive
+    - nolintlint
+    - misspell
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - copyloopvar
+    - exhaustive
+    - forcetypeassert
+    - interfacebloat
+    - iface
+  settings:
+    errcheck:
+      check-blank: true
+      check-type-assertions: true
+    govet:
+      enable:
+        - copylocks
+        - shadow
+      settings:
+        shadow:
+          strict: true
+    recvcheck:
+      disable-builtin: true
+      exclusions:
+        - "*.String"
+        - "*.GoString"
+    nilnil:
+      only-two: false
+      detect-opposite: true
+      checked-types:
+        - chan
+        - func
+        - iface
+        - map
+        - ptr
+        - uintptr
+        - unsafeptr
+    gocritic:
+      disable-all: true
+      enabled-checks:
+        - appendAssign
+        - badCall
+        - badCond
+        - badLock
+        - exitAfterDefer
+        - hugeParam
+        - nilValReturn
+        - ptrToRefParam
+        - rangeExprCopy
+        - rangeValCopy
+        - sloppyReassign
+        - uncheckedInlineErr
+      settings:
+        hugeParam:
+          sizeThreshold: 80
+        rangeValCopy:
+          sizeThreshold: 128
+        rangeExprCopy:
+          sizeThreshold: 512
+    interfacebloat:
+      max: 5
+    nolintlint:
+      allow-no-explanation: []
+      require-explanation: true
+      require-specific: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+    - gofumpt

@@ -1,11 +1,13 @@
 package scripts
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDeleteAllCRsSerialFallbackClearsFinalizersAndDeletesAcrossNamespaces(t *testing.T) {
@@ -13,7 +15,8 @@ func TestDeleteAllCRsSerialFallbackClearsFinalizersAndDeletesAcrossNamespaces(t 
 
 	tempDir := t.TempDir()
 	binDir := filepath.Join(tempDir, "bin")
-	if err := os.Mkdir(binDir, 0o755); err != nil {
+	err := os.Mkdir(binDir, 0o755)
+	if err != nil {
 		t.Fatalf("create fake bin dir: %v", err)
 	}
 
@@ -22,7 +25,9 @@ func TestDeleteAllCRsSerialFallbackClearsFinalizersAndDeletesAcrossNamespaces(t 
 	callsPath := filepath.Join(tempDir, "kubectl-calls.txt")
 	writeDeleteAllCRsKubectl(t, filepath.Join(binDir, "kubectl"), callsPath)
 
-	cmd := exec.Command("./delete-all-crs.sh")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	cmd := exec.CommandContext(ctx, "./delete-all-crs.sh")
 	cmd.Dir = filepath.Dir(scriptTestFilePath(t))
 	cmd.Env = append(os.Environ(), "PATH="+binDir, "KUBECTL_CALLS_PATH="+callsPath)
 
@@ -39,7 +44,8 @@ func TestDeleteAllCRsUsesGNUParallelWithMaxTwentyJobsWhenAvailable(t *testing.T)
 
 	tempDir := t.TempDir()
 	binDir := filepath.Join(tempDir, "bin")
-	if err := os.Mkdir(binDir, 0o755); err != nil {
+	err := os.Mkdir(binDir, 0o755)
+	if err != nil {
 		t.Fatalf("create fake bin dir: %v", err)
 	}
 
@@ -50,7 +56,9 @@ func TestDeleteAllCRsUsesGNUParallelWithMaxTwentyJobsWhenAvailable(t *testing.T)
 	writeDeleteAllCRsKubectl(t, filepath.Join(binDir, "kubectl"), callsPath)
 	writeDeleteAllCRsParallel(t, filepath.Join(binDir, "parallel"))
 
-	cmd := exec.Command("./delete-all-crs.sh")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	cmd := exec.CommandContext(ctx, "./delete-all-crs.sh")
 	cmd.Dir = filepath.Dir(scriptTestFilePath(t))
 	cmd.Env = append(
 		os.Environ(),
@@ -194,7 +202,8 @@ func linkBashIntoPath(t *testing.T, binDir string) {
 	if err != nil {
 		t.Fatalf("find bash: %v", err)
 	}
-	if err := os.Symlink(realBash, filepath.Join(binDir, "bash")); err != nil {
+	err = os.Symlink(realBash, filepath.Join(binDir, "bash"))
+	if err != nil {
 		t.Fatalf("link bash into fake path: %v", err)
 	}
 }

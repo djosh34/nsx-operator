@@ -2,6 +2,7 @@ package mockapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -27,8 +28,9 @@ func TestStartRunsPublicMockAPIImage(t *testing.T) {
 		t.Fatalf("GET eula acceptance: %v\nlogs:\n%s", err, process.Logs())
 	}
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Fatalf("close readiness response body: %v", err)
+		closeErr := resp.Body.Close()
+		if closeErr != nil {
+			t.Fatalf("close readiness response body: %v", closeErr)
 		}
 	}()
 	if resp.StatusCode != http.StatusOK {
@@ -71,7 +73,7 @@ func TestDockerOutputReportsContextCancellation(t *testing.T) {
 	if err == nil {
 		t.Fatal("dockerOutput() error = nil, want context cancellation")
 	}
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("dockerOutput() error = %v, want %v", err, context.Canceled)
 	}
 }

@@ -26,6 +26,7 @@ const (
 	groupKind            = "NSXGroup"
 )
 
+// Options configures the typed Kubernetes client.
 type Options struct {
 	Config      *rest.Config
 	Logger      *zap.Logger
@@ -33,11 +34,13 @@ type Options struct {
 	BatchConfig BatchConfig
 }
 
+// Client exposes typed clients for nsx.ing.com resources.
 type Client struct {
 	networkClouds *NetworkCloudClient
 	groups        *GroupClient
 }
 
+// NewClient constructs a typed Kubernetes client for the nsx.ing.com API group.
 func NewClient(options Options) (*Client, error) {
 	if options.Config == nil {
 		return nil, errors.New("kubernetes rest config is required")
@@ -51,7 +54,8 @@ func NewClient(options Options) (*Client, error) {
 		recorder = operatormetrics.NopRecorder{}
 	}
 	scheme := runtime.NewScheme()
-	if err := nsxv1alpha.AddToScheme(scheme); err != nil {
+	err := nsxv1alpha.AddToScheme(scheme)
+	if err != nil {
 		return nil, fmt.Errorf("register nsx api scheme: %w", err)
 	}
 	config := rest.CopyConfig(options.Config)
@@ -106,38 +110,53 @@ func NewClient(options Options) (*Client, error) {
 	}, nil
 }
 
+// NetworkClouds returns the typed NSXNetworkCloud client.
 func (c *Client) NetworkClouds() *NetworkCloudClient {
 	return c.networkClouds
 }
 
+// Groups returns the typed NSXGroup client.
 func (c *Client) Groups() *GroupClient {
 	return c.groups
 }
 
+// NetworkCloudClient performs typed NSXNetworkCloud Kubernetes API calls.
 type NetworkCloudClient struct {
 	resource typedResource[*nsxv1alpha.NSXNetworkCloud, *nsxv1alpha.NSXNetworkCloudList]
 }
 
+// List returns NSXNetworkCloud resources matching the supplied list options.
 func (c *NetworkCloudClient) List(ctx context.Context, options ListOptions) (*nsxv1alpha.NSXNetworkCloudList, error) {
 	return c.resource.list(ctx, options)
 }
 
+// Get returns one NSXNetworkCloud by name.
 func (c *NetworkCloudClient) Get(ctx context.Context, name string, options metav1.GetOptions) (*nsxv1alpha.NSXNetworkCloud, error) {
 	return c.resource.get(ctx, name, options)
 }
 
+// Create creates an NSXNetworkCloud.
+//
+//nolint:gocritic // public Kubernetes-style methods keep metav1 options by value; private helpers avoid repeated copies.
 func (c *NetworkCloudClient) Create(ctx context.Context, object *nsxv1alpha.NSXNetworkCloud, options metav1.CreateOptions) (*nsxv1alpha.NSXNetworkCloud, error) {
-	return c.resource.create(ctx, object, options)
+	return c.resource.create(ctx, object, &options)
 }
 
+// Update updates an NSXNetworkCloud.
+//
+//nolint:gocritic // public Kubernetes-style methods keep metav1 options by value; private helpers avoid repeated copies.
 func (c *NetworkCloudClient) Update(ctx context.Context, object *nsxv1alpha.NSXNetworkCloud, options metav1.UpdateOptions) (*nsxv1alpha.NSXNetworkCloud, error) {
-	return c.resource.update(ctx, object, options)
+	return c.resource.update(ctx, object, &options)
 }
 
+// Apply applies an NSXNetworkCloud with server-side apply.
 func (c *NetworkCloudClient) Apply(ctx context.Context, object *nsxv1alpha.NSXNetworkCloud, options ApplyOptions) (*nsxv1alpha.NSXNetworkCloud, error) {
 	return c.resource.apply(ctx, object, options)
 }
 
+// UpdateStatus updates the status subresource for an NSXNetworkCloud.
+//
+//nolint:gocritic // public Kubernetes-style methods keep metav1 options by value; private helpers avoid repeated copies.
 func (c *NetworkCloudClient) UpdateStatus(ctx context.Context, name string, status nsxv1alpha.NSXNetworkCloudStatus, options StatusUpdateOptions) (*nsxv1alpha.NSXNetworkCloud, error) {
 	object := &nsxv1alpha.NSXNetworkCloud{
 		ObjectMeta: metav1.ObjectMeta{
@@ -146,41 +165,58 @@ func (c *NetworkCloudClient) UpdateStatus(ctx context.Context, name string, stat
 		},
 		Status: status,
 	}
-	return c.resource.updateStatus(ctx, object, options.UpdateOptions)
+	return c.resource.updateStatus(ctx, object, &options.UpdateOptions)
 }
 
+// Delete deletes an NSXNetworkCloud by name.
+//
+//nolint:gocritic // public Kubernetes-style methods keep metav1 options by value; private helpers avoid repeated copies.
 func (c *NetworkCloudClient) Delete(ctx context.Context, name string, options metav1.DeleteOptions) error {
-	return c.resource.delete(ctx, name, options)
+	return c.resource.delete(ctx, name, &options)
 }
 
+// Watch starts a watch for NSXNetworkCloud resources.
 func (c *NetworkCloudClient) Watch(ctx context.Context, options ListOptions) (watch.Interface, error) {
 	return c.resource.watch(ctx, options)
 }
 
+// GroupClient performs typed NSXGroup Kubernetes API calls.
 type GroupClient struct {
 	resource typedResource[*nsxv1alpha.NSXGroup, *nsxv1alpha.NSXGroupList]
 }
 
+// List returns NSXGroup resources matching the supplied list options.
 func (c *GroupClient) List(ctx context.Context, options ListOptions) (*nsxv1alpha.NSXGroupList, error) {
 	return c.resource.list(ctx, options)
 }
 
+// Get returns one NSXGroup by name.
 func (c *GroupClient) Get(ctx context.Context, name string, options metav1.GetOptions) (*nsxv1alpha.NSXGroup, error) {
 	return c.resource.get(ctx, name, options)
 }
 
+// Create creates an NSXGroup.
+//
+//nolint:gocritic // public Kubernetes-style methods keep metav1 options by value; private helpers avoid repeated copies.
 func (c *GroupClient) Create(ctx context.Context, object *nsxv1alpha.NSXGroup, options metav1.CreateOptions) (*nsxv1alpha.NSXGroup, error) {
-	return c.resource.create(ctx, object, options)
+	return c.resource.create(ctx, object, &options)
 }
 
+// Update updates an NSXGroup.
+//
+//nolint:gocritic // public Kubernetes-style methods keep metav1 options by value; private helpers avoid repeated copies.
 func (c *GroupClient) Update(ctx context.Context, object *nsxv1alpha.NSXGroup, options metav1.UpdateOptions) (*nsxv1alpha.NSXGroup, error) {
-	return c.resource.update(ctx, object, options)
+	return c.resource.update(ctx, object, &options)
 }
 
+// Apply applies an NSXGroup with server-side apply.
 func (c *GroupClient) Apply(ctx context.Context, object *nsxv1alpha.NSXGroup, options ApplyOptions) (*nsxv1alpha.NSXGroup, error) {
 	return c.resource.apply(ctx, object, options)
 }
 
+// UpdateStatus updates the status subresource for an NSXGroup.
+//
+//nolint:gocritic // public Kubernetes-style methods keep metav1 options by value; private helpers avoid repeated copies.
 func (c *GroupClient) UpdateStatus(ctx context.Context, name string, status nsxv1alpha.NSXGroupStatus, options StatusUpdateOptions) (*nsxv1alpha.NSXGroup, error) {
 	object := &nsxv1alpha.NSXGroup{
 		ObjectMeta: metav1.ObjectMeta{
@@ -189,17 +225,22 @@ func (c *GroupClient) UpdateStatus(ctx context.Context, name string, status nsxv
 		},
 		Status: status,
 	}
-	return c.resource.updateStatus(ctx, object, options.UpdateOptions)
+	return c.resource.updateStatus(ctx, object, &options.UpdateOptions)
 }
 
+// Delete deletes an NSXGroup by name.
+//
+//nolint:gocritic // public Kubernetes-style methods keep metav1 options by value; private helpers avoid repeated copies.
 func (c *GroupClient) Delete(ctx context.Context, name string, options metav1.DeleteOptions) error {
-	return c.resource.delete(ctx, name, options)
+	return c.resource.delete(ctx, name, &options)
 }
 
+// Watch starts a watch for NSXGroup resources.
 func (c *GroupClient) Watch(ctx context.Context, options ListOptions) (watch.Interface, error) {
 	return c.resource.watch(ctx, options)
 }
 
+// ListOptions controls typed list and watch calls.
 type ListOptions struct {
 	ResourceVersion string
 	Filters         []FieldFilter
@@ -207,37 +248,48 @@ type ListOptions struct {
 	Continue        string
 }
 
+// FieldSelectorField identifies one selectable CRD field.
 type FieldSelectorField string
 
 const (
+	// FieldNetworkCloudFQDN selects resources by spec.networkCloudFQDN.
 	FieldNetworkCloudFQDN FieldSelectorField = "spec.networkCloudFQDN"
-	FieldNetworkCloudID   FieldSelectorField = "spec.networkCloudId"
-	FieldGroupID          FieldSelectorField = "spec.groupID"
-	FieldGroupMode        FieldSelectorField = "spec.mode"
+	// FieldNetworkCloudID selects network clouds by spec.networkCloudId.
+	FieldNetworkCloudID FieldSelectorField = "spec.networkCloudId"
+	// FieldGroupID selects groups by spec.groupID.
+	FieldGroupID FieldSelectorField = "spec.groupID"
+	// FieldGroupMode selects groups by spec.mode.
+	FieldGroupMode FieldSelectorField = "spec.mode"
 )
 
+// FieldFilter is one exact-match field selector predicate.
 type FieldFilter struct {
 	field FieldSelectorField
 	value string
 }
 
+// FilterBy creates an exact-match field filter.
 func FilterBy(field FieldSelectorField, value string) FieldFilter {
 	return FieldFilter{field: field, value: value}
 }
 
+// Field returns the selected field.
 func (f FieldFilter) Field() FieldSelectorField {
 	return f.field
 }
 
+// Value returns the selected field value.
 func (f FieldFilter) Value() string {
 	return f.value
 }
 
+// ApplyOptions controls server-side apply behavior.
 type ApplyOptions struct {
 	FieldManager string
 	Force        bool
 }
 
+// StatusUpdateOptions controls status subresource update behavior.
 type StatusUpdateOptions struct {
 	ResourceVersion string
 	UpdateOptions   metav1.UpdateOptions
@@ -302,7 +354,7 @@ func (r typedResource[Object, List]) get(ctx context.Context, name string, optio
 	return result, nil
 }
 
-func (r typedResource[Object, List]) create(ctx context.Context, object Object, options metav1.CreateOptions) (Object, error) {
+func (r typedResource[Object, List]) create(ctx context.Context, object Object, options *metav1.CreateOptions) (Object, error) {
 	prepared, err := r.prepare(object)
 	if err != nil {
 		var zero Object
@@ -312,7 +364,7 @@ func (r typedResource[Object, List]) create(ctx context.Context, object Object, 
 	result := r.newObject()
 	err = r.restClient.Post().
 		Resource(r.resource).
-		VersionedParams(&options, r.parameterCodec).
+		VersionedParams(options, r.parameterCodec).
 		Body(prepared).
 		Do(ctx).
 		Into(result)
@@ -326,7 +378,7 @@ func (r typedResource[Object, List]) create(ctx context.Context, object Object, 
 	return result, nil
 }
 
-func (r typedResource[Object, List]) update(ctx context.Context, object Object, options metav1.UpdateOptions) (Object, error) {
+func (r typedResource[Object, List]) update(ctx context.Context, object Object, options *metav1.UpdateOptions) (Object, error) {
 	prepared, err := r.prepare(object)
 	if err != nil {
 		var zero Object
@@ -341,7 +393,7 @@ func (r typedResource[Object, List]) update(ctx context.Context, object Object, 
 	err = r.restClient.Put().
 		Resource(r.resource).
 		Name(prepared.GetName()).
-		VersionedParams(&options, r.parameterCodec).
+		VersionedParams(options, r.parameterCodec).
 		Body(prepared).
 		Do(ctx).
 		Into(result)
@@ -391,7 +443,7 @@ func (r typedResource[Object, List]) apply(ctx context.Context, object Object, o
 	return result, nil
 }
 
-func (r typedResource[Object, List]) updateStatus(ctx context.Context, object Object, options metav1.UpdateOptions) (Object, error) {
+func (r typedResource[Object, List]) updateStatus(ctx context.Context, object Object, options *metav1.UpdateOptions) (Object, error) {
 	prepared, err := r.prepare(object)
 	if err != nil {
 		var zero Object
@@ -403,7 +455,7 @@ func (r typedResource[Object, List]) updateStatus(ctx context.Context, object Ob
 		Resource(r.resource).
 		Name(prepared.GetName()).
 		SubResource("status").
-		VersionedParams(&options, r.parameterCodec).
+		VersionedParams(options, r.parameterCodec).
 		Body(prepared).
 		Do(ctx).
 		Into(result)
@@ -417,12 +469,12 @@ func (r typedResource[Object, List]) updateStatus(ctx context.Context, object Ob
 	return result, nil
 }
 
-func (r typedResource[Object, List]) delete(ctx context.Context, name string, options metav1.DeleteOptions) error {
+func (r typedResource[Object, List]) delete(ctx context.Context, name string, options *metav1.DeleteOptions) error {
 	r.log.Info("deleting typed kubernetes resource", zap.String("name", name))
 	err := r.restClient.Delete().
 		Resource(r.resource).
 		Name(name).
-		VersionedParams(&options, r.parameterCodec).
+		VersionedParams(options, r.parameterCodec).
 		Do(ctx).
 		Error()
 	if err != nil {
@@ -530,7 +582,11 @@ func isNilObject[Object clientObject](object Object) bool {
 	switch value.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return value.IsNil()
-	default:
+	case reflect.Invalid, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.Array,
+		reflect.String, reflect.Struct, reflect.UnsafePointer:
 		return false
 	}
+	return false
 }

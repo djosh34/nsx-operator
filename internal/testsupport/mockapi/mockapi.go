@@ -1,3 +1,4 @@
+// Package mockapi starts the public NSX-T mockapi container for integration tests.
 package mockapi
 
 import (
@@ -16,20 +17,27 @@ import (
 )
 
 const (
-	Image    = "ghcr.io/djosh34/nsx-t-mockapi:latest"
+	// Image is the public mockapi container image used by integration tests.
+	Image = "ghcr.io/djosh34/nsx-t-mockapi:latest"
+	// Username is the default mockapi username.
 	Username = "nsx_admin"
+	// Password is the default mockapi password.
 	Password = "nsx_password"
 )
 
+// Process represents a running mockapi container.
 type Process struct {
 	baseURL     string
 	containerID string
 }
 
+// Start launches the public mockapi container and waits until it is ready.
+//
+//nolint:revive // test helpers conventionally accept *testing.T first.
 func Start(t *testing.T, ctx context.Context) Process {
 	t.Helper()
 
-	port := freeTCPPort(t)
+	port := freeTCPPort(t, ctx)
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 	config := `server:
@@ -46,7 +54,8 @@ search:
   default_page_size: 1000
   max_page_size: 1000
 `
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+	err := os.WriteFile(configPath, []byte(config), 0o600)
+	if err != nil {
 		t.Fatalf("write mockapi config: %v", err)
 	}
 
@@ -75,6 +84,7 @@ search:
 		baseURL:     fmt.Sprintf("http://127.0.0.1:%d", port),
 		containerID: containerID,
 	}
+	//nolint:contextcheck // cleanup needs a fresh timeout even if the test context was canceled.
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -88,23 +98,31 @@ search:
 	return process
 }
 
+// BaseURL returns the HTTP base URL for the running mockapi process.
 func (process Process) BaseURL() string {
 	return process.baseURL
 }
 
+// Logs returns recent mockapi container logs for diagnostics.
 func (process Process) Logs() string {
+	logsCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return process.LogsContext(logsCtx)
+}
+
+// LogsContext returns recent mockapi container logs using the supplied context.
+func (process Process) LogsContext(ctx context.Context) string {
 	if process.containerID == "" {
 		return ""
 	}
-	logsCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	stdout, output, err := dockerOutput(logsCtx, "logs", process.containerID)
+	stdout, output, err := dockerOutput(ctx, "logs", process.containerID)
 	if err != nil {
 		return strings.TrimSpace(output)
 	}
 	return stdout
 }
 
+//nolint:revive // test helpers conventionally accept *testing.T first.
 func waitReady(t *testing.T, ctx context.Context, process Process) {
 	t.Helper()
 
@@ -127,23 +145,26 @@ func waitReady(t *testing.T, ctx context.Context, process Process) {
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("mockapi readiness context ended: %v\nlogs:\n%s", ctx.Err(), process.Logs())
+			t.Fatalf("mockapi readiness context ended: %v\nlogs:\n%s", ctx.Err(), process.LogsContext(ctx))
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	t.Fatalf("mockapi did not become ready; logs:\n%s", process.Logs())
+	t.Fatalf("mockapi did not become ready; logs:\n%s", process.LogsContext(ctx))
 }
 
-func freeTCPPort(t *testing.T) int {
+//nolint:revive // test helpers conventionally accept *testing.T first.
+func freeTCPPort(t *testing.T, ctx context.Context) int {
 	t.Helper()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listenConfig := net.ListenConfig{}
+	listener, err := listenConfig.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen on free tcp port: %v", err)
 	}
 	defer func() {
-		if err := listener.Close(); err != nil {
-			t.Fatalf("close free tcp listener: %v", err)
+		closeErr := listener.Close()
+		if closeErr != nil {
+			t.Fatalf("close free tcp listener: %v", closeErr)
 		}
 	}()
 	addr, ok := listener.Addr().(*net.TCPAddr)

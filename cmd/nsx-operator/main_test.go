@@ -131,7 +131,8 @@ func TestRunPassesEnvScriptCredentialsToRuntimeManager(t *testing.T) {
 printf '%s\n' 'NSX_USERNAME=script-user'
 printf '%s\n' 'NSX_PASSWORD=script-pass'
 `)
-	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+	err := os.WriteFile(scriptPath, script, 0o700)
+	if err != nil {
 		t.Fatalf("write env script: %v", err)
 	}
 	configPath := writeCommandConfig(t, `
@@ -271,7 +272,8 @@ func TestRunEnvScriptLogsCredentialSourceWithoutCredentialMaterial(t *testing.T)
 printf '%s\n' 'NSX_USERNAME=command-script-user'
 printf '%s\n' 'NSX_PASSWORD=command-script-password'
 `)
-	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+	err := os.WriteFile(scriptPath, script, 0o700)
+	if err != nil {
 		t.Fatalf("write env script: %v", err)
 	}
 	configPath := writeCommandConfig(t, `
@@ -491,14 +493,16 @@ func captureStderr(t *testing.T, run func()) string {
 
 	run()
 
-	if err := writer.Close(); err != nil {
+	err = writer.Close()
+	if err != nil {
 		t.Fatalf("close stderr writer: %v", err)
 	}
 	output, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatalf("read stderr: %v", err)
 	}
-	if err := reader.Close(); err != nil {
+	err = reader.Close()
+	if err != nil {
 		t.Fatalf("close stderr reader: %v", err)
 	}
 	return string(output)
@@ -513,7 +517,8 @@ func parseCommandLogs(t *testing.T, output string) []map[string]any {
 			continue
 		}
 		var entry map[string]any
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+		err := json.Unmarshal([]byte(line), &entry)
+		if err != nil {
 			t.Fatalf("stderr line is not valid JSON: %v; line: %q; output: %q", err, line, output)
 		}
 		entries = append(entries, entry)
@@ -572,7 +577,8 @@ func writeCommandConfig(t *testing.T, content string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+	err := os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
 		t.Fatalf("write command config: %v", err)
 	}
 	return path

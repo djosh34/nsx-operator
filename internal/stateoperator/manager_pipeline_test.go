@@ -1,3 +1,4 @@
+//nolint:gocritic,govet,nilnil,noinlineerr,revive,unparam // manager pipeline tests use large Kubernetes fixtures, fake clients, and envtest control flow where literal-heavy setup is clearer than pointer plumbing.
 package stateoperator_test
 
 import (

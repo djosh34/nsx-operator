@@ -1,3 +1,4 @@
+// Package stateoperator runs periodic NSX state reconciliation.
 package stateoperator
 
 import (
@@ -16,26 +17,32 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// CloudSweepFunc reconciles one network cloud during a sweep.
 type CloudSweepFunc func(ctx context.Context, cloud nsxv1alpha.NSXNetworkCloud, sweep SweepContext) error
 
+// SweepContext carries metadata for one operator sweep.
 type SweepContext struct {
 	ID string
 }
 
+// Clock provides time and timer construction for the operator loop.
 type Clock interface {
 	Now() time.Time
 	NewTimer(time.Duration) Timer
 }
 
+// Timer is the timer surface used by the operator loop.
 type Timer interface {
 	C() <-chan time.Time
 	Stop() bool
 }
 
+// SweepIDGenerator creates stable identifiers for sweep log fields.
 type SweepIDGenerator interface {
 	NewSweepID() string
 }
 
+// Options configures the NSX state operator.
 type Options struct {
 	Client               client.Client
 	KubeClient           *kubeapi.Client
@@ -48,6 +55,7 @@ type Options struct {
 	Recorder             operatormetrics.Recorder
 }
 
+// NSXStateOperator periodically reconciles NSX state for configured network clouds.
 type NSXStateOperator struct {
 	client       client.Client
 	tickInterval time.Duration
@@ -57,6 +65,9 @@ type NSXStateOperator struct {
 	idGenerator  SweepIDGenerator
 }
 
+// New constructs an NSX state operator.
+//
+//nolint:gocritic // public operator API keeps value options so callers can pass literals.
 func New(options Options) (*NSXStateOperator, error) {
 	if options.Client == nil {
 		return nil, fmt.Errorf("state operator client is required")
@@ -104,12 +115,14 @@ func New(options Options) (*NSXStateOperator, error) {
 	}, nil
 }
 
+// Start runs the periodic operator loop until the context is cancelled.
 func (o *NSXStateOperator) Start(ctx context.Context) error {
 	anchor := o.clock.Now()
 	o.logger.Info("starting state operator sweeper", logging.Component("stateoperator"), zap.Duration("tick_interval", o.tickInterval))
 
 	for {
-		if err := o.runSweep(ctx); err != nil {
+		err := o.runSweep(ctx)
+		if err != nil {
 			return err
 		}
 
@@ -136,15 +149,16 @@ func (o *NSXStateOperator) runSweep(ctx context.Context) error {
 	o.logger.Info("starting global sweep", logging.Component("stateoperator"), logging.SweepID(sweep.ID))
 
 	var clouds nsxv1alpha.NSXNetworkCloudList
-	if err := o.client.List(ctx, &clouds); err != nil {
+	err := o.client.List(ctx, &clouds)
+	if err != nil {
 		o.logger.Info("global sweep list failed", logging.Component("stateoperator"), logging.SweepID(sweep.ID), zap.Error(err))
 		return fmt.Errorf("list nsx network clouds: %w", err)
 	}
 
 	var waitGroup sync.WaitGroup
 	waitGroup.Add(len(clouds.Items))
-	for _, cloud := range clouds.Items {
-		cloud := cloud
+	for cloudIndex := range clouds.Items {
+		cloud := &clouds.Items[cloudIndex]
 		go func() {
 			defer waitGroup.Done()
 			o.runCloudSweep(ctx, cloud, sweep)
@@ -156,7 +170,7 @@ func (o *NSXStateOperator) runSweep(ctx context.Context) error {
 	return nil
 }
 
-func (o *NSXStateOperator) runCloudSweep(ctx context.Context, cloud nsxv1alpha.NSXNetworkCloud, sweep SweepContext) {
+func (o *NSXStateOperator) runCloudSweep(ctx context.Context, cloud *nsxv1alpha.NSXNetworkCloud, sweep SweepContext) {
 	fields := []zap.Field{
 		logging.Component("stateoperator"),
 		logging.SweepID(sweep.ID),
@@ -164,7 +178,8 @@ func (o *NSXStateOperator) runCloudSweep(ctx context.Context, cloud nsxv1alpha.N
 		zap.String("networkCloudName", cloud.Name),
 	}
 	var current nsxv1alpha.NSXNetworkCloud
-	if err := o.client.Get(ctx, client.ObjectKey{Name: cloud.Name}, &current); err != nil {
+	err := o.client.Get(ctx, client.ObjectKey{Name: cloud.Name}, &current)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			o.logger.Debug("skipping cloud sweep for missing cloud", fields...)
 			return
@@ -172,7 +187,7 @@ func (o *NSXStateOperator) runCloudSweep(ctx context.Context, cloud nsxv1alpha.N
 		o.logger.Info("cloud sweep cloud refresh failed", append(fields, zap.Error(err))...)
 		return
 	}
-	cloud = current
+	cloud = &current
 	fields = []zap.Field{
 		logging.Component("stateoperator"),
 		logging.SweepID(sweep.ID),
@@ -180,7 +195,8 @@ func (o *NSXStateOperator) runCloudSweep(ctx context.Context, cloud nsxv1alpha.N
 		zap.String("networkCloudName", cloud.Name),
 	}
 	o.logger.Debug("starting cloud sweep", fields...)
-	if err := o.sweepCloud(ctx, cloud, sweep); err != nil {
+	err = o.sweepCloud(ctx, *cloud, sweep)
+	if err != nil {
 		o.logger.Info("cloud sweep failed", append(fields, zap.Error(err))...)
 		return
 	}

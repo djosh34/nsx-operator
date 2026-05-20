@@ -256,7 +256,7 @@ func TestExecuteBatchGathersItemErrorsAndDoesNotRetry(t *testing.T) {
 		t.Fatalf("BatchError.Errors() count = %d, want %d", len(batchError.Errors()), len(itemErrors))
 	}
 	for key, itemErr := range itemErrors {
-		var batchItemError kubeapi.BatchItemError
+		var batchItemError *kubeapi.BatchItemError
 		if !errors.As(itemErr, &batchItemError) {
 			t.Fatalf("item error for %+v has type %T, want BatchItemError", key, itemErr)
 		}

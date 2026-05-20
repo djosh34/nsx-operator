@@ -1,3 +1,4 @@
+// Package httpratelimit provides shared per-host HTTP client rate limiting.
 package httpratelimit
 
 import (
@@ -13,11 +14,13 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// Config controls the per-host HTTP rate limits.
 type Config struct {
 	MaxRequestsInFlightPerHost  int
 	MaxRequestsPerSecondPerHost int
 }
 
+// NewRoundTripper wraps a base transport with per-host in-flight and rate limits.
 func NewRoundTripper(base http.RoundTripper, cfg Config, log *zap.Logger) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport
@@ -46,14 +49,16 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	bkt := globalBuckets.get(key, rt.cfg)
 
 	log.Debug("waiting for HTTP rate limit rate permit")
-	if err := bkt.waitRate(req.Context()); err != nil {
+	err := bkt.waitRate(req.Context())
+	if err != nil {
 		log.Debug("HTTP rate limit rate wait ended from context", zap.Error(err))
 		return nil, err
 	}
 	log.Debug("acquired HTTP rate limit rate permit")
 
 	log.Debug("waiting for HTTP rate limit in-flight slot")
-	if err := bkt.acquire(req.Context()); err != nil {
+	err = bkt.acquire(req.Context())
+	if err != nil {
 		log.Debug("HTTP rate limit in-flight wait ended from context", zap.Error(err))
 		return nil, err
 	}
@@ -115,7 +120,8 @@ type bucket struct {
 }
 
 func (bkt *bucket) waitRate(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
+	err := ctx.Err()
+	if err != nil {
 		return err
 	}
 

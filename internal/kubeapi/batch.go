@@ -1,3 +1,4 @@
+// Package kubeapi provides typed Kubernetes clients for the nsx.ing.com CRDs.
 package kubeapi
 
 import (
@@ -10,12 +11,14 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// BatchConfig controls concurrency and rate limits for batched Kubernetes calls.
 type BatchConfig struct {
 	NumParallelWorkers   int
 	MaxRequestsPerSecond int
 	MaxRequestsInFlight  int
 }
 
+// BatchKey identifies one request in a batch operation.
 type BatchKey struct {
 	Operation   string
 	Resource    string
@@ -23,22 +26,24 @@ type BatchKey struct {
 	Name        string
 }
 
+// BatchItemError wraps the error for one failed batch request.
 type BatchItemError struct {
 	Key BatchKey
 	Err error
 }
 
-func (e BatchItemError) Error() string {
+func (e *BatchItemError) Error() string {
 	if e.Err == nil {
 		return fmt.Sprintf("batch item %s/%s %q failed", e.Key.Operation, e.Key.Resource, e.Key.Name)
 	}
 	return fmt.Sprintf("batch item %s/%s %q failed: %v", e.Key.Operation, e.Key.Resource, e.Key.Name, e.Err)
 }
 
-func (e BatchItemError) Unwrap() error {
+func (e *BatchItemError) Unwrap() error {
 	return e.Err
 }
 
+// BatchError aggregates per-item errors for a batch operation.
 type BatchError struct {
 	Operation string
 	Resource  string
@@ -49,6 +54,7 @@ func (e BatchError) Error() string {
 	return fmt.Sprintf("batch %s/%s failed for %d items", e.Operation, e.Resource, len(e.Items))
 }
 
+// Errors returns a defensive copy of the per-item errors.
 func (e BatchError) Errors() map[BatchKey]error {
 	copied := make(map[BatchKey]error, len(e.Items))
 	for key, err := range e.Items {
@@ -57,6 +63,7 @@ func (e BatchError) Errors() map[BatchKey]error {
 	return copied
 }
 
+// JSONPatchOperation represents one RFC 6902 JSON patch operation.
 type JSONPatchOperation struct {
 	Op    string `json:"op"`
 	Path  string `json:"path"`
@@ -64,12 +71,16 @@ type JSONPatchOperation struct {
 	Value any    `json:"value,omitempty"`
 }
 
+// BatchOperation describes how to execute one request in a typed batch.
 type BatchOperation[Request any, Result any] struct {
 	Operation string
 	Resource  string
 	Execute   func(context.Context, Request) (Result, error)
 }
 
+// ExecuteBatch executes requests with deterministic scheduling, rate limiting, and partial error reporting.
+//
+//nolint:contextcheck // ExecuteBatch accepts nil contexts and normalizes them before any child work is scheduled.
 func ExecuteBatch[Request any, Result any](
 	ctx context.Context,
 	cfg BatchConfig,
@@ -88,7 +99,7 @@ func ExecuteBatch[Request any, Result any](
 	itemErrors := make(map[BatchKey]error)
 	if operation.Execute == nil {
 		err := errors.New("batch operation execute function is required")
-		return results, itemErrors, err
+		return nil, nil, err
 	}
 	if len(requests) == 0 {
 		log.Info(
@@ -169,7 +180,7 @@ func ExecuteBatch[Request any, Result any](
 				if _, ok := results[key]; ok {
 					continue
 				}
-				itemErrors[key] = BatchItemError{Key: key, Err: ctx.Err()}
+				itemErrors[key] = &BatchItemError{Key: key, Err: ctx.Err()}
 			}
 			for active > 0 {
 				result := <-resultCh
@@ -194,6 +205,7 @@ func ExecuteBatch[Request any, Result any](
 		zap.Int("errorCount", len(itemErrors)),
 	)
 	if len(itemErrors) > 0 {
+		//nolint:nilnil // callers need both partial successes and per-item errors when a batch partially fails.
 		return results, itemErrors, BatchError{
 			Operation: operation.Operation,
 			Resource:  operation.Resource,
@@ -256,13 +268,14 @@ func executeBatchItem[Request any, Result any](
 		"waiting for kube api batch rate permit",
 		append(batchKeyFields(item.key), zap.Int("workerID", workerID))...,
 	)
-	if err := limiter.Wait(ctx); err != nil {
+	err := limiter.Wait(ctx)
+	if err != nil {
 		var zero Result
 		log.Debug(
 			"kube api batch rate permit wait failed",
 			append(batchKeyFields(item.key), zap.Int("workerID", workerID), zap.Error(err))...,
 		)
-		return zero, BatchItemError{Key: item.key, Err: err}
+		return zero, &BatchItemError{Key: item.key, Err: err}
 	}
 	log.Debug(
 		"acquired kube api batch rate permit",
@@ -277,12 +290,12 @@ func executeBatchItem[Request any, Result any](
 	case inFlight <- struct{}{}:
 	case <-ctx.Done():
 		var zero Result
-		err := ctx.Err()
+		ctxErr := ctx.Err()
 		log.Debug(
 			"kube api batch in-flight wait failed",
-			append(batchKeyFields(item.key), zap.Int("workerID", workerID), zap.Error(err))...,
+			append(batchKeyFields(item.key), zap.Int("workerID", workerID), zap.Error(ctxErr))...,
 		)
-		return zero, BatchItemError{Key: item.key, Err: err}
+		return zero, &BatchItemError{Key: item.key, Err: ctxErr}
 	}
 	defer func() {
 		<-inFlight
@@ -303,7 +316,7 @@ func executeBatchItem[Request any, Result any](
 			append(batchKeyFields(item.key), zap.Int("workerID", workerID), zap.Error(err))...,
 		)
 		var zero Result
-		return zero, BatchItemError{Key: item.key, Err: err}
+		return zero, &BatchItemError{Key: item.key, Err: err}
 	}
 	log.Debug(
 		"executed kube api batch item",

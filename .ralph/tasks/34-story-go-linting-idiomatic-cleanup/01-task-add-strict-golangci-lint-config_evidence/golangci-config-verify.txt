@@ -1,0 +1,4 @@
+$ ./.bin/golangci-lint config verify
+
+
+exit status: 0

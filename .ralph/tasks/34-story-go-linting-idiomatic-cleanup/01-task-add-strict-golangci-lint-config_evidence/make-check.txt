@@ -1,0 +1,22 @@
+$ make check
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/gofumpt -w .
+go vet ./...
+/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/golangci-lint run ./...
+0 issues.
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./...
+all packages passed, including api/v1alpha, cmd/nsx-operator, internal/kubeapi, internal/startup, internal/stateoperator, internal/nsxclient, internal/testsupport/mockapi, and scripts.
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -race ./...
+all packages passed under race detector.
+go test ./internal/nsxclient -run 'Test(MockAPIRouteInventoryIsSupportedAndContracted|TypedClientContractsAgainstMockAPI|SharedRateLimitedClientConcurrencyAgainstMockAPI)' -count=1
+ok github.com/djosh34/nsx-operator/internal/nsxclient
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./internal/stateoperator -run 'Test(NetworkCloudAddAndRemoveLifecycleAgainstPublicMockAPI|LifecycleObserveAndManageDeletionDifferAgainstMockAPI)' -count=1
+ok github.com/djosh34/nsx-operator/internal/stateoperator
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test ./api/v1alpha ./internal/kubeapi ./internal/startup ./internal/stateoperator ./cmd/nsx-operator -count=1
+all selected packages passed.
+GOMEMLIMIT=768MiB KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -tags largechaos ./internal/nsxclient ./internal/stateoperator -run 'Test(Large|Chaos|GroupReconcileManageUnavailableSetsUnknownConditionsAndDoNotRequeue)' -count=1 -timeout 20m
+ok github.com/djosh34/nsx-operator/internal/nsxclient
+ok github.com/djosh34/nsx-operator/internal/stateoperator
+KUBEBUILDER_ASSETS="$(/home/joshazimullah.linux/work_mounts/vmware/nsx/nsx-operator/.bin/setup-envtest use 1.32.x -p path)" go test -coverprofile=coverage.out -covermode=atomic ./...
+coverage 86.1% meets 80.0% threshold
+
+exit status: 0

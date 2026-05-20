@@ -21,6 +21,7 @@ const (
 	maxStatusBodyPreview = 64 * 1024
 )
 
+// Options configures an NSX manager client.
 type Options struct {
 	BaseURL      string
 	HTTPClient   *http.Client
@@ -31,6 +32,7 @@ type Options struct {
 	Recorder     operatormetrics.Recorder
 }
 
+// WriteControl controls whether mutating NSX requests are allowed.
 type WriteControl struct {
 	Enabled          bool
 	Reason           WriteDisabledReason
@@ -38,6 +40,7 @@ type WriteControl struct {
 	NetworkCloudFQDN string
 }
 
+// Client performs authenticated NSX manager API calls.
 type Client struct {
 	baseURL      *url.URL
 	httpClient   *http.Client
@@ -48,6 +51,9 @@ type Client struct {
 	recorder     operatormetrics.Recorder
 }
 
+// NewClient constructs an NSX manager client.
+//
+//nolint:gocritic // public constructor keeps value options so callers can pass literals.
 func NewClient(options Options) (*Client, error) {
 	if options.BaseURL == "" {
 		return nil, errors.New("nsx base url is required")
@@ -103,19 +109,22 @@ func NewClient(options Options) (*Client, error) {
 	}, nil
 }
 
+// DecodeListResults decodes one NSX paginated list response.
 func DecodeListResults[T any](reader io.Reader) ([]*T, string, int, error) {
 	var page struct {
 		Results     []json.RawMessage `json:"results"`
 		Cursor      string            `json:"cursor"`
 		ResultCount int               `json:"result_count"`
 	}
-	if err := json.NewDecoder(reader).Decode(&page); err != nil {
+	err := json.NewDecoder(reader).Decode(&page)
+	if err != nil {
 		return nil, "", 0, fmt.Errorf("decode nsx list result: %w", err)
 	}
 	results := make([]*T, 0, len(page.Results))
 	for index, raw := range page.Results {
 		var item T
-		if err := json.Unmarshal(raw, &item); err != nil {
+		err = json.Unmarshal(raw, &item)
+		if err != nil {
 			return nil, "", 0, fmt.Errorf("decode nsx list result item %d: %w", index, err)
 		}
 		results = append(results, &item)
@@ -124,7 +133,8 @@ func DecodeListResults[T any](reader io.Reader) ([]*T, string, int, error) {
 }
 
 func (c *Client) do(ctx context.Context, method string, path string, query url.Values, payload any, target any) error {
-	if err := c.requireWriteEnabled(method, path, query); err != nil {
+	err := c.requireWriteEnabled(method, path, query)
+	if err != nil {
 		return err
 	}
 	function := nsxFunction(method, path, query)
@@ -144,6 +154,7 @@ func (c *Client) do(ctx context.Context, method string, path string, query url.V
 	)
 	log.Debug("sending nsx request")
 	start := time.Now()
+	//nolint:bodyclose // handleResponse always closes non-nil response bodies and joins close errors.
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.recorder.ObserveNSXHTTP(manager, function, requestBytes, 0, time.Since(start))
@@ -234,7 +245,8 @@ func (c *Client) handleResponse(resp *http.Response, target any) (retErr error) 
 
 	var resultErr error
 	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
+		closeErr := resp.Body.Close()
+		if closeErr != nil {
 			resultErr = errors.Join(resultErr, fmt.Errorf("close nsx response body: %w", closeErr))
 		}
 		retErr = errors.Join(retErr, resultErr)
@@ -249,12 +261,14 @@ func (c *Client) handleResponse(resp *http.Response, target any) (retErr error) 
 	}
 
 	if target == nil {
-		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		_, err := io.Copy(io.Discard, resp.Body)
+		if err != nil {
 			return fmt.Errorf("drain nsx response body: %w", err)
 		}
 		return nil
 	}
-	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+	err := json.NewDecoder(resp.Body).Decode(target)
+	if err != nil {
 		return fmt.Errorf("decode nsx response body: %w", err)
 	}
 	return nil
@@ -278,6 +292,7 @@ func listAllTyped[T any](ctx context.Context, c *Client, path string, query url.
 		requestBytes := requestBodyBytes(req)
 		c.log.Debug("sending nsx list request", zap.String("url", redactedURL(req.URL)), zap.String("function", function), zap.String("manager", manager))
 		start := time.Now()
+		//nolint:bodyclose // decodeAndCloseList or handleResponse closes non-nil response bodies on every path.
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			c.recorder.ObserveNSXHTTP(manager, function, requestBytes, 0, time.Since(start))
@@ -285,7 +300,8 @@ func listAllTyped[T any](ctx context.Context, c *Client, path string, query url.
 		}
 		body := wrapCountingBody(resp)
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
-			if handleErr := c.handleResponse(resp, nil); handleErr != nil {
+			handleErr := c.handleResponse(resp, nil)
+			if handleErr != nil {
 				c.recorder.ObserveNSXHTTP(manager, function, requestBytes, body.bytesRead(), time.Since(start))
 				return nil, handleErr
 			}

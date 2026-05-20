@@ -1,3 +1,4 @@
+// Package startup constructs the controller-runtime manager for the operator.
 package startup
 
 import (
@@ -27,6 +28,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
+// ManagerOptions configures controller-runtime manager construction.
 type ManagerOptions struct {
 	Config      config.Config
 	RestConfig  *rest.Config
@@ -36,6 +38,9 @@ type ManagerOptions struct {
 	IDGenerator stateoperator.SweepIDGenerator
 }
 
+// NewManager builds the controller-runtime manager and registers operator reconcilers.
+//
+//nolint:gocritic // public startup API keeps value options so callers can pass literals.
 func NewManager(options ManagerOptions) (manager.Manager, error) {
 	logger := options.Logger
 	if logger == nil {
@@ -55,11 +60,13 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	}
 
 	runtimeScheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(runtimeScheme); err != nil {
+	err := clientgoscheme.AddToScheme(runtimeScheme)
+	if err != nil {
 		logger.Info("register kubernetes scheme failed", logging.Component("startup"), zap.Error(err))
 		return nil, fmt.Errorf("register kubernetes scheme: %w", err)
 	}
-	if err := nsxv1alpha.AddToScheme(runtimeScheme); err != nil {
+	err = nsxv1alpha.AddToScheme(runtimeScheme)
+	if err != nil {
 		logger.Info("register nsx scheme failed", logging.Component("startup"), zap.Error(err))
 		return nil, fmt.Errorf("register nsx scheme: %w", err)
 	}
@@ -106,22 +113,22 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	nsxHTTPClient := newNSXHTTPClient(options.Config.HTTPRateLimiter, logger)
 	managerClientFactory := func(_ context.Context, cloud nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
 		normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
-		client, err := nsxclient.NewClient(nsxclient.Options{
-			BaseURL:    nsxManagerBaseURL(options.Config.NSX, normalizedFQDN),
+		managerClient, clientErr := nsxclient.NewClient(nsxclient.Options{
+			BaseURL:    nsxManagerBaseURL(&options.Config.NSX, normalizedFQDN),
 			HTTPClient: nsxHTTPClient,
 			Username:   options.Config.NSX.Auth.Username,
 			Password:   options.Config.NSX.Auth.Password,
 			Logger:     logger,
 			Recorder:   operatorRecorder,
 			WriteControl: writeControlForCloud(
-				options.Config.NSX,
-				cloud,
+				&options.Config.NSX,
+				&cloud,
 			),
 		})
-		if err != nil {
-			return nil, err
+		if clientErr != nil {
+			return nil, clientErr
 		}
-		return client, nil
+		return managerClient, nil
 	}
 
 	operator, err := stateoperator.New(stateoperator.Options{
@@ -140,21 +147,23 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		return nil, fmt.Errorf("construct state operator: %w", err)
 	}
 
-	if err := runtimeManager.Add(operator); err != nil {
+	err = runtimeManager.Add(operator)
+	if err != nil {
 		logger.Info("state operator runnable registration failed", logging.Component("startup"), zap.Error(err))
 		return nil, fmt.Errorf("register state operator runnable: %w", err)
 	}
-	if err := builder.ControllerManagedBy(runtimeManager).
+	err = builder.ControllerManagedBy(runtimeManager).
 		Named("nsxnetworkcloud").
 		For(&nsxv1alpha.NSXNetworkCloud{}).
 		Complete(stateoperator.NetworkCloudReconciler{
 			Client: runtimeManager.GetClient(),
 			Logger: logger,
-		}); err != nil {
+		})
+	if err != nil {
 		logger.Info("nsx network cloud controller registration failed", logging.Component("startup"), zap.Error(err))
 		return nil, fmt.Errorf("register nsx network cloud controller: %w", err)
 	}
-	if err := builder.ControllerManagedBy(runtimeManager).
+	err = builder.ControllerManagedBy(runtimeManager).
 		Named("nsxgroup").
 		For(&nsxv1alpha.NSXGroup{}).
 		Complete(stateoperator.GroupReconciler{
@@ -162,7 +171,8 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 			ManagerClientFactory: managerClientFactory,
 			Logger:               logger,
 			Clock:                options.Clock,
-		}); err != nil {
+		})
+	if err != nil {
 		logger.Info("nsx group controller registration failed", logging.Component("startup"), zap.Error(err))
 		return nil, fmt.Errorf("register nsx group controller: %w", err)
 	}
@@ -187,7 +197,7 @@ func newNSXHTTPClient(cfg config.HTTPRateLimiterConfig, logger *zap.Logger) *htt
 	}
 }
 
-func nsxManagerBaseURL(cfg config.NSXConfig, normalizedFQDN string) string {
+func nsxManagerBaseURL(cfg *config.NSXConfig, normalizedFQDN string) string {
 	scheme := cfg.URLScheme
 	if scheme == "" {
 		scheme = "https"
@@ -195,7 +205,7 @@ func nsxManagerBaseURL(cfg config.NSXConfig, normalizedFQDN string) string {
 	return scheme + "://" + normalizedFQDN
 }
 
-func writeControlForCloud(cfg config.NSXConfig, cloud nsxv1alpha.NSXNetworkCloud) nsxclient.WriteControl {
+func writeControlForCloud(cfg *config.NSXConfig, cloud *nsxv1alpha.NSXNetworkCloud) nsxclient.WriteControl {
 	normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
 	globalWritesEnabled := cfg.WritesEnabled
 	if !cfg.WritesEnabledConfigured {

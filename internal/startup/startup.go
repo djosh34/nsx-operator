@@ -1,3 +1,4 @@
+// Package startup loads runtime configuration and starts the operator manager.
 package startup
 
 import (
@@ -9,19 +10,24 @@ import (
 	"go.uber.org/zap"
 )
 
+// LoggerFactory builds the runtime logger from validated logging config.
 type LoggerFactory func(config.LoggingConfig) (*zap.Logger, error)
 
+// RunnableManager is the subset of controller-runtime manager behavior Run needs.
 type RunnableManager interface {
 	Start(context.Context) error
 }
 
+// ManagerFactory builds the runnable controller manager.
 type ManagerFactory func(ManagerOptions) (RunnableManager, error)
 
+// RuntimeConstructors are optional dependency construction hooks used by tests.
 type RuntimeConstructors struct {
 	Kubernetes func(config.Config) error
 	NSX        func(config.Config) error
 }
 
+// Options configures startup orchestration.
 type Options struct {
 	Config          config.Options
 	Constructors    RuntimeConstructors
@@ -31,6 +37,9 @@ type Options struct {
 	LoggerFactory   LoggerFactory
 }
 
+// Run loads configuration, constructs runtime dependencies, and starts the manager.
+//
+//nolint:gocritic // public startup API keeps value options so callers can pass literals.
 func Run(options Options) error {
 	bootstrapLogger := options.BootstrapLogger
 	if bootstrapLogger == nil {
@@ -78,15 +87,17 @@ func Run(options Options) error {
 
 	if options.Constructors.Kubernetes != nil {
 		logger.Info("constructing kubernetes clients", logging.Component("startup"))
-		if err := options.Constructors.Kubernetes(loadedConfig); err != nil {
-			return fmt.Errorf("construct kubernetes clients: %w", err)
+		constructErr := options.Constructors.Kubernetes(loadedConfig)
+		if constructErr != nil {
+			return fmt.Errorf("construct kubernetes clients: %w", constructErr)
 		}
 		logger.Debug("constructed kubernetes clients", logging.Component("startup"))
 	}
 	if options.Constructors.NSX != nil {
 		logger.Info("constructing nsx clients", logging.Component("startup"))
-		if err := options.Constructors.NSX(loadedConfig); err != nil {
-			return fmt.Errorf("construct nsx clients: %w", err)
+		constructErr := options.Constructors.NSX(loadedConfig)
+		if constructErr != nil {
+			return fmt.Errorf("construct nsx clients: %w", constructErr)
 		}
 		logger.Debug("constructed nsx clients", logging.Component("startup"))
 	}
@@ -96,16 +107,17 @@ func Run(options Options) error {
 			runContext = context.Background()
 		}
 		logger.Info("constructing controller runtime manager", logging.Component("startup"))
-		runtimeManager, err := options.ManagerFactory(ManagerOptions{
+		runtimeManager, managerErr := options.ManagerFactory(ManagerOptions{
 			Config: loadedConfig,
 			Logger: logger,
 		})
-		if err != nil {
-			return fmt.Errorf("construct controller runtime manager: %w", err)
+		if managerErr != nil {
+			return fmt.Errorf("construct controller runtime manager: %w", managerErr)
 		}
 		logger.Info("starting controller runtime manager", logging.Component("startup"))
-		if err := runtimeManager.Start(runContext); err != nil {
-			return fmt.Errorf("start controller runtime manager: %w", err)
+		startErr := runtimeManager.Start(runContext)
+		if startErr != nil {
+			return fmt.Errorf("start controller runtime manager: %w", startErr)
 		}
 		logger.Info("controller runtime manager stopped", logging.Component("startup"))
 	}

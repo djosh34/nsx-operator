@@ -13,7 +13,8 @@ import (
 func TestLoadValidConfigCredentials(t *testing.T) {
 	dir := t.TempDir()
 	caBundlePath := filepath.Join(dir, "ca.pem")
-	if err := os.WriteFile(caBundlePath, []byte("certificate"), 0o600); err != nil {
+	err := os.WriteFile(caBundlePath, []byte("certificate"), 0o600)
+	if err != nil {
 		t.Fatalf("write CA bundle: %v", err)
 	}
 	configPath := filepath.Join(dir, "config.yaml")
@@ -32,7 +33,8 @@ nsx:
 logging:
   level: info
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
+	err = os.WriteFile(configPath, configYAML, 0o600)
+	if err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -359,10 +361,12 @@ nsx:
 
 func TestLoadEnvCredentialFilesOverrideConfigCredentialsAndTrimOneNewline(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "username.txt"), []byte("env-file-user\n\n"), 0o600); err != nil {
+	err := os.WriteFile(filepath.Join(dir, "username.txt"), []byte("env-file-user\n\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write username file: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "password.txt"), []byte(" env-file-pass \r\n"), 0o600); err != nil {
+	err = os.WriteFile(filepath.Join(dir, "password.txt"), []byte(" env-file-pass \r\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write password file: %v", err)
 	}
 	configPath := writeValidConfig(t, dir, `
@@ -401,7 +405,8 @@ func TestLoadRejectsEnvScriptMissingUsernameWithoutFallback(t *testing.T) {
 	script := []byte(`#!/bin/sh
 printf '%s\n' 'NSX_PASSWORD=script-pass'
 `)
-	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+	err := os.WriteFile(scriptPath, script, 0o700)
+	if err != nil {
 		t.Fatalf("write env script: %v", err)
 	}
 	configPath := writeValidConfig(t, dir, `
@@ -411,7 +416,7 @@ nsx:
     password: config-pass
 `)
 
-	_, err := config.Load(config.Options{
+	_, err = config.Load(config.Options{
 		Path:          configPath,
 		EnvScriptPath: scriptPath,
 		Environ: map[string]string{
@@ -436,7 +441,8 @@ func TestLoadRejectsEnvScriptMissingPasswordWithoutLeakingUsername(t *testing.T)
 	script := []byte(`#!/bin/sh
 printf '%s\n' 'NSX_USERNAME=script-user'
 `)
-	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+	err := os.WriteFile(scriptPath, script, 0o700)
+	if err != nil {
 		t.Fatalf("write env script: %v", err)
 	}
 	configPath := writeValidConfig(t, dir, `
@@ -446,7 +452,7 @@ nsx:
     password: config-pass
 `)
 
-	_, err := config.Load(config.Options{
+	_, err = config.Load(config.Options{
 		Path:          configPath,
 		EnvScriptPath: scriptPath,
 		Environ:       map[string]string{},
@@ -471,7 +477,8 @@ printf '%s\n' 'NSX_PASSWORD=stdout-pass'
 printf '%s\n' 'stderr-secret' >&2
 exit 7
 `)
-	if err := os.WriteFile(scriptPath, script, 0o700); err != nil {
+	err := os.WriteFile(scriptPath, script, 0o700)
+	if err != nil {
 		t.Fatalf("write env script: %v", err)
 	}
 	configPath := writeValidConfig(t, dir, `
@@ -481,7 +488,7 @@ nsx:
     password: config-pass
 `)
 
-	_, err := config.Load(config.Options{
+	_, err = config.Load(config.Options{
 		Path:          configPath,
 		EnvScriptPath: scriptPath,
 		Environ:       map[string]string{},
@@ -516,7 +523,8 @@ func TestLoadRejectsEnvScriptMissingOrEmptyShebang(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			scriptPath := filepath.Join(dir, "credentials.sh")
-			if err := os.WriteFile(scriptPath, []byte(test.script), 0o700); err != nil {
+			err := os.WriteFile(scriptPath, []byte(test.script), 0o700)
+			if err != nil {
 				t.Fatalf("write env script: %v", err)
 			}
 			configPath := writeValidConfig(t, dir, `
@@ -526,7 +534,7 @@ nsx:
     password: config-pass
 `)
 
-			_, err := config.Load(config.Options{
+			_, err = config.Load(config.Options{
 				Path:          configPath,
 				EnvScriptPath: scriptPath,
 				Environ:       map[string]string{},
@@ -550,15 +558,17 @@ func TestLoadEnvScriptUsesShebangInterpreterAndArguments(t *testing.T) {
 	interpreterPath := filepath.Join(dir, "fake-interpreter.sh")
 	interpreter := []byte(`#!/bin/sh
 printf '%s\n' "$@" > "` + argvPath + `"
-printf '%s\n' 'NSX_USERNAME=script-user'
-printf '%s\n' 'NSX_PASSWORD=script-pass'
-`)
-	if err := os.WriteFile(interpreterPath, interpreter, 0o700); err != nil {
+	printf '%s\n' 'NSX_USERNAME=script-user'
+	printf '%s\n' 'NSX_PASSWORD=script-pass'
+	`)
+	err := os.WriteFile(interpreterPath, interpreter, 0o700)
+	if err != nil {
 		t.Fatalf("write fake interpreter: %v", err)
 	}
 	scriptPath := filepath.Join(dir, "credentials.custom")
 	script := []byte("#!" + interpreterPath + " --format env\nignored by fake interpreter\n")
-	if err := os.WriteFile(scriptPath, script, 0o600); err != nil {
+	err = os.WriteFile(scriptPath, script, 0o600)
+	if err != nil {
 		t.Fatalf("write env script: %v", err)
 	}
 	configPath := writeValidConfig(t, dir, `
@@ -604,10 +614,12 @@ nsx:
 
 func TestLoadConfigCredentialFilesAsFinalFallback(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config-username.txt"), []byte("config-file-user\n"), 0o600); err != nil {
+	err := os.WriteFile(filepath.Join(dir, "config-username.txt"), []byte("config-file-user\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write username file: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config-password.txt"), []byte("config-file-pass\n"), 0o600); err != nil {
+	err = os.WriteFile(filepath.Join(dir, "config-password.txt"), []byte("config-file-pass\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write password file: %v", err)
 	}
 	configPath := writeValidConfig(t, dir, `
@@ -687,10 +699,12 @@ nsx:
 
 	t.Run("empty selected password file is rejected without leaking username contents", func(t *testing.T) {
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "username.txt"), []byte("username-secret\n"), 0o600); err != nil {
+		err := os.WriteFile(filepath.Join(dir, "username.txt"), []byte("username-secret\n"), 0o600)
+		if err != nil {
 			t.Fatalf("write username file: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "password.txt"), []byte("\r\n"), 0o600); err != nil {
+		err = os.WriteFile(filepath.Join(dir, "password.txt"), []byte("\r\n"), 0o600)
+		if err != nil {
 			t.Fatalf("write password file: %v", err)
 		}
 		configPath := writeValidConfig(t, dir, `
@@ -700,7 +714,7 @@ nsx:
     passwordFile: password.txt
 `)
 
-		_, err := config.Load(config.Options{
+		_, err = config.Load(config.Options{
 			Path:    configPath,
 			Environ: map[string]string{},
 			FS:      os.DirFS(dir),
@@ -839,7 +853,8 @@ func writeConfig(t *testing.T, dir string, content string) string {
 	t.Helper()
 
 	configPath := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+	err := os.WriteFile(configPath, []byte(content), 0o600)
+	if err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	return configPath

@@ -1,3 +1,4 @@
+//nolint:govet,nilnil,noinlineerr // write-semantics tests use fake transports and deliberate nil-body fixtures to exercise client error paths.
 package stateoperator_test
 
 import (

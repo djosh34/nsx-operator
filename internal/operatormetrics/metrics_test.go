@@ -64,7 +64,7 @@ nsx_operator_nsx_http_bytes_total{direction="response",manager="manager-a.exampl
 # TYPE nsx_operator_nsx_http_requests_total counter
 nsx_operator_nsx_http_requests_total{manager="manager-a.example.test"} 1
 `
-	if err := testutil.GatherAndCompare(
+	err = testutil.GatherAndCompare(
 		registry, strings.NewReader(expected),
 		"nsx_operator_kubernetes_api_bytes_total",
 		"nsx_operator_kubernetes_api_calls_total",
@@ -76,7 +76,8 @@ nsx_operator_nsx_http_requests_total{manager="manager-a.example.test"} 1
 		"nsx_operator_nsx_groups_observe_total",
 		"nsx_operator_nsx_http_bytes_total",
 		"nsx_operator_nsx_http_requests_total",
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("gather metrics: %v", err)
 	}
 
@@ -98,7 +99,8 @@ func TestRecorderConstructorsAndNoopAreSafe(t *testing.T) {
 	nop.ObserveKubernetesAPI("function", 1, 2, time.Millisecond)
 	nop.SetManagerGroupSnapshot("manager", ManagerGroupSnapshot{})
 
-	if _, err := NewRecorder(nil, nil); err == nil {
+	_, err := NewRecorder(nil, nil)
+	if err == nil {
 		t.Fatal("NewRecorder() error = nil, want nil registerer validation")
 	}
 

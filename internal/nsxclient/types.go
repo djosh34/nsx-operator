@@ -1,7 +1,7 @@
 // Package nsxclient provides a typed client for the NSX-T Manager and Policy
 // API routes used by this operator.
 //
-//nolint:tagliatelle // NSX JSON fields intentionally use snake_case and leading underscores.
+//nolint:revive,tagliatelle // DTO names and JSON fields intentionally mirror NSX API resources and wire fields.
 package nsxclient
 
 import "encoding/json"
@@ -195,7 +195,8 @@ type SearchResult struct {
 func (result *SearchResult) UnmarshalJSON(data []byte) error {
 	type searchResult SearchResult
 	var decoded searchResult
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	err := json.Unmarshal(data, &decoded)
+	if err != nil {
 		return err
 	}
 	decoded.Raw = append(decoded.Raw[:0], data...)

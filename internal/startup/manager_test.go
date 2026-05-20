@@ -60,11 +60,7 @@ func TestNewManagerReturnsErrorForInvalidTickInterval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start envtest API server: %v", err)
 	}
-	defer func() {
-		if err := testEnvironment.Stop(); err != nil {
-			t.Errorf("stop envtest API server: %v", err)
-		}
-	}()
+	defer stopEnvtest(t, testEnvironment)
 
 	_, err = startup.NewManager(startup.ManagerOptions{
 		Config:     config.Config{Operator: config.OperatorConfig{TickInterval: 0}},
@@ -92,11 +88,7 @@ func TestNewManagerUsesDefaultLogger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start envtest API server: %v", err)
 	}
-	defer func() {
-		if err := testEnvironment.Stop(); err != nil {
-			t.Errorf("stop envtest API server: %v", err)
-		}
-	}()
+	defer stopEnvtest(t, testEnvironment)
 
 	_, err = startup.NewManager(startup.ManagerOptions{
 		Config: config.Config{
@@ -141,11 +133,7 @@ func TestNewManagerRegistersControllersAndPeriodicSweeper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start envtest API server: %v", err)
 	}
-	defer func() {
-		if err := testEnvironment.Stop(); err != nil {
-			t.Errorf("stop envtest API server: %v", err)
-		}
-	}()
+	defer stopEnvtest(t, testEnvironment)
 
 	core, logs := observer.New(zapcore.DebugLevel)
 	sweptClouds := make(chan string, 10)
@@ -175,17 +163,18 @@ func TestNewManagerRegistersControllersAndPeriodicSweeper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create direct client: %v", err)
 	}
-	if err := apiClient.Create(ctx, &nsxv1alpha.NSXNetworkCloud{
+	err = apiClient.Create(ctx, &nsxv1alpha.NSXNetworkCloud{
 		ObjectMeta: metav1.ObjectMeta{Name: "cloud-a"},
 		Spec: nsxv1alpha.NSXNetworkCloudSpec{
 			NetworkCloudFQDN: "nsx-a.example.test",
 			NetworkCloudID:   "cloud-a",
 			Name:             "Cloud A",
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create NSXNetworkCloud: %v", err)
 	}
-	if err := apiClient.Create(ctx, &nsxv1alpha.NSXGroup{
+	err = apiClient.Create(ctx, &nsxv1alpha.NSXGroup{
 		ObjectMeta: metav1.ObjectMeta{Name: "group-a"},
 		Spec: nsxv1alpha.NSXGroupSpec{
 			NetworkCloudFQDN: "nsx-a.example.test",
@@ -194,7 +183,8 @@ func TestNewManagerRegistersControllersAndPeriodicSweeper(t *testing.T) {
 			Mode:             nsxv1alpha.NSXGroupModeObserve,
 			CIDRs:            []string{"10.0.0.0/24"},
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create NSXGroup: %v", err)
 	}
 
@@ -203,7 +193,8 @@ func TestNewManagerRegistersControllersAndPeriodicSweeper(t *testing.T) {
 	requireObservedLogField(ctx, t, logs, "reconciling group", "reconcileKey", "group-a")
 
 	stopManager()
-	if err := <-managerErr; err != nil {
+	err = <-managerErr
+	if err != nil {
 		t.Fatalf("manager Start() error = %v", err)
 	}
 }
@@ -224,11 +215,7 @@ func TestNewManagerDefaultSweepUpdatesCloudStatusWithoutCustomSweep(t *testing.T
 	if err != nil {
 		t.Fatalf("start envtest API server: %v", err)
 	}
-	defer func() {
-		if err := testEnvironment.Stop(); err != nil {
-			t.Errorf("stop envtest API server: %v", err)
-		}
-	}()
+	defer stopEnvtest(t, testEnvironment)
 
 	manager, err := startup.NewManager(startup.ManagerOptions{
 		Config: config.Config{
@@ -252,21 +239,23 @@ func TestNewManagerDefaultSweepUpdatesCloudStatusWithoutCustomSweep(t *testing.T
 	if err != nil {
 		t.Fatalf("create direct client: %v", err)
 	}
-	if err := apiClient.Create(ctx, &nsxv1alpha.NSXNetworkCloud{
+	err = apiClient.Create(ctx, &nsxv1alpha.NSXNetworkCloud{
 		ObjectMeta: metav1.ObjectMeta{Name: "cloud-default"},
 		Spec: nsxv1alpha.NSXNetworkCloudSpec{
 			NetworkCloudFQDN: "nsx-default.example.test",
 			NetworkCloudID:   "cloud-default",
 			Name:             "Cloud Default",
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create NSXNetworkCloud: %v", err)
 	}
 
 	requireCloudCondition(ctx, t, apiClient, "cloud-default", nsxv1alpha.ConditionReachable, metav1.ConditionFalse)
 
 	stopManager()
-	if err := <-managerErr; err != nil {
+	err = <-managerErr
+	if err != nil {
 		t.Fatalf("manager Start() error = %v", err)
 	}
 }
@@ -304,11 +293,7 @@ func TestNewManagerSharesRateLimitedTransportAcrossCloudSweeps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start envtest API server: %v", err)
 	}
-	defer func() {
-		if err := testEnvironment.Stop(); err != nil {
-			t.Errorf("stop envtest API server: %v", err)
-		}
-	}()
+	defer stopEnvtest(t, testEnvironment)
 
 	manager, err := startup.NewManager(startup.ManagerOptions{
 		Config: config.Config{
@@ -351,7 +336,8 @@ func TestNewManagerSharesRateLimitedTransportAcrossCloudSweeps(t *testing.T) {
 	gate.requireSecondSameHostRequest(ctx)
 
 	stopManager()
-	if err := <-managerErr; err != nil {
+	err = <-managerErr
+	if err != nil {
 		t.Fatalf("manager Start() error = %v", err)
 	}
 }
@@ -389,11 +375,7 @@ func TestNewManagerUsesConfiguredHTTPRateLimiterLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start envtest API server: %v", err)
 	}
-	defer func() {
-		if err := testEnvironment.Stop(); err != nil {
-			t.Errorf("stop envtest API server: %v", err)
-		}
-	}()
+	defer stopEnvtest(t, testEnvironment)
 
 	manager, err := startup.NewManager(startup.ManagerOptions{
 		Config: config.Config{
@@ -433,7 +415,8 @@ func TestNewManagerUsesConfiguredHTTPRateLimiterLimits(t *testing.T) {
 	gate.releaseSameHost()
 
 	stopManager()
-	if err := <-managerErr; err != nil {
+	err = <-managerErr
+	if err != nil {
 		t.Fatalf("manager Start() error = %v", err)
 	}
 }
@@ -463,11 +446,7 @@ func TestNewManagerUsesConfiguredNSXURLScheme(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start envtest API server: %v", err)
 	}
-	defer func() {
-		if err := testEnvironment.Stop(); err != nil {
-			t.Errorf("stop envtest API server: %v", err)
-		}
-	}()
+	defer stopEnvtest(t, testEnvironment)
 
 	manager, err := startup.NewManager(startup.ManagerOptions{
 		Config: config.Config{
@@ -513,7 +492,8 @@ func TestNewManagerUsesConfiguredNSXURLScheme(t *testing.T) {
 	}
 
 	stopManager()
-	if err := <-managerErr; err != nil {
+	err = <-managerErr
+	if err != nil {
 		t.Fatalf("manager Start() error = %v", err)
 	}
 }
@@ -537,15 +517,25 @@ func requireSweptCloud(t *testing.T, sweptClouds <-chan string, want string) {
 func createNetworkCloud(ctx context.Context, t *testing.T, apiClient client.Client, name string, fqdn string) {
 	t.Helper()
 
-	if err := apiClient.Create(ctx, &nsxv1alpha.NSXNetworkCloud{
+	err := apiClient.Create(ctx, &nsxv1alpha.NSXNetworkCloud{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: nsxv1alpha.NSXNetworkCloudSpec{
 			NetworkCloudFQDN: fqdn,
 			NetworkCloudID:   name,
 			Name:             name,
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create NSXNetworkCloud %q: %v", name, err)
+	}
+}
+
+func stopEnvtest(t *testing.T, testEnvironment *envtest.Environment) {
+	t.Helper()
+
+	err := testEnvironment.Stop()
+	if err != nil {
+		t.Errorf("stop envtest API server: %v", err)
 	}
 }
 
@@ -677,7 +667,8 @@ func (gate *nsxListGate) handleListGroups(w http.ResponseWriter, req *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if _, err := w.Write([]byte(`{"results":[],"result_count":0}`)); err != nil {
+	_, err := w.Write([]byte(`{"results":[],"result_count":0}`))
+	if err != nil {
 		gate.t.Errorf("write NSX list response: %v", err)
 	}
 }
@@ -754,7 +745,8 @@ func requireCloudCondition(
 	defer ticker.Stop()
 	for {
 		var cloud nsxv1alpha.NSXNetworkCloud
-		if err := apiClient.Get(ctx, client.ObjectKey{Name: name}, &cloud); err != nil {
+		err := apiClient.Get(ctx, client.ObjectKey{Name: name}, &cloud)
+		if err != nil {
 			t.Fatalf("get NSXNetworkCloud %q: %v", name, err)
 		}
 		for _, condition := range cloud.Status.Conditions {
@@ -776,7 +768,9 @@ func requireObservedLogField(ctx context.Context, t *testing.T, logs *observer.O
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		for _, entry := range logs.FilterMessage(message).All() {
+		entries := logs.FilterMessage(message).All()
+		for entryIndex := range entries {
+			entry := entries[entryIndex]
 			for _, field := range entry.Context {
 				if field.Key == key && field.String == want {
 					return

@@ -1,3 +1,4 @@
+// Package statuscondition builds and compares Kubernetes status conditions.
 package statuscondition
 
 import (
@@ -8,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ConditionUpdate describes one condition change to apply to a status object.
 type ConditionUpdate struct {
 	Type    string
 	Status  metav1.ConditionStatus
@@ -15,44 +17,54 @@ type ConditionUpdate struct {
 	Message string
 }
 
+// StatusWriteDecision explains whether a status write is needed.
 type StatusWriteDecision struct {
 	Needed      bool
 	Reason      string
 	DriftFields []string
 }
 
+// RemotePresent creates a RemotePresent condition update.
 func RemotePresent(status metav1.ConditionStatus, reason string, message string) ConditionUpdate {
 	return ConditionUpdate{Type: nsxv1alpha.ConditionRemotePresent, Status: status, Reason: reason, Message: message}
 }
 
+// Reachable creates a Reachable condition update.
 func Reachable(status metav1.ConditionStatus, reason string, message string) ConditionUpdate {
 	return ConditionUpdate{Type: nsxv1alpha.ConditionReachable, Status: status, Reason: reason, Message: message}
 }
 
+// Swept creates a Swept condition update.
 func Swept(status metav1.ConditionStatus, reason string, message string) ConditionUpdate {
 	return ConditionUpdate{Type: nsxv1alpha.ConditionSwept, Status: status, Reason: reason, Message: message}
 }
 
+// SpecMatchesRemote creates a SpecMatchesRemote condition update.
 func SpecMatchesRemote(status metav1.ConditionStatus, reason string, message string) ConditionUpdate {
 	return ConditionUpdate{Type: nsxv1alpha.ConditionSpecMatchesRemote, Status: status, Reason: reason, Message: message}
 }
 
+// UnsupportedExpression creates an UnsupportedExpression condition update.
 func UnsupportedExpression(status metav1.ConditionStatus, reason string, message string) ConditionUpdate {
 	return ConditionUpdate{Type: nsxv1alpha.ConditionUnsupportedExpression, Status: status, Reason: reason, Message: message}
 }
 
+// Realized creates a Realized condition update.
 func Realized(status metav1.ConditionStatus, reason string, message string) ConditionUpdate {
 	return ConditionUpdate{Type: nsxv1alpha.ConditionRealized, Status: status, Reason: reason, Message: message}
 }
 
+// Applying creates an Applying condition update.
 func Applying(status metav1.ConditionStatus, reason string, message string) ConditionUpdate {
 	return ConditionUpdate{Type: nsxv1alpha.ConditionApplying, Status: status, Reason: reason, Message: message}
 }
 
+// Deleting creates a Deleting condition update.
 func Deleting(status metav1.ConditionStatus, reason string, message string) ConditionUpdate {
 	return ConditionUpdate{Type: nsxv1alpha.ConditionDeleting, Status: status, Reason: reason, Message: message}
 }
 
+// Synced creates a Synced condition update from component condition states.
 func Synced(
 	remotePresent metav1.ConditionStatus,
 	specMatchesRemote metav1.ConditionStatus,
@@ -76,6 +88,7 @@ func Synced(
 	return ConditionUpdate{Type: nsxv1alpha.ConditionSynced, Status: status, Reason: reason, Message: message}
 }
 
+// BuildGroupStatus returns a normalized NSXGroup status.
 func BuildGroupStatus(
 	previous nsxv1alpha.NSXGroupStatus,
 	observedGeneration int64,
@@ -93,6 +106,7 @@ func BuildGroupStatus(
 	return nsxv1alpha.NSXGroupStatus{UnsupportedReason: unsupportedReason, Conditions: conditions}, nil
 }
 
+// BuildNetworkCloudStatus returns a normalized NSXNetworkCloud status.
 func BuildNetworkCloudStatus(
 	previous nsxv1alpha.NSXNetworkCloudStatus,
 	observedGeneration int64,
@@ -106,6 +120,7 @@ func BuildNetworkCloudStatus(
 	return nsxv1alpha.NSXNetworkCloudStatus{Conditions: conditions}, nil
 }
 
+// CompareGroupStatus reports whether a group status write is needed.
 func CompareGroupStatus(current nsxv1alpha.NSXGroupStatus, desired nsxv1alpha.NSXGroupStatus) StatusWriteDecision {
 	if current.UnsupportedReason != desired.UnsupportedReason {
 		return StatusWriteDecision{Needed: true, Reason: "unsupported_reason_changed", DriftFields: []string{"unsupportedReason"}}
@@ -113,6 +128,7 @@ func CompareGroupStatus(current nsxv1alpha.NSXGroupStatus, desired nsxv1alpha.NS
 	return compareConditions(current.Conditions, desired.Conditions)
 }
 
+// CompareNetworkCloudStatus reports whether a network cloud status write is needed.
 func CompareNetworkCloudStatus(current nsxv1alpha.NSXNetworkCloudStatus, desired nsxv1alpha.NSXNetworkCloudStatus) StatusWriteDecision {
 	return compareConditions(current.Conditions, desired.Conditions)
 }
@@ -236,6 +252,8 @@ func isStatusUnsupportedReason(reason nsxv1alpha.UnsupportedExpressionReason) bo
 		nsxv1alpha.UnsupportedExpressionReasonUnsupportedPathExpressionFields,
 		nsxv1alpha.UnsupportedExpressionReasonUnsupportedNestedExpression:
 		return true
+	case nsxv1alpha.UnsupportedExpressionReasonSupportedExpression:
+		return false
 	default:
 		return false
 	}

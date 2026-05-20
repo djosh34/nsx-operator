@@ -1,7 +1,9 @@
+// Package config loads and validates nsx-operator configuration.
 package config
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Config is the fully resolved runtime configuration.
 type Config struct {
 	Operator        OperatorConfig
 	HTTPRateLimiter HTTPRateLimiterConfig
@@ -24,22 +27,26 @@ type Config struct {
 	Logging         LoggingConfig
 }
 
+// OperatorConfig controls operator process behavior.
 type OperatorConfig struct {
 	TickInterval       time.Duration
 	MetricsBindAddress string
 }
 
+// HTTPRateLimiterConfig controls NSX HTTP client rate limiting.
 type HTTPRateLimiterConfig struct {
 	MaxRequestsInFlightPerHost  int
 	MaxRequestsPerSecondPerHost int
 }
 
+// KubeAPIConfig controls Kubernetes API batch behavior.
 type KubeAPIConfig struct {
 	NumParallelWorkers   int
 	MaxRequestsPerSecond int
 	MaxRequestsInFlight  int
 }
 
+// NSXConfig contains NSX endpoint, auth, write, and TLS settings.
 type NSXConfig struct {
 	URLScheme               string
 	WritesEnabled           bool
@@ -48,30 +55,40 @@ type NSXConfig struct {
 	TLS                     TLSConfig
 }
 
+// BasicAuth contains resolved NSX basic auth credentials.
 type BasicAuth struct {
 	Username string
 	Password string
 	Source   CredentialSource
 }
 
+// CredentialSource identifies where NSX credentials were resolved from.
 type CredentialSource string
 
 const (
-	CredentialSourceEnvScript    CredentialSource = "env_script"
-	CredentialSourceEnv          CredentialSource = "env"
-	CredentialSourceEnvFiles     CredentialSource = "env_files"
+	// CredentialSourceEnvScript means credentials came from an environment script.
+	CredentialSourceEnvScript CredentialSource = "env_script"
+	// CredentialSourceEnv means credentials came from environment variables.
+	CredentialSourceEnv CredentialSource = "env"
+	// CredentialSourceEnvFiles means credentials came from environment-named files.
+	CredentialSourceEnvFiles CredentialSource = "env_files"
+	// CredentialSourceConfigValues means credentials came from config values.
 	CredentialSourceConfigValues CredentialSource = "config_values"
-	CredentialSourceConfigFiles  CredentialSource = "config_files"
+	// CredentialSourceConfigFiles means credentials came from files named in config.
+	CredentialSourceConfigFiles CredentialSource = "config_files"
 )
 
+// TLSConfig controls NSX TLS trust configuration.
 type TLSConfig struct {
 	CABundleFile string
 }
 
+// LoggingConfig controls zap logger configuration.
 type LoggingConfig struct {
 	Level string
 }
 
+// Options controls how configuration is loaded.
 type Options struct {
 	Path          string
 	EnvScriptPath string
@@ -126,6 +143,7 @@ type rawLoggingConfig struct {
 	Level string `yaml:"level"`
 }
 
+// Load reads, validates, and resolves the operator configuration.
 func Load(options Options) (Config, error) {
 	if options.Path == "" {
 		return Config{}, errors.New("config path is required")
@@ -137,7 +155,8 @@ func Load(options Options) (Config, error) {
 	}
 
 	var raw rawConfig
-	if err := yaml.Unmarshal(content, &raw); err != nil {
+	err = yaml.Unmarshal(content, &raw)
+	if err != nil {
 		return Config{}, fmt.Errorf("parse config yaml: %w", err)
 	}
 
@@ -163,7 +182,8 @@ func Load(options Options) (Config, error) {
 		return Config{}, err
 	}
 	if raw.NSX.TLS.CABundleFile != "" {
-		if _, err := os.Stat(raw.NSX.TLS.CABundleFile); err != nil {
+		_, err = os.Stat(raw.NSX.TLS.CABundleFile)
+		if err != nil {
 			return Config{}, fmt.Errorf("validate nsx.tls.caBundleFile %q: %w", raw.NSX.TLS.CABundleFile, err)
 		}
 	}
@@ -356,13 +376,16 @@ func resolveEnvScriptBasicAuth(path string, logger *zap.Logger) (BasicAuth, erro
 		zap.Int("interpreter_arg_count", len(args)),
 	)
 
-	commandArgs := append(args, path)
-	command := exec.Command(interpreter, commandArgs...)
+	args = append(args, path)
+	commandCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(commandCtx, interpreter, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	if err := command.Run(); err != nil {
+	err = command.Run()
+	if err != nil {
 		var exitError *exec.ExitError
 		exitCode := -1
 		if errors.As(err, &exitError) {

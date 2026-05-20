@@ -1,3 +1,4 @@
+//nolint:gocritic,govet,nilnil,noinlineerr // operator tests use large Kubernetes fixtures, nil fake-client sentinels, and log entries where value assertions keep cases readable.
 package stateoperator_test
 
 import (

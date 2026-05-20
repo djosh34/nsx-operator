@@ -32,29 +32,32 @@ func TestGroupBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if _, _, err := client.Groups().CreateBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupCreateRequest{
+	_, _, err = client.Groups().CreateBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupCreateRequest{
 		batchKey("create", "nsxgroups", "", "group-create"): {
 			Object: groupObject("group-create", ""),
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateBatch() error = %v", err)
 	}
-	if _, _, err := client.Groups().UpdateBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupUpdateRequest{
+	_, _, err = client.Groups().UpdateBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupUpdateRequest{
 		batchKey("update", "nsxgroups", "", "group-update"): {
 			Object: groupObject("group-update", "rv-update"),
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("UpdateBatch() error = %v", err)
 	}
-	if _, _, err := client.Groups().ApplyBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupApplyRequest{
+	_, _, err = client.Groups().ApplyBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupApplyRequest{
 		batchKey("apply", "nsxgroups", "", "group-apply"): {
 			Object:  groupObject("group-apply", "rv-ignored"),
 			Options: kubeapi.ApplyOptions{FieldManager: "batch-test", Force: true},
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("ApplyBatch() error = %v", err)
 	}
-	if _, _, err := client.Groups().UpdateStatusBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupStatusUpdateRequest{
+	_, _, err = client.Groups().UpdateStatusBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupStatusUpdateRequest{
 		batchKey("updateStatus", "nsxgroups", "status", "group-status"): {
 			Name: "group-status",
 			Status: nsxv1alpha.NSXGroupStatus{
@@ -62,23 +65,26 @@ func TestGroupBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 			},
 			Options: kubeapi.StatusUpdateOptions{ResourceVersion: "rv-status"},
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("UpdateStatusBatch() error = %v", err)
 	}
-	if _, _, err := client.Groups().PatchFinalizersBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupFinalizerPatchRequest{
+	_, _, err = client.Groups().PatchFinalizersBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupFinalizerPatchRequest{
 		batchKey("patchFinalizers", "nsxgroups", "finalizers", "group-finalizer"): {
 			Name:            "group-finalizer",
 			ResourceVersion: "rv-finalizer",
 			Finalizers:      []string{"keep.io/finalizer"},
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("PatchFinalizersBatch() error = %v", err)
 	}
-	if _, _, err := client.Groups().DeleteBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupDeleteRequest{
+	_, _, err = client.Groups().DeleteBatch(ctx, map[kubeapi.BatchKey]kubeapi.GroupDeleteRequest{
 		batchKey("delete", "nsxgroups", "", "group-delete"): {
 			Name: "group-delete",
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("DeleteBatch() error = %v", err)
 	}
 
@@ -93,7 +99,8 @@ func TestGroupBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 
 	update := requireRequest(t, records, http.MethodPut, "/apis/nsx.ing.com/v1alpha/nsxgroups/group-update")
 	var updated nsxv1alpha.NSXGroup
-	if err := json.Unmarshal(update.body, &updated); err != nil {
+	err = json.Unmarshal(update.body, &updated)
+	if err != nil {
 		t.Fatalf("decode update body: %v", err)
 	}
 	if updated.ResourceVersion != "rv-update" {
@@ -102,7 +109,8 @@ func TestGroupBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 
 	status := requireRequest(t, records, http.MethodPut, "/apis/nsx.ing.com/v1alpha/nsxgroups/group-status/status")
 	var statusBody nsxv1alpha.NSXGroup
-	if err := json.Unmarshal(status.body, &statusBody); err != nil {
+	err = json.Unmarshal(status.body, &statusBody)
+	if err != nil {
 		t.Fatalf("decode status body: %v", err)
 	}
 	if statusBody.Status.UnsupportedReason != nsxv1alpha.UnsupportedExpressionReasonSupportedExpression {
@@ -114,7 +122,8 @@ func TestGroupBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 		t.Fatalf("finalizer patch content type = %q, want json patch", finalizerPatch.contentType)
 	}
 	var patch []kubeapi.JSONPatchOperation
-	if err := json.Unmarshal(finalizerPatch.body, &patch); err != nil {
+	err = json.Unmarshal(finalizerPatch.body, &patch)
+	if err != nil {
 		t.Fatalf("decode finalizer patch body: %v", err)
 	}
 	if len(patch) != 2 {
@@ -144,29 +153,32 @@ func TestNetworkCloudBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if _, _, err := client.NetworkClouds().CreateBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudCreateRequest{
+	_, _, err = client.NetworkClouds().CreateBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudCreateRequest{
 		batchKey("create", "nsxnetworkclouds", "", "cloud-create"): {
 			Object: networkCloudObject("cloud-create", ""),
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateBatch() error = %v", err)
 	}
-	if _, _, err := client.NetworkClouds().UpdateBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudUpdateRequest{
+	_, _, err = client.NetworkClouds().UpdateBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudUpdateRequest{
 		batchKey("update", "nsxnetworkclouds", "", "cloud-update"): {
 			Object: networkCloudObject("cloud-update", "rv-update"),
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("UpdateBatch() error = %v", err)
 	}
-	if _, _, err := client.NetworkClouds().ApplyBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudApplyRequest{
+	_, _, err = client.NetworkClouds().ApplyBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudApplyRequest{
 		batchKey("apply", "nsxnetworkclouds", "", "cloud-apply"): {
 			Object:  networkCloudObject("cloud-apply", "rv-ignored"),
 			Options: kubeapi.ApplyOptions{FieldManager: "batch-test", Force: true},
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("ApplyBatch() error = %v", err)
 	}
-	if _, _, err := client.NetworkClouds().UpdateStatusBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudStatusUpdateRequest{
+	_, _, err = client.NetworkClouds().UpdateStatusBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudStatusUpdateRequest{
 		batchKey("updateStatus", "nsxnetworkclouds", "status", "cloud-status"): {
 			Name: "cloud-status",
 			Status: nsxv1alpha.NSXNetworkCloudStatus{
@@ -174,23 +186,26 @@ func TestNetworkCloudBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 			},
 			Options: kubeapi.StatusUpdateOptions{ResourceVersion: "rv-status"},
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("UpdateStatusBatch() error = %v", err)
 	}
-	if _, _, err := client.NetworkClouds().PatchFinalizersBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudFinalizerPatchRequest{
+	_, _, err = client.NetworkClouds().PatchFinalizersBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudFinalizerPatchRequest{
 		batchKey("patchFinalizers", "nsxnetworkclouds", "finalizers", "cloud-finalizer"): {
 			Name:            "cloud-finalizer",
 			ResourceVersion: "rv-finalizer",
 			Finalizers:      []string{"keep.io/finalizer"},
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("PatchFinalizersBatch() error = %v", err)
 	}
-	if _, _, err := client.NetworkClouds().DeleteBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudDeleteRequest{
+	_, _, err = client.NetworkClouds().DeleteBatch(ctx, map[kubeapi.BatchKey]kubeapi.NetworkCloudDeleteRequest{
 		batchKey("delete", "nsxnetworkclouds", "", "cloud-delete"): {
 			Name: "cloud-delete",
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("DeleteBatch() error = %v", err)
 	}
 
@@ -205,7 +220,8 @@ func TestNetworkCloudBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 
 	update := requireRequest(t, records, http.MethodPut, "/apis/nsx.ing.com/v1alpha/nsxnetworkclouds/cloud-update")
 	var updated nsxv1alpha.NSXNetworkCloud
-	if err := json.Unmarshal(update.body, &updated); err != nil {
+	err = json.Unmarshal(update.body, &updated)
+	if err != nil {
 		t.Fatalf("decode update body: %v", err)
 	}
 	if updated.ResourceVersion != "rv-update" {
@@ -214,7 +230,8 @@ func TestNetworkCloudBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 
 	status := requireRequest(t, records, http.MethodPut, "/apis/nsx.ing.com/v1alpha/nsxnetworkclouds/cloud-status/status")
 	var statusBody nsxv1alpha.NSXNetworkCloud
-	if err := json.Unmarshal(status.body, &statusBody); err != nil {
+	err = json.Unmarshal(status.body, &statusBody)
+	if err != nil {
 		t.Fatalf("decode status body: %v", err)
 	}
 	if len(statusBody.Status.Conditions) != 1 || statusBody.Status.Conditions[0].Type != nsxv1alpha.ConditionReachable {
@@ -223,7 +240,8 @@ func TestNetworkCloudBatchMethodsUseExpectedKubeAPIRequests(t *testing.T) {
 
 	finalizerPatch := requireRequest(t, records, http.MethodPatch, "/apis/nsx.ing.com/v1alpha/nsxnetworkclouds/cloud-finalizer")
 	var patch []kubeapi.JSONPatchOperation
-	if err := json.Unmarshal(finalizerPatch.body, &patch); err != nil {
+	err = json.Unmarshal(finalizerPatch.body, &patch)
+	if err != nil {
 		t.Fatalf("decode finalizer patch body: %v", err)
 	}
 	if len(patch) != 2 || patch[0].Op != "test" || patch[1].Path != "/metadata/finalizers" {
@@ -259,8 +277,9 @@ func (s *recordingKubeAPIServer) handle(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, fmt.Sprintf("read body: %v", err), http.StatusInternalServerError)
 		return
 	}
-	if err := r.Body.Close(); err != nil {
-		http.Error(w, fmt.Sprintf("close body: %v", err), http.StatusInternalServerError)
+	closeErr := r.Body.Close()
+	if closeErr != nil {
+		http.Error(w, fmt.Sprintf("close body: %v", closeErr), http.StatusInternalServerError)
 		return
 	}
 	s.mu.Lock()
@@ -274,21 +293,24 @@ func (s *recordingKubeAPIServer) handle(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodDelete {
-		if err := json.NewEncoder(w).Encode(&metav1.Status{Status: metav1.StatusSuccess}); err != nil {
-			s.t.Errorf("encode delete response: %v", err)
+		encodeErr := json.NewEncoder(w).Encode(&metav1.Status{Status: metav1.StatusSuccess})
+		if encodeErr != nil {
+			s.t.Errorf("encode delete response: %v", encodeErr)
 		}
 		return
 	}
 	name := resourceNameFromPath(r.URL.Path)
 	if strings.Contains(r.URL.Path, "/nsxgroups") {
-		if err := json.NewEncoder(w).Encode(groupObject(name, "rv-response")); err != nil {
-			s.t.Errorf("encode group response: %v", err)
+		encodeErr := json.NewEncoder(w).Encode(groupObject(name, "rv-response"))
+		if encodeErr != nil {
+			s.t.Errorf("encode group response: %v", encodeErr)
 		}
 		return
 	}
 	if strings.Contains(r.URL.Path, "/nsxnetworkclouds") {
-		if err := json.NewEncoder(w).Encode(networkCloudObject(name, "rv-response")); err != nil {
-			s.t.Errorf("encode network cloud response: %v", err)
+		encodeErr := json.NewEncoder(w).Encode(networkCloudObject(name, "rv-response"))
+		if encodeErr != nil {
+			s.t.Errorf("encode network cloud response: %v", encodeErr)
 		}
 		return
 	}

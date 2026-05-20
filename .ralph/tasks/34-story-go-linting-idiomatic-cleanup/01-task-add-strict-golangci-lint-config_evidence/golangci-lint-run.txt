@@ -1,0 +1,4 @@
+$ ./.bin/golangci-lint run ./...
+0 issues.
+
+exit status: 0

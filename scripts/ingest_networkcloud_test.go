@@ -2,12 +2,14 @@ package scripts
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -30,7 +32,8 @@ func TestIngestNetworkCloudAppliesManifestFromStdin(t *testing.T) {
 
 	tempDir := t.TempDir()
 	binDir := filepath.Join(tempDir, "bin")
-	if err := os.Mkdir(binDir, 0o755); err != nil {
+	err := os.Mkdir(binDir, 0o755)
+	if err != nil {
 		t.Fatalf("create fake bin dir: %v", err)
 	}
 
@@ -52,7 +55,9 @@ fi
 cat >"${CAPTURED_MANIFEST_PATH}"
 `)
 
-	cmd := exec.Command("./ingest-networkcloud.sh")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	cmd := exec.CommandContext(ctx, "./ingest-networkcloud.sh")
 	cmd.Dir = filepath.Dir(scriptTestFilePath(t))
 	cmd.Env = append(
 		os.Environ(),
@@ -72,7 +77,8 @@ cat >"${CAPTURED_MANIFEST_PATH}"
 	}
 
 	var manifest networkCloudManifest
-	if err := yaml.Unmarshal(rawManifest, &manifest); err != nil {
+	err = yaml.Unmarshal(rawManifest, &manifest)
+	if err != nil {
 		t.Fatalf("parse captured manifest as yaml: %v\n%s", err, rawManifest)
 	}
 
@@ -101,7 +107,8 @@ func TestIngestNetworkCloudReportsMissingRequiredTool(t *testing.T) {
 
 	tempDir := t.TempDir()
 	binDir := filepath.Join(tempDir, "bin")
-	if err := os.Mkdir(binDir, 0o755); err != nil {
+	err := os.Mkdir(binDir, 0o755)
+	if err != nil {
 		t.Fatalf("create fake bin dir: %v", err)
 	}
 
@@ -109,7 +116,8 @@ func TestIngestNetworkCloudReportsMissingRequiredTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find bash: %v", err)
 	}
-	if err := os.Symlink(realBash, filepath.Join(binDir, "bash")); err != nil {
+	err = os.Symlink(realBash, filepath.Join(binDir, "bash"))
+	if err != nil {
 		t.Fatalf("link bash into fake path: %v", err)
 	}
 	writeExecutable(t, filepath.Join(binDir, "jq"), `#!/usr/bin/env bash
@@ -117,7 +125,9 @@ set -euo pipefail
 cat
 `)
 
-	cmd := exec.Command("./ingest-networkcloud.sh")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	cmd := exec.CommandContext(ctx, "./ingest-networkcloud.sh")
 	cmd.Dir = filepath.Dir(scriptTestFilePath(t))
 	cmd.Env = append(os.Environ(), "PATH="+binDir)
 	cmd.Stdin = bytes.NewBufferString(`{"name":"cloud-a","fqdn":"nsx-a.example.net","id":"cloud-a-id"}`)
@@ -134,7 +144,8 @@ cat
 func writeExecutable(t *testing.T, path string, content string) {
 	t.Helper()
 
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+	err := os.WriteFile(path, []byte(content), 0o755)
+	if err != nil {
 		t.Fatalf("write executable %s: %v", path, err)
 	}
 }

@@ -1,0 +1,13 @@
+$ ./.bin/golangci-lint formatters
+
+Enabled by your configuration formatters:
+gofmt: Check if the code is formatted according to 'gofmt' command.
+gofumpt: Check if code and import statements are formatted, with additional rules.
+goimports: Checks if the code and import statements are formatted according to the 'goimports' command.
+
+Disabled by your configuration formatters:
+gci: Check if code and import statements are formatted, with additional rules.
+golines: Checks if code is formatted, and fixes long lines.
+swaggo: Check if swaggo comments are formatted.
+
+exit status: 0

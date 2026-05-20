@@ -1,3 +1,4 @@
+// Package names derives stable Kubernetes object names for NSX resources.
 package names
 
 import (
@@ -12,11 +13,13 @@ const (
 	truncatedNameHashLength   = 16
 )
 
+// NSXGroupLogicalID identifies an NSX group within a network cloud.
 type NSXGroupLogicalID struct {
 	NetworkCloudFQDN string
 	GroupID          string
 }
 
+// NormalizeNetworkCloudFQDN normalizes a configured NSX manager host value.
 func NormalizeNetworkCloudFQDN(value string) string {
 	trimmed := strings.TrimSpace(value)
 	trimmed = strings.TrimRight(trimmed, "/")
@@ -30,6 +33,7 @@ func NormalizeNetworkCloudFQDN(value string) string {
 	return strings.ToLower(trimmed)
 }
 
+// NSXGroupName returns the Kubernetes metadata name for an NSX group.
 func NSXGroupName(id NSXGroupLogicalID) string {
 	cloud := NormalizeNetworkCloudFQDN(id.NetworkCloudFQDN)
 	cloud = strings.ReplaceAll(cloud, ":", "-")

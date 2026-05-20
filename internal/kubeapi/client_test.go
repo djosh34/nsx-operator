@@ -95,10 +95,12 @@ func TestGroupClientCreatesGetsAndListsBySelectableFields(t *testing.T) {
 			CIDRs:            []string{"10.1.0.0/24"},
 		},
 	}
-	if _, err := client.Groups().Create(ctx, first, metav1.CreateOptions{}); err != nil {
+	_, err := client.Groups().Create(ctx, first, metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("Create(first) error = %v", err)
 	}
-	if _, err := client.Groups().Create(ctx, second, metav1.CreateOptions{}); err != nil {
+	_, err = client.Groups().Create(ctx, second, metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("Create(second) error = %v", err)
 	}
 
@@ -131,7 +133,8 @@ func TestTypedClientRecordsKubernetesAPIMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Groups().Create() error = %v", err)
 	}
-	if _, err := client.Groups().List(ctx, kubeapi.ListOptions{}); err != nil {
+	_, err = client.Groups().List(ctx, kubeapi.ListOptions{})
+	if err != nil {
 		t.Fatalf("Groups().List() error = %v", err)
 	}
 	created.Spec.DisplayName = "Metrics Updated"
@@ -139,10 +142,12 @@ func TestTypedClientRecordsKubernetesAPIMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Groups().Update() error = %v", err)
 	}
-	if _, err := client.Groups().UpdateStatus(ctx, "group-metrics", nsxv1alpha.NSXGroupStatus{}, kubeapi.StatusUpdateOptions{ResourceVersion: updated.ResourceVersion}); err != nil {
+	_, err = client.Groups().UpdateStatus(ctx, "group-metrics", nsxv1alpha.NSXGroupStatus{}, kubeapi.StatusUpdateOptions{ResourceVersion: updated.ResourceVersion})
+	if err != nil {
 		t.Fatalf("Groups().UpdateStatus() error = %v", err)
 	}
-	if err := client.Groups().Delete(ctx, "group-metrics", metav1.DeleteOptions{}); err != nil {
+	err = client.Groups().Delete(ctx, "group-metrics", metav1.DeleteOptions{})
+	if err != nil {
 		t.Fatalf("Groups().Delete() error = %v", err)
 	}
 
@@ -155,7 +160,8 @@ nsx_operator_kubernetes_api_calls_total{function="groups.list"} 1
 nsx_operator_kubernetes_api_calls_total{function="groups.update"} 1
 nsx_operator_kubernetes_api_calls_total{function="groups.update_status"} 1
 `
-	if err := testutil.GatherAndCompare(registry, strings.NewReader(expected), "nsx_operator_kubernetes_api_calls_total"); err != nil {
+	err = testutil.GatherAndCompare(registry, strings.NewReader(expected), "nsx_operator_kubernetes_api_calls_total")
+	if err != nil {
 		t.Fatalf("gather kubernetes api call metrics: %v", err)
 	}
 	for _, function := range []string{"groups.create", "groups.list", "groups.update", "groups.update_status", "groups.delete"} {
@@ -170,6 +176,7 @@ nsx_operator_kubernetes_api_calls_total{function="groups.update_status"} 1
 	}
 }
 
+//nolint:revive // test helpers conventionally accept *testing.T first.
 func requireGroupNames(t *testing.T, ctx context.Context, client *kubeapi.Client, filter kubeapi.FieldFilter, want []string) {
 	t.Helper()
 	list, err := client.Groups().List(ctx, kubeapi.ListOptions{Filters: []kubeapi.FieldFilter{filter}})
@@ -215,7 +222,8 @@ func TestUpdateRequiresResourceVersionAndPersistsFetchedObjectChanges(t *testing
 	withoutResourceVersion := created.DeepCopy()
 	withoutResourceVersion.ResourceVersion = ""
 	withoutResourceVersion.Spec.Name = "Should Not Persist"
-	if _, err := client.NetworkClouds().Update(ctx, withoutResourceVersion, metav1.UpdateOptions{}); err == nil {
+	_, err = client.NetworkClouds().Update(ctx, withoutResourceVersion, metav1.UpdateOptions{})
+	if err == nil {
 		t.Fatal("Update() error = nil, want resourceVersion validation error")
 	}
 	unchanged, err := client.NetworkClouds().Get(ctx, "cloud-update", metav1.GetOptions{})
@@ -319,7 +327,8 @@ func TestApplyRequiresFieldManagerAndUsesServerSideApply(t *testing.T) {
 	t.Cleanup(cancel)
 
 	object := group("group-apply", "nsx-apply.example.net", "app-apply", nsxv1alpha.NSXGroupModeObserve)
-	if _, err := client.Groups().Apply(ctx, object, kubeapi.ApplyOptions{}); err == nil {
+	_, err := client.Groups().Apply(ctx, object, kubeapi.ApplyOptions{})
+	if err == nil {
 		t.Fatal("Apply() error = nil, want fieldManager validation error")
 	}
 	applied, err := client.Groups().Apply(ctx, object, kubeapi.ApplyOptions{FieldManager: "kubeapi-test", Force: true})
@@ -356,13 +365,15 @@ func TestDeleteRemovesTypedObject(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	if _, err := client.NetworkClouds().Create(ctx, networkCloud("cloud-delete", "nsx-delete.example.net"), metav1.CreateOptions{}); err != nil {
+	_, err := client.NetworkClouds().Create(ctx, networkCloud("cloud-delete", "nsx-delete.example.net"), metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if err := client.NetworkClouds().Delete(ctx, "cloud-delete", metav1.DeleteOptions{}); err != nil {
+	err = client.NetworkClouds().Delete(ctx, "cloud-delete", metav1.DeleteOptions{})
+	if err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
-	_, err := client.NetworkClouds().Get(ctx, "cloud-delete", metav1.GetOptions{})
+	_, err = client.NetworkClouds().Get(ctx, "cloud-delete", metav1.GetOptions{})
 	if err == nil {
 		t.Fatal("Get() error = nil, want not found after delete")
 	}
@@ -370,10 +381,12 @@ func TestDeleteRemovesTypedObject(t *testing.T) {
 		t.Fatalf("Get() error = %T %[1]v, want Kubernetes not found", err)
 	}
 
-	if _, err := client.Groups().Create(ctx, group("group-delete", "nsx-delete.example.net", "app-delete", nsxv1alpha.NSXGroupModeManage), metav1.CreateOptions{}); err != nil {
+	_, err = client.Groups().Create(ctx, group("group-delete", "nsx-delete.example.net", "app-delete", nsxv1alpha.NSXGroupModeManage), metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("Groups().Create() error = %v", err)
 	}
-	if err := client.Groups().Delete(ctx, "group-delete", metav1.DeleteOptions{}); err != nil {
+	err = client.Groups().Delete(ctx, "group-delete", metav1.DeleteOptions{})
+	if err != nil {
 		t.Fatalf("Groups().Delete() error = %v", err)
 	}
 	_, err = client.Groups().Get(ctx, "group-delete", metav1.GetOptions{})
@@ -400,7 +413,8 @@ func TestWatchEmitsTypedEventsForFieldSelector(t *testing.T) {
 	}
 	t.Cleanup(watcher.Stop)
 
-	if _, err := client.Groups().Create(ctx, group("group-watch", "nsx-watch.example.net", "watched-app", nsxv1alpha.NSXGroupModeManage), metav1.CreateOptions{}); err != nil {
+	_, err = client.Groups().Create(ctx, group("group-watch", "nsx-watch.example.net", "watched-app", nsxv1alpha.NSXGroupModeManage), metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("Create() watched group error = %v", err)
 	}
 	event := requireWatchEvent(t, ctx, watcher.ResultChan())
@@ -419,7 +433,8 @@ func TestWatchEmitsTypedEventsForFieldSelector(t *testing.T) {
 		t.Fatalf("NetworkClouds().Watch() error = %v", err)
 	}
 	t.Cleanup(cloudWatcher.Stop)
-	if _, err := client.NetworkClouds().Create(ctx, networkCloud("cloud-watch", "nsx-cloud-watch.example.net"), metav1.CreateOptions{}); err != nil {
+	_, err = client.NetworkClouds().Create(ctx, networkCloud("cloud-watch", "nsx-cloud-watch.example.net"), metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("Create() watched network cloud error = %v", err)
 	}
 	cloudEvent := requireWatchEvent(t, ctx, cloudWatcher.ResultChan())
@@ -457,7 +472,8 @@ func TestInvalidResourceSpecificFiltersFailBeforeRequest(t *testing.T) {
 }
 
 func TestConstructorValidationNilLoggerAndStructuredLogs(t *testing.T) {
-	if _, err := kubeapi.NewClient(kubeapi.Options{}); err == nil {
+	_, err := kubeapi.NewClient(kubeapi.Options{})
+	if err == nil {
 		t.Fatal("NewClient() error = nil, want nil config validation error")
 	}
 
@@ -468,7 +484,8 @@ func TestConstructorValidationNilLoggerAndStructuredLogs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	if _, err := client.NetworkClouds().Create(ctx, networkCloud("cloud-logs", "nsx-logs.example.net"), metav1.CreateOptions{}); err != nil {
+	_, err = client.NetworkClouds().Create(ctx, networkCloud("cloud-logs", "nsx-logs.example.net"), metav1.CreateOptions{})
+	if err != nil {
 		t.Fatalf("Create() with observed logger error = %v", err)
 	}
 	if logs.FilterMessage("creating typed kubernetes resource").Len() == 0 {
@@ -480,11 +497,13 @@ func TestConstructorValidationNilLoggerAndStructuredLogs(t *testing.T) {
 
 	nilLoggerClient, nilLoggerStop := startClientWithLogger(t, nil)
 	t.Cleanup(nilLoggerStop)
-	if _, err := nilLoggerClient.NetworkClouds().List(ctx, kubeapi.ListOptions{}); err != nil {
+	_, err = nilLoggerClient.NetworkClouds().List(ctx, kubeapi.ListOptions{})
+	if err != nil {
 		t.Fatalf("List() with nil logger client error = %v", err)
 	}
 }
 
+//nolint:revive // test helpers conventionally accept *testing.T first.
 func requireWatchEvent(t *testing.T, ctx context.Context, events <-chan watch.Event) watch.Event {
 	t.Helper()
 	for {
@@ -532,14 +551,16 @@ func startClientWithLoggerAndRecorder(t *testing.T, logger *zap.Logger, recorder
 		Recorder: recorder,
 	})
 	if err != nil {
-		if stopErr := testEnvironment.Stop(); stopErr != nil {
+		stopErr := testEnvironment.Stop()
+		if stopErr != nil {
 			t.Errorf("stop envtest API server after NewClient failure: %v", stopErr)
 		}
 		t.Fatalf("NewClient() error = %v", err)
 	}
 	return client, func() {
-		if err := testEnvironment.Stop(); err != nil {
-			t.Errorf("stop envtest API server: %v", err)
+		stopErr := testEnvironment.Stop()
+		if stopErr != nil {
+			t.Errorf("stop envtest API server: %v", stopErr)
 		}
 	}
 }

@@ -51,9 +51,10 @@ func TestWriteControlForCloudAppliesGlobalOverrideAndPerCloudDisable(t *testing.
 		},
 	}
 
-	for _, tt := range tests {
+	for testIndex := range tests {
+		tt := tests[testIndex]
 		t.Run(tt.name, func(t *testing.T) {
-			got := writeControlForCloud(tt.nsxConfig, tt.cloud)
+			got := writeControlForCloud(&tt.nsxConfig, &tt.cloud)
 			if got.Enabled != tt.wantEnabled {
 				t.Fatalf("Enabled = %t, want %t", got.Enabled, tt.wantEnabled)
 			}

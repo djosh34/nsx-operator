@@ -11,16 +11,19 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// GroupApplyRequest describes one server-side apply request for an NSXGroup.
 type GroupApplyRequest struct {
 	Object  *nsxv1alpha.NSXGroup
 	Options ApplyOptions
 }
 
+// GroupUpdateRequest describes one update request for an NSXGroup.
 type GroupUpdateRequest struct {
 	Object  *nsxv1alpha.NSXGroup
 	Options metav1.UpdateOptions
 }
 
+// GroupFinalizerPatchRequest describes one finalizer patch request for an NSXGroup.
 type GroupFinalizerPatchRequest struct {
 	Name            string
 	ResourceVersion string
@@ -28,32 +31,38 @@ type GroupFinalizerPatchRequest struct {
 	Options         metav1.PatchOptions
 }
 
+// GroupStatusUpdateRequest describes one status update request for an NSXGroup.
 type GroupStatusUpdateRequest struct {
 	Name    string
 	Status  nsxv1alpha.NSXGroupStatus
 	Options StatusUpdateOptions
 }
 
+// GroupCreateRequest describes one create request for an NSXGroup.
 type GroupCreateRequest struct {
 	Object  *nsxv1alpha.NSXGroup
 	Options metav1.CreateOptions
 }
 
+// GroupDeleteRequest describes one delete request for an NSXGroup.
 type GroupDeleteRequest struct {
 	Name    string
 	Options metav1.DeleteOptions
 }
 
+// NetworkCloudApplyRequest describes one server-side apply request for an NSXNetworkCloud.
 type NetworkCloudApplyRequest struct {
 	Object  *nsxv1alpha.NSXNetworkCloud
 	Options ApplyOptions
 }
 
+// NetworkCloudUpdateRequest describes one update request for an NSXNetworkCloud.
 type NetworkCloudUpdateRequest struct {
 	Object  *nsxv1alpha.NSXNetworkCloud
 	Options metav1.UpdateOptions
 }
 
+// NetworkCloudFinalizerPatchRequest describes one finalizer patch request for an NSXNetworkCloud.
 type NetworkCloudFinalizerPatchRequest struct {
 	Name            string
 	ResourceVersion string
@@ -61,22 +70,26 @@ type NetworkCloudFinalizerPatchRequest struct {
 	Options         metav1.PatchOptions
 }
 
+// NetworkCloudStatusUpdateRequest describes one status update request for an NSXNetworkCloud.
 type NetworkCloudStatusUpdateRequest struct {
 	Name    string
 	Status  nsxv1alpha.NSXNetworkCloudStatus
 	Options StatusUpdateOptions
 }
 
+// NetworkCloudCreateRequest describes one create request for an NSXNetworkCloud.
 type NetworkCloudCreateRequest struct {
 	Object  *nsxv1alpha.NSXNetworkCloud
 	Options metav1.CreateOptions
 }
 
+// NetworkCloudDeleteRequest describes one delete request for an NSXNetworkCloud.
 type NetworkCloudDeleteRequest struct {
 	Name    string
 	Options metav1.DeleteOptions
 }
 
+// ApplyBatch applies NSXGroup requests and returns per-item results and errors.
 func (c *GroupClient) ApplyBatch(ctx context.Context, requests map[BatchKey]GroupApplyRequest) (map[BatchKey]*nsxv1alpha.NSXGroup, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[GroupApplyRequest, *nsxv1alpha.NSXGroup]{
 		Operation: "apply",
@@ -87,26 +100,29 @@ func (c *GroupClient) ApplyBatch(ctx context.Context, requests map[BatchKey]Grou
 	}, requests)
 }
 
+// UpdateBatch updates NSXGroup requests and returns per-item results and errors.
 func (c *GroupClient) UpdateBatch(ctx context.Context, requests map[BatchKey]GroupUpdateRequest) (map[BatchKey]*nsxv1alpha.NSXGroup, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[GroupUpdateRequest, *nsxv1alpha.NSXGroup]{
 		Operation: "update",
 		Resource:  groupResource,
 		Execute: func(ctx context.Context, request GroupUpdateRequest) (*nsxv1alpha.NSXGroup, error) {
-			return c.resource.update(ctx, request.Object, request.Options)
+			return c.resource.update(ctx, request.Object, &request.Options)
 		},
 	}, requests)
 }
 
+// PatchFinalizersBatch patches NSXGroup finalizers and returns per-item results and errors.
 func (c *GroupClient) PatchFinalizersBatch(ctx context.Context, requests map[BatchKey]GroupFinalizerPatchRequest) (map[BatchKey]*nsxv1alpha.NSXGroup, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[GroupFinalizerPatchRequest, *nsxv1alpha.NSXGroup]{
 		Operation: "patchFinalizers",
 		Resource:  groupResource,
 		Execute: func(ctx context.Context, request GroupFinalizerPatchRequest) (*nsxv1alpha.NSXGroup, error) {
-			return c.resource.patchFinalizers(ctx, request.Name, request.ResourceVersion, request.Finalizers, request.Options)
+			return c.resource.patchFinalizers(ctx, request.Name, request.ResourceVersion, request.Finalizers, &request.Options)
 		},
 	}, requests)
 }
 
+// UpdateStatusBatch updates NSXGroup statuses and returns per-item results and errors.
 func (c *GroupClient) UpdateStatusBatch(ctx context.Context, requests map[BatchKey]GroupStatusUpdateRequest) (map[BatchKey]*nsxv1alpha.NSXGroup, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[GroupStatusUpdateRequest, *nsxv1alpha.NSXGroup]{
 		Operation: "updateStatus",
@@ -119,27 +135,30 @@ func (c *GroupClient) UpdateStatusBatch(ctx context.Context, requests map[BatchK
 				},
 				Status: request.Status,
 			}
-			return c.resource.updateStatus(ctx, object, request.Options.UpdateOptions)
+			return c.resource.updateStatus(ctx, object, &request.Options.UpdateOptions)
 		},
 	}, requests)
 }
 
+// CreateBatch creates NSXGroup requests and returns per-item results and errors.
 func (c *GroupClient) CreateBatch(ctx context.Context, requests map[BatchKey]GroupCreateRequest) (map[BatchKey]*nsxv1alpha.NSXGroup, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[GroupCreateRequest, *nsxv1alpha.NSXGroup]{
 		Operation: "create",
 		Resource:  groupResource,
 		Execute: func(ctx context.Context, request GroupCreateRequest) (*nsxv1alpha.NSXGroup, error) {
-			return c.resource.create(ctx, request.Object, request.Options)
+			return c.resource.create(ctx, request.Object, &request.Options)
 		},
 	}, requests)
 }
 
+// DeleteBatch deletes NSXGroup requests and returns per-item results and errors.
 func (c *GroupClient) DeleteBatch(ctx context.Context, requests map[BatchKey]GroupDeleteRequest) (map[BatchKey]struct{}, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[GroupDeleteRequest, struct{}]{
 		Operation: "delete",
 		Resource:  groupResource,
 		Execute: func(ctx context.Context, request GroupDeleteRequest) (struct{}, error) {
-			if err := c.resource.delete(ctx, request.Name, request.Options); err != nil {
+			err := c.resource.delete(ctx, request.Name, &request.Options)
+			if err != nil {
 				return struct{}{}, err
 			}
 			return struct{}{}, nil
@@ -147,6 +166,7 @@ func (c *GroupClient) DeleteBatch(ctx context.Context, requests map[BatchKey]Gro
 	}, requests)
 }
 
+// ApplyBatch applies NSXNetworkCloud requests and returns per-item results and errors.
 func (c *NetworkCloudClient) ApplyBatch(ctx context.Context, requests map[BatchKey]NetworkCloudApplyRequest) (map[BatchKey]*nsxv1alpha.NSXNetworkCloud, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[NetworkCloudApplyRequest, *nsxv1alpha.NSXNetworkCloud]{
 		Operation: "apply",
@@ -157,26 +177,29 @@ func (c *NetworkCloudClient) ApplyBatch(ctx context.Context, requests map[BatchK
 	}, requests)
 }
 
+// UpdateBatch updates NSXNetworkCloud requests and returns per-item results and errors.
 func (c *NetworkCloudClient) UpdateBatch(ctx context.Context, requests map[BatchKey]NetworkCloudUpdateRequest) (map[BatchKey]*nsxv1alpha.NSXNetworkCloud, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[NetworkCloudUpdateRequest, *nsxv1alpha.NSXNetworkCloud]{
 		Operation: "update",
 		Resource:  networkCloudResource,
 		Execute: func(ctx context.Context, request NetworkCloudUpdateRequest) (*nsxv1alpha.NSXNetworkCloud, error) {
-			return c.resource.update(ctx, request.Object, request.Options)
+			return c.resource.update(ctx, request.Object, &request.Options)
 		},
 	}, requests)
 }
 
+// PatchFinalizersBatch patches NSXNetworkCloud finalizers and returns per-item results and errors.
 func (c *NetworkCloudClient) PatchFinalizersBatch(ctx context.Context, requests map[BatchKey]NetworkCloudFinalizerPatchRequest) (map[BatchKey]*nsxv1alpha.NSXNetworkCloud, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[NetworkCloudFinalizerPatchRequest, *nsxv1alpha.NSXNetworkCloud]{
 		Operation: "patchFinalizers",
 		Resource:  networkCloudResource,
 		Execute: func(ctx context.Context, request NetworkCloudFinalizerPatchRequest) (*nsxv1alpha.NSXNetworkCloud, error) {
-			return c.resource.patchFinalizers(ctx, request.Name, request.ResourceVersion, request.Finalizers, request.Options)
+			return c.resource.patchFinalizers(ctx, request.Name, request.ResourceVersion, request.Finalizers, &request.Options)
 		},
 	}, requests)
 }
 
+// UpdateStatusBatch updates NSXNetworkCloud statuses and returns per-item results and errors.
 func (c *NetworkCloudClient) UpdateStatusBatch(ctx context.Context, requests map[BatchKey]NetworkCloudStatusUpdateRequest) (map[BatchKey]*nsxv1alpha.NSXNetworkCloud, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[NetworkCloudStatusUpdateRequest, *nsxv1alpha.NSXNetworkCloud]{
 		Operation: "updateStatus",
@@ -189,27 +212,30 @@ func (c *NetworkCloudClient) UpdateStatusBatch(ctx context.Context, requests map
 				},
 				Status: request.Status,
 			}
-			return c.resource.updateStatus(ctx, object, request.Options.UpdateOptions)
+			return c.resource.updateStatus(ctx, object, &request.Options.UpdateOptions)
 		},
 	}, requests)
 }
 
+// CreateBatch creates NSXNetworkCloud requests and returns per-item results and errors.
 func (c *NetworkCloudClient) CreateBatch(ctx context.Context, requests map[BatchKey]NetworkCloudCreateRequest) (map[BatchKey]*nsxv1alpha.NSXNetworkCloud, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[NetworkCloudCreateRequest, *nsxv1alpha.NSXNetworkCloud]{
 		Operation: "create",
 		Resource:  networkCloudResource,
 		Execute: func(ctx context.Context, request NetworkCloudCreateRequest) (*nsxv1alpha.NSXNetworkCloud, error) {
-			return c.resource.create(ctx, request.Object, request.Options)
+			return c.resource.create(ctx, request.Object, &request.Options)
 		},
 	}, requests)
 }
 
+// DeleteBatch deletes NSXNetworkCloud requests and returns per-item results and errors.
 func (c *NetworkCloudClient) DeleteBatch(ctx context.Context, requests map[BatchKey]NetworkCloudDeleteRequest) (map[BatchKey]struct{}, map[BatchKey]error, error) {
 	return ExecuteBatch(ctx, c.resource.batchConfig, c.resource.log, BatchOperation[NetworkCloudDeleteRequest, struct{}]{
 		Operation: "delete",
 		Resource:  networkCloudResource,
 		Execute: func(ctx context.Context, request NetworkCloudDeleteRequest) (struct{}, error) {
-			if err := c.resource.delete(ctx, request.Name, request.Options); err != nil {
+			err := c.resource.delete(ctx, request.Name, &request.Options)
+			if err != nil {
 				return struct{}{}, err
 			}
 			return struct{}{}, nil
@@ -217,7 +243,7 @@ func (c *NetworkCloudClient) DeleteBatch(ctx context.Context, requests map[Batch
 	}, requests)
 }
 
-func (r typedResource[Object, List]) patchFinalizers(ctx context.Context, name string, resourceVersion string, finalizers []string, options metav1.PatchOptions) (Object, error) {
+func (r typedResource[Object, List]) patchFinalizers(ctx context.Context, name string, resourceVersion string, finalizers []string, options *metav1.PatchOptions) (Object, error) {
 	operations := make([]JSONPatchOperation, 0, 2)
 	if resourceVersion != "" {
 		operations = append(operations, JSONPatchOperation{
@@ -241,7 +267,7 @@ func (r typedResource[Object, List]) patchFinalizers(ctx context.Context, name s
 	err = r.restClient.Patch(types.JSONPatchType).
 		Resource(r.resource).
 		Name(name).
-		VersionedParams(&options, r.parameterCodec).
+		VersionedParams(options, r.parameterCodec).
 		Body(body).
 		SetHeader("Content-Type", string(types.JSONPatchType)).
 		Do(ctx).

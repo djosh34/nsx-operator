@@ -45,37 +45,41 @@ func TestRoundTripperSharesInFlightBucketAcrossWrappersForSameEffectiveHostPort(
 		t.Fatalf("send first request: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := firstResponse.Body.Close(); err != nil {
-			t.Errorf("close first response body cleanup: %v", err)
+		closeErr := firstResponse.Body.Close()
+		if closeErr != nil {
+			t.Errorf("close first response body cleanup: %v", closeErr)
 		}
 	})
 	receiveSignal(t, firstEntered, "first transport entered")
 
 	secondDone := make(chan error, 1)
 	go func() {
-		secondRequest, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.test:443/other", nil)
-		if err != nil {
-			secondDone <- err
+		secondRequest, requestErr := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.test:443/other", nil)
+		if requestErr != nil {
+			secondDone <- requestErr
 			return
 		}
-		secondResponse, err := secondClient.Do(secondRequest)
-		if err != nil {
-			secondDone <- err
+		secondResponse, requestErr := secondClient.Do(secondRequest)
+		if requestErr != nil {
+			secondDone <- requestErr
 			return
 		}
-		if err := secondResponse.Body.Close(); err != nil {
-			secondDone <- err
+		requestErr = secondResponse.Body.Close()
+		if requestErr != nil {
+			secondDone <- requestErr
 			return
 		}
 		secondDone <- nil
 	}()
 
-	assertNoSignal(t, secondEntered, 50*time.Millisecond, "second transport entered before first body closed")
-	if err := firstResponse.Body.Close(); err != nil {
+	assertNoSignal(t, secondEntered, "second transport entered before first body closed")
+	err = firstResponse.Body.Close()
+	if err != nil {
 		t.Fatalf("close first response body: %v", err)
 	}
 	receiveSignal(t, secondEntered, "second transport entered after first body closed")
-	if err := receiveError(t, secondDone, "second request completed"); err != nil {
+	err = receiveError(t, secondDone, "second request completed")
+	if err != nil {
 		t.Fatalf("second request: %v", err)
 	}
 }
@@ -113,36 +117,40 @@ func TestRoundTripperIsolatesDifferentPorts(t *testing.T) {
 		t.Fatalf("send first request: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := firstResponse.Body.Close(); err != nil {
-			t.Errorf("close first response body cleanup: %v", err)
+		closeErr := firstResponse.Body.Close()
+		if closeErr != nil {
+			t.Errorf("close first response body cleanup: %v", closeErr)
 		}
 	})
 	receiveSignal(t, firstEntered, "first transport entered")
 
 	secondDone := make(chan error, 1)
 	go func() {
-		secondRequest, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://ports-isolated.test:8443/other", nil)
-		if err != nil {
-			secondDone <- err
+		secondRequest, requestErr := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://ports-isolated.test:8443/other", nil)
+		if requestErr != nil {
+			secondDone <- requestErr
 			return
 		}
-		secondResponse, err := client.Do(secondRequest)
-		if err != nil {
-			secondDone <- err
+		secondResponse, requestErr := client.Do(secondRequest)
+		if requestErr != nil {
+			secondDone <- requestErr
 			return
 		}
-		if err := secondResponse.Body.Close(); err != nil {
-			secondDone <- err
+		requestErr = secondResponse.Body.Close()
+		if requestErr != nil {
+			secondDone <- requestErr
 			return
 		}
 		secondDone <- nil
 	}()
 
 	receiveSignal(t, secondEntered, "second transport entered for different port")
-	if err := receiveError(t, secondDone, "second request completed"); err != nil {
+	err = receiveError(t, secondDone, "second request completed")
+	if err != nil {
 		t.Fatalf("second request: %v", err)
 	}
-	if err := firstResponse.Body.Close(); err != nil {
+	err = firstResponse.Body.Close()
+	if err != nil {
 		t.Fatalf("close first response body: %v", err)
 	}
 }
@@ -180,37 +188,41 @@ func TestRoundTripperNormalizesHTTPDefaultPort(t *testing.T) {
 		t.Fatalf("send first request: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := firstResponse.Body.Close(); err != nil {
-			t.Errorf("close first response body cleanup: %v", err)
+		closeErr := firstResponse.Body.Close()
+		if closeErr != nil {
+			t.Errorf("close first response body cleanup: %v", closeErr)
 		}
 	})
 	receiveSignal(t, firstEntered, "first transport entered")
 
 	secondDone := make(chan error, 1)
 	go func() {
-		secondRequest, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://http-default.test:80/other", nil)
-		if err != nil {
-			secondDone <- err
+		secondRequest, requestErr := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://http-default.test:80/other", nil)
+		if requestErr != nil {
+			secondDone <- requestErr
 			return
 		}
-		secondResponse, err := client.Do(secondRequest)
-		if err != nil {
-			secondDone <- err
+		secondResponse, requestErr := client.Do(secondRequest)
+		if requestErr != nil {
+			secondDone <- requestErr
 			return
 		}
-		if err := secondResponse.Body.Close(); err != nil {
-			secondDone <- err
+		requestErr = secondResponse.Body.Close()
+		if requestErr != nil {
+			secondDone <- requestErr
 			return
 		}
 		secondDone <- nil
 	}()
 
-	assertNoSignal(t, secondEntered, 50*time.Millisecond, "second transport entered before first HTTP default-port body closed")
-	if err := firstResponse.Body.Close(); err != nil {
+	assertNoSignal(t, secondEntered, "second transport entered before first HTTP default-port body closed")
+	err = firstResponse.Body.Close()
+	if err != nil {
 		t.Fatalf("close first response body: %v", err)
 	}
 	receiveSignal(t, secondEntered, "second transport entered after first HTTP default-port body closed")
-	if err := receiveError(t, secondDone, "second request completed"); err != nil {
+	err = receiveError(t, secondDone, "second request completed")
+	if err != nil {
 		t.Fatalf("second request: %v", err)
 	}
 }
@@ -248,8 +260,9 @@ func TestRoundTripperReturnsContextErrorWhileWaitingForInFlightSlot(t *testing.T
 		t.Fatalf("send first request: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := firstResponse.Body.Close(); err != nil {
-			t.Errorf("close first response body cleanup: %v", err)
+		closeErr := firstResponse.Body.Close()
+		if closeErr != nil {
+			t.Errorf("close first response body cleanup: %v", closeErr)
 		}
 	})
 	receiveSignal(t, firstEntered, "first transport entered")
@@ -262,14 +275,19 @@ func TestRoundTripperReturnsContextErrorWhileWaitingForInFlightSlot(t *testing.T
 	}
 	secondResponse, err := client.Do(secondRequest)
 	if secondResponse != nil {
+		closeErr := secondResponse.Body.Close()
+		if closeErr != nil {
+			t.Fatalf("close unexpected second response body: %v", closeErr)
+		}
 		t.Fatalf("second response = %#v, want nil", secondResponse)
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("second request error = %v, want context deadline exceeded", err)
 	}
-	assertNoSignal(t, secondEntered, 50*time.Millisecond, "second transport entered after context deadline")
+	assertNoSignal(t, secondEntered, "second transport entered after context deadline")
 
-	if err := firstResponse.Body.Close(); err != nil {
+	err = firstResponse.Body.Close()
+	if err != nil {
 		t.Fatalf("close first response body: %v", err)
 	}
 }
@@ -305,6 +323,10 @@ func TestRoundTripperReleasesInFlightSlotAfterBaseError(t *testing.T) {
 	}
 	firstResponse, err := client.Do(firstRequest)
 	if firstResponse != nil {
+		closeErr := firstResponse.Body.Close()
+		if closeErr != nil {
+			t.Fatalf("close unexpected first response body: %v", closeErr)
+		}
 		t.Fatalf("first response = %#v, want nil", firstResponse)
 	}
 	if !errors.Is(err, baseErr) {
@@ -319,7 +341,8 @@ func TestRoundTripperReleasesInFlightSlotAfterBaseError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send second request: %v", err)
 	}
-	if err := secondResponse.Body.Close(); err != nil {
+	err = secondResponse.Body.Close()
+	if err != nil {
 		t.Fatalf("close second response body: %v", err)
 	}
 	receiveSignal(t, secondEntered, "second transport entered after base error")
@@ -350,8 +373,9 @@ func TestRoundTripperReleasesInFlightSlotOnceWhenBodyClosedMultipleTimes(t *test
 		t.Fatalf("send first request: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := firstResponse.Body.Close(); err != nil {
-			t.Errorf("close first response body cleanup: %v", err)
+		closeErr := firstResponse.Body.Close()
+		if closeErr != nil {
+			t.Errorf("close first response body cleanup: %v", closeErr)
 		}
 	})
 	if path := receiveString(t, entered, "first transport entered"); path != "/hold" {
@@ -360,22 +384,25 @@ func TestRoundTripperReleasesInFlightSlotOnceWhenBodyClosedMultipleTimes(t *test
 
 	results := make(chan requestResult, 2)
 	startRequest := func(path string) {
-		request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://close-once.test"+path, nil)
-		if err != nil {
-			results <- requestResult{path: path, err: err}
+		request, requestErr := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://close-once.test"+path, nil)
+		if requestErr != nil {
+			results <- requestResult{path: path, err: requestErr}
 			return
 		}
-		response, err := client.Do(request)
-		results <- requestResult{path: path, response: response, err: err}
+		//nolint:bodyclose // responses are closed by the receiving assertions to verify in-flight slot release ordering.
+		response, requestErr := client.Do(request)
+		results <- requestResult{path: path, response: response, err: requestErr}
 	}
 	go startRequest("/wait-1")
 	go startRequest("/wait-2")
 
-	assertNoStringSignal(t, entered, 50*time.Millisecond, "waiter entered before first body closed")
-	if err := firstResponse.Body.Close(); err != nil {
+	assertNoStringSignal(t, entered, "waiter entered before first body closed")
+	err = firstResponse.Body.Close()
+	if err != nil {
 		t.Fatalf("close first response body first time: %v", err)
 	}
-	if err := firstResponse.Body.Close(); err != nil {
+	err = firstResponse.Body.Close()
+	if err != nil {
 		t.Fatalf("close first response body second time: %v", err)
 	}
 
@@ -390,9 +417,10 @@ func TestRoundTripperReleasesInFlightSlotOnceWhenBodyClosedMultipleTimes(t *test
 	if firstAdmitted.path != firstAdmittedPath {
 		t.Fatalf("first admitted result path = %q, entered path = %q", firstAdmitted.path, firstAdmittedPath)
 	}
-	assertNoStringSignal(t, entered, 50*time.Millisecond, "second waiter entered after duplicate first body close")
+	assertNoStringSignal(t, entered, "second waiter entered after duplicate first body close")
 
-	if err := firstAdmitted.response.Body.Close(); err != nil {
+	err = firstAdmitted.response.Body.Close()
+	if err != nil {
 		t.Fatalf("close first admitted response body: %v", err)
 	}
 	secondAdmittedPath := receiveString(t, entered, "second waiter entered")
@@ -406,7 +434,8 @@ func TestRoundTripperReleasesInFlightSlotOnceWhenBodyClosedMultipleTimes(t *test
 	if secondAdmitted.path != secondAdmittedPath {
 		t.Fatalf("second admitted result path = %q, entered path = %q", secondAdmitted.path, secondAdmittedPath)
 	}
-	if err := secondAdmitted.response.Body.Close(); err != nil {
+	err = secondAdmitted.response.Body.Close()
+	if err != nil {
 		t.Fatalf("close second admitted response body: %v", err)
 	}
 }
@@ -443,7 +472,8 @@ func TestRoundTripperReturnsContextErrorWhileWaitingForRatePermit(t *testing.T) 
 	if err != nil {
 		t.Fatalf("send first request: %v", err)
 	}
-	if err := firstResponse.Body.Close(); err != nil {
+	err = firstResponse.Body.Close()
+	if err != nil {
 		t.Fatalf("close first response body: %v", err)
 	}
 	receiveSignal(t, firstEntered, "first transport entered")
@@ -456,12 +486,16 @@ func TestRoundTripperReturnsContextErrorWhileWaitingForRatePermit(t *testing.T) 
 	}
 	secondResponse, err := client.Do(secondRequest)
 	if secondResponse != nil {
+		closeErr := secondResponse.Body.Close()
+		if closeErr != nil {
+			t.Fatalf("close unexpected second response body: %v", closeErr)
+		}
 		t.Fatalf("second response = %#v, want nil", secondResponse)
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("second request error = %v, want context deadline exceeded", err)
 	}
-	assertNoSignal(t, secondEntered, 50*time.Millisecond, "second transport entered after rate context deadline")
+	assertNoSignal(t, secondEntered, "second transport entered after rate context deadline")
 }
 
 func TestRoundTripperNilBaseUsesDefaultTransport(t *testing.T) {
@@ -494,7 +528,8 @@ func TestRoundTripperNilBaseUsesDefaultTransport(t *testing.T) {
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("response status = %d, want %d", response.StatusCode, http.StatusNoContent)
 	}
-	if err := response.Body.Close(); err != nil {
+	err = response.Body.Close()
+	if err != nil {
 		t.Fatalf("close response body: %v", err)
 	}
 }
@@ -530,6 +565,7 @@ func TestRoundTripperReleasesInFlightSlotForNilResponseBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create first request: %v", err)
 	}
+	//nolint:bodyclose // this case verifies that responses without a body release their in-flight slot immediately.
 	firstResponse, err := transport.RoundTrip(firstRequest)
 	if err != nil {
 		t.Fatalf("send first request: %v", err)
@@ -553,7 +589,8 @@ func TestRoundTripperReleasesInFlightSlotForNilResponseBody(t *testing.T) {
 	if secondResponse == nil || secondResponse.Body == nil {
 		t.Fatal("second response has no body")
 	}
-	if err := secondResponse.Body.Close(); err != nil {
+	err = secondResponse.Body.Close()
+	if err != nil {
 		t.Fatalf("close second response body: %v", err)
 	}
 	receiveSignal(t, secondEntered, "second transport entered after nil-body response")
@@ -589,13 +626,13 @@ func receiveSignal(t *testing.T, ch <-chan struct{}, description string) {
 	}
 }
 
-func assertNoSignal(t *testing.T, ch <-chan struct{}, timeout time.Duration, failure string) {
+func assertNoSignal(t *testing.T, ch <-chan struct{}, failure string) {
 	t.Helper()
 
 	select {
 	case <-ch:
 		t.Fatal(failure)
-	case <-time.After(timeout):
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -623,13 +660,13 @@ func receiveString(t *testing.T, ch <-chan string, description string) string {
 	return ""
 }
 
-func assertNoStringSignal(t *testing.T, ch <-chan string, timeout time.Duration, failure string) {
+func assertNoStringSignal(t *testing.T, ch <-chan string, failure string) {
 	t.Helper()
 
 	select {
 	case value := <-ch:
 		t.Fatalf("%s: %s", failure, value)
-	case <-time.After(timeout):
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

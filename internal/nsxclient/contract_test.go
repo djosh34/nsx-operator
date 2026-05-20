@@ -341,8 +341,9 @@ func TestSharedRateLimitedClientConcurrencyAgainstMockAPI(t *testing.T) {
 	gate.requireSecondSameHostRequest(ctx)
 
 	for range 3 {
-		if err := <-errs; err != nil {
-			t.Fatalf("%v\nmockapi logs:\n%s", err, mock.Logs())
+		receivedErr := <-errs
+		if receivedErr != nil {
+			t.Fatalf("%v\nmockapi logs:\n%s", receivedErr, mock.Logs())
 		}
 	}
 	t.Logf("mockapi concurrency evidence: same logical host nsx-mock-a.example.net:80 shared one in-flight slot; nsx-mock-a.example.net:8080 reached mockapi while :80 was blocked")
@@ -387,8 +388,9 @@ func (transport mockAPIRoutingTransport) RoundTrip(req *http.Request) (*http.Res
 		return nil, fmt.Errorf("mockapi routing transport base RoundTripper is required")
 	}
 	if transport.gate != nil {
-		if err := transport.gate.beforeRoundTrip(req); err != nil {
-			return nil, err
+		gateErr := transport.gate.beforeRoundTrip(req)
+		if gateErr != nil {
+			return nil, gateErr
 		}
 	}
 
@@ -530,7 +532,10 @@ func readMockAPIRouteInventory(t *testing.T) []string {
 func readMockAPIBinaryFromPublicImage(t *testing.T) []byte {
 	t.Helper()
 
-	create := exec.Command("docker", "create", "--platform", "linux/amd64", mockapi.Image)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	create := exec.CommandContext(ctx, "docker", "create", "--platform", "linux/amd64", mockapi.Image)
 	createOutput, err := create.CombinedOutput()
 	if err != nil {
 		t.Fatalf("create public mockapi image container for route inventory: %v\n%s", err, string(createOutput))
@@ -540,7 +545,10 @@ func readMockAPIBinaryFromPublicImage(t *testing.T) []byte {
 		t.Fatalf("create public mockapi image container returned empty id")
 	}
 	t.Cleanup(func() {
-		remove := exec.Command("docker", "rm", "--force", containerID)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+
+		remove := exec.CommandContext(cleanupCtx, "docker", "rm", "--force", containerID)
 		removeOutput, removeErr := remove.CombinedOutput()
 		if removeErr != nil && !strings.Contains(string(removeOutput), "No such container") {
 			t.Errorf("remove route inventory container %s: %v\n%s", containerID, removeErr, string(removeOutput))
@@ -548,7 +556,7 @@ func readMockAPIBinaryFromPublicImage(t *testing.T) []byte {
 	})
 
 	binaryPath := filepath.Join(t.TempDir(), "nsx-t-mockapi")
-	copyCommand := exec.Command("docker", "cp", containerID+":/nsx-t-mockapi", binaryPath)
+	copyCommand := exec.CommandContext(ctx, "docker", "cp", containerID+":/nsx-t-mockapi", binaryPath)
 	copyOutput, err := copyCommand.CombinedOutput()
 	if err != nil {
 		t.Fatalf("copy mockapi binary from public image %s: %v\n%s", mockapi.Image, err, string(copyOutput))

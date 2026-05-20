@@ -34,9 +34,7 @@ nsx:
 logging:
   level: info
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	kubernetesCalled := false
 	nsxCalled := false
@@ -84,9 +82,7 @@ nsx:
 logging:
   level: info
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	var bootstrapLogs bytes.Buffer
 	bootstrapLogger, err := logging.New(logging.Options{
@@ -151,9 +147,7 @@ nsx:
 logging:
   level: debug
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	var calls []string
 	err := startup.Run(startup.Options{
@@ -205,9 +199,7 @@ nsx:
 logging:
   level: debug
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	err := startup.Run(startup.Options{
 		Config: config.Options{
@@ -245,9 +237,7 @@ nsx:
 logging:
   level: debug
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	err := startup.Run(startup.Options{
 		Config: config.Options{
@@ -285,9 +275,7 @@ nsx:
 logging:
   level: debug
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	var runtimeLogs bytes.Buffer
 	err := startup.Run(startup.Options{
@@ -332,9 +320,7 @@ nsx:
 logging:
   level: debug
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	var factoryTickInterval string
 	managerStarted := false
@@ -379,9 +365,7 @@ nsx:
 logging:
   level: debug
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	err := startup.Run(startup.Options{
 		Config: config.Options{
@@ -417,9 +401,7 @@ nsx:
 logging:
   level: debug
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	err := startup.Run(startup.Options{
 		Config: config.Options{
@@ -457,9 +439,7 @@ nsx:
 logging:
   level: debug
 `)
-	if err := os.WriteFile(configPath, configYAML, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	writeStartupTestConfig(t, configPath, configYAML)
 
 	var runtimeLogs bytes.Buffer
 	err := startup.Run(startup.Options{
@@ -502,6 +482,15 @@ func (m fakeRunnableManager) Start(ctx context.Context) error {
 	return m.start(ctx)
 }
 
+func writeStartupTestConfig(t *testing.T, path string, configYAML []byte) {
+	t.Helper()
+
+	err := os.WriteFile(path, configYAML, 0o600)
+	if err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+}
+
 func parseStartupLogs(t *testing.T, output string) []map[string]any {
 	t.Helper()
 
@@ -511,7 +500,8 @@ func parseStartupLogs(t *testing.T, output string) []map[string]any {
 			continue
 		}
 		var entry map[string]any
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+		err := json.Unmarshal([]byte(line), &entry)
+		if err != nil {
 			t.Fatalf("log line is not valid JSON: %v; line: %q", err, line)
 		}
 		entries = append(entries, entry)

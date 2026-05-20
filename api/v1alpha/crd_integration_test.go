@@ -43,8 +43,9 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 		t.Fatalf("start envtest API server: %v", err)
 	}
 	defer func() {
-		if err := testEnvironment.Stop(); err != nil {
-			t.Errorf("stop envtest API server: %v", err)
+		stopErr := testEnvironment.Stop()
+		if stopErr != nil {
+			t.Errorf("stop envtest API server: %v", stopErr)
 		}
 	}()
 
@@ -79,7 +80,8 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 	cloudA := createObject(ctx, t, clouds, networkCloudObject("cloud-a", "nsx-a.example.net", "cloud-a", "Cloud A"))
 	createObject(ctx, t, clouds, networkCloudObject("cloud-b", "nsx-b.example.net", "cloud-b", "Cloud B"))
 	cloudWritesDisabled := networkCloudObject("cloud-writes-disabled", "nsx-disabled.example.net", "cloud-writes-disabled", "Cloud Writes Disabled")
-	if err := unstructured.SetNestedField(cloudWritesDisabled, false, "spec", "writesEnabled"); err != nil {
+	err = unstructured.SetNestedField(cloudWritesDisabled, false, "spec", "writesEnabled")
+	if err != nil {
 		t.Fatalf("set cloud writesEnabled false: %v", err)
 	}
 	createdWritesDisabled := createObject(ctx, t, clouds, cloudWritesDisabled)
@@ -143,7 +145,8 @@ func TestCRDsInstallStatusSubresourceSelectableFieldsAndSchema(t *testing.T) {
 	})
 	legacySegmentField := "segment" + "_path"
 	legacySegmentGroup := groupObject("old-segment-field", "nsx-a.example.net", "old-segment-field", NSXGroupModeManage, "Old Segment Field", []string{"10.6.0.0/24"}, nil)
-	if err := unstructured.SetNestedField(legacySegmentGroup, "/infra/segments/old", "spec", legacySegmentField); err != nil {
+	err = unstructured.SetNestedField(legacySegmentGroup, "/infra/segments/old", "spec", legacySegmentField)
+	if err != nil {
 		t.Fatalf("set old %s field: %v", legacySegmentField, err)
 	}
 	createdLegacySegment, err := groups.Create(ctx, &unstructured.Unstructured{Object: legacySegmentGroup}, metav1.CreateOptions{})
@@ -277,7 +280,8 @@ func requireStatusSchemaConditionsOnly(ctx context.Context, t *testing.T, client
 	if !slices.Equal(gotProperties, []string{"conditions"}) {
 		t.Fatalf("CRD %s status properties = %v, want only conditions", name, gotProperties)
 	}
-	if _, ok := statusSchema.Properties["conditions"]; !ok {
+	_, conditionsOK := statusSchema.Properties["conditions"]
+	if !conditionsOK {
 		t.Fatalf("CRD %s status.conditions schema is missing", name)
 	}
 	t.Logf("CRD %s status schema exposes only conditions", name)
@@ -309,7 +313,8 @@ func requireGroupStatusSchemaWithUnsupportedReason(ctx context.Context, t *testi
 	if !slices.Equal(gotProperties, []string{"conditions", "unsupportedReason"}) {
 		t.Fatalf("CRD %s status properties = %v, want conditions and unsupportedReason", name, gotProperties)
 	}
-	if _, ok := statusSchema.Properties["conditions"]; !ok {
+	_, conditionsOK := statusSchema.Properties["conditions"]
+	if !conditionsOK {
 		t.Fatalf("CRD %s status.conditions schema is missing", name)
 	}
 	unsupportedReasonSchema, ok := statusSchema.Properties["unsupportedReason"]
@@ -359,7 +364,8 @@ func jsonEnumStrings(t *testing.T, enumValues []apiextensionsv1.JSON) []string {
 	values := make([]string, 0, len(enumValues))
 	for _, enumValue := range enumValues {
 		var value string
-		if err := json.Unmarshal(enumValue.Raw, &value); err != nil {
+		err := json.Unmarshal(enumValue.Raw, &value)
+		if err != nil {
 			t.Fatalf("decode enum value %s as string: %v", string(enumValue.Raw), err)
 		}
 		values = append(values, value)
@@ -391,7 +397,8 @@ func updateStatusAndRequireSpecUnchanged(ctx context.Context, t *testing.T, clie
 		}
 	}
 	statusObject := object.DeepCopy()
-	if err := unstructured.SetNestedField(statusObject.Object, "changed through status", "spec", displayField); err != nil {
+	err = unstructured.SetNestedField(statusObject.Object, "changed through status", "spec", displayField)
+	if err != nil {
 		t.Fatalf("try mutating spec before status update for %s: %v", object.GetName(), err)
 	}
 	condition := []any{map[string]any{
@@ -401,13 +408,16 @@ func updateStatusAndRequireSpecUnchanged(ctx context.Context, t *testing.T, clie
 		"reason":             "Verified",
 		"message":            "status subresource accepts conditions",
 	}}
-	if err := unstructured.SetNestedSlice(statusObject.Object, condition, "status", "conditions"); err != nil {
+	err = unstructured.SetNestedSlice(statusObject.Object, condition, "status", "conditions")
+	if err != nil {
 		t.Fatalf("set status conditions on %s: %v", object.GetName(), err)
 	}
-	if err := unstructured.SetNestedField(statusObject.Object, true, "status", "synced"); err != nil {
+	err = unstructured.SetNestedField(statusObject.Object, true, "status", "synced")
+	if err != nil {
 		t.Fatalf("set synthetic status synced field on %s: %v", object.GetName(), err)
 	}
-	if err := unstructured.SetNestedField(statusObject.Object, map[string]any{"id": "remote-id"}, "status", "remoteObject"); err != nil {
+	err = unstructured.SetNestedField(statusObject.Object, map[string]any{"id": "remote-id"}, "status", "remoteObject")
+	if err != nil {
 		t.Fatalf("set synthetic status remoteObject field on %s: %v", object.GetName(), err)
 	}
 	updated, err := client.UpdateStatus(ctx, statusObject, metav1.UpdateOptions{})
@@ -437,9 +447,9 @@ func updateStatusAndRequireSpecUnchanged(ctx context.Context, t *testing.T, clie
 		t.Fatalf("stored status properties for %s = %v, want only conditions", object.GetName(), gotStatusProperties)
 	}
 	if displayNameFound {
-		current, currentFound, err := unstructured.NestedString(updated.Object, "spec", displayField)
-		if err != nil {
-			t.Fatalf("read %s after status update for %s: %v", displayField, object.GetName(), err)
+		current, currentFound, currentErr := unstructured.NestedString(updated.Object, "spec", displayField)
+		if currentErr != nil {
+			t.Fatalf("read %s after status update for %s: %v", displayField, object.GetName(), currentErr)
 		}
 		if !currentFound || current != originalDisplayName {
 			t.Fatalf("status update changed spec.%s for %s to %q, want %q", displayField, object.GetName(), current, originalDisplayName)

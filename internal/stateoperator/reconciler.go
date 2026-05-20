@@ -1,3 +1,4 @@
+// Package stateoperator contains controller-runtime reconcilers for NSX custom resources.
 package stateoperator
 
 import (
@@ -20,13 +21,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+// GroupFinalizer protects managed NSX groups until remote cleanup completes.
 const GroupFinalizer = "nsx.ing.com/finalizer"
 
+// NetworkCloudReconciler observes NSXNetworkCloud changes.
 type NetworkCloudReconciler struct {
 	Client client.Client
 	Logger *zap.Logger
 }
 
+// GroupReconciler reconciles NSXGroup resources against NSX manager state.
 type GroupReconciler struct {
 	Client               client.Client
 	ManagerClientFactory ManagerClientFactory
@@ -34,8 +38,10 @@ type GroupReconciler struct {
 	Clock                Clock
 }
 
+// Reconcile logs observed network cloud changes.
 func (r NetworkCloudReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	if err := ctx.Err(); err != nil {
+	err := ctx.Err()
+	if err != nil {
 		return reconcile.Result{}, err
 	}
 	if r.Client == nil {
@@ -47,7 +53,8 @@ func (r NetworkCloudReconciler) Reconcile(ctx context.Context, req reconcile.Req
 	}
 
 	var cloud nsxv1alpha.NSXNetworkCloud
-	if err := r.Client.Get(ctx, req.NamespacedName, &cloud); err != nil {
+	err = r.Client.Get(ctx, req.NamespacedName, &cloud)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Debug(
 				"network cloud reconcile skipped missing object",
@@ -75,8 +82,10 @@ func (r NetworkCloudReconciler) Reconcile(ctx context.Context, req reconcile.Req
 	return reconcile.Result{}, nil
 }
 
+// Reconcile applies or cleans up one NSXGroup.
 func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	if err := ctx.Err(); err != nil {
+	err := ctx.Err()
+	if err != nil {
 		return reconcile.Result{}, err
 	}
 	if r.Client == nil {
@@ -88,7 +97,8 @@ func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 	}
 
 	var group nsxv1alpha.NSXGroup
-	if err := r.Client.Get(ctx, req.NamespacedName, &group); err != nil {
+	err = r.Client.Get(ctx, req.NamespacedName, &group)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Debug(
 				"group reconcile skipped missing object",
@@ -116,50 +126,56 @@ func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 		zap.String("mode", string(group.Spec.Mode)),
 	)
 	if group.Spec.Mode == nsxv1alpha.NSXGroupModeObserve && group.DeletionTimestamp != nil {
-		if err := r.removeGroupFinalizer(ctx, &group, logger, req); err != nil {
+		err = r.removeGroupFinalizer(ctx, &group, logger, req)
+		if err != nil {
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	}
 	if group.Spec.Mode == nsxv1alpha.NSXGroupModeObserve && group.DeletionTimestamp == nil {
-		if err := r.removeGroupFinalizer(ctx, &group, logger, req); err != nil {
+		err = r.removeGroupFinalizer(ctx, &group, logger, req)
+		if err != nil {
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	}
 	if group.Spec.Mode == nsxv1alpha.NSXGroupModeManage && group.DeletionTimestamp == nil {
-		if err := r.ensureGroupFinalizer(ctx, &group, logger, req); err != nil {
+		err = r.ensureGroupFinalizer(ctx, &group, logger, req)
+		if err != nil {
 			return reconcile.Result{}, err
 		}
-		cloud, err := r.findNetworkCloud(ctx, group.Spec.NetworkCloudFQDN)
-		if err != nil {
+		cloud, cloudErr := r.findNetworkCloud(ctx, group.Spec.NetworkCloudFQDN)
+		if cloudErr != nil {
 			logger.Info(
 				"manage group cloud lookup failed",
 				logging.Component("stateoperator"),
 				logging.ReconcileKey(reconcileKey(req.NamespacedName)),
 				zap.String("groupName", group.Name),
 				logging.NetworkCloudFQDN(group.Spec.NetworkCloudFQDN),
-				zap.Error(err),
+				zap.Error(cloudErr),
 			)
-			return reconcile.Result{}, fmt.Errorf("find cloud for nsx group %q: %w", group.Name, err)
+			return reconcile.Result{}, fmt.Errorf("find cloud for nsx group %q: %w", group.Name, cloudErr)
 		}
 		if r.ManagerClientFactory == nil {
 			return reconcile.Result{}, fmt.Errorf("group reconciler manager client factory is required")
 		}
-		managerClient, err := r.ManagerClientFactory(ctx, cloud)
-		if err != nil {
+		managerClient, managerErr := r.ManagerClientFactory(ctx, cloud)
+		if managerErr != nil {
 			logger.Info(
 				"manage group nsx client construction failed",
 				logging.Component("stateoperator"),
 				logging.ReconcileKey(reconcileKey(req.NamespacedName)),
 				zap.String("groupName", group.Name),
-				zap.Error(err),
+				zap.Error(managerErr),
 			)
-			return reconcile.Result{}, fmt.Errorf("construct nsx manager client for group %q: %w", group.Name, err)
+			return reconcile.Result{}, fmt.Errorf("construct nsx manager client for group %q: %w", group.Name, managerErr)
 		}
-		if err := applyManagedWrite(ctx, managerClient, managedWriteFromLocal(group, RemoteGroup{})); err != nil {
-			if status, classified := r.manageApplyFailureStatus(group, err); classified {
-				if statusErr := r.updateGroupStatus(ctx, &group, status); statusErr != nil {
+		managedWrite := managedWriteFromLocal(&group, &RemoteGroup{})
+		err = applyManagedWrite(ctx, managerClient, &managedWrite)
+		if err != nil {
+			if status, classified := r.manageApplyFailureStatus(&group, err); classified {
+				statusErr := r.updateGroupStatus(ctx, &group, status)
+				if statusErr != nil {
 					logger.Info(
 						"manage group apply failure status update failed",
 						logging.Component("stateoperator"),
@@ -187,11 +203,12 @@ func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 			)
 			return reconcile.Result{}, err
 		}
-		status, err := r.manageApplySubmittedStatus(group)
-		if err != nil {
-			return reconcile.Result{}, err
+		status, statusErr := r.manageApplySubmittedStatus(&group)
+		if statusErr != nil {
+			return reconcile.Result{}, statusErr
 		}
-		if err := r.updateGroupStatus(ctx, &group, status); err != nil {
+		err = r.updateGroupStatus(ctx, &group, status)
+		if err != nil {
 			logger.Info(
 				"manage group status update failed",
 				logging.Component("stateoperator"),
@@ -211,35 +228,37 @@ func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 		return reconcile.Result{}, nil
 	}
 	if group.Spec.Mode == nsxv1alpha.NSXGroupModeManage && group.DeletionTimestamp != nil {
-		cloud, err := r.findNetworkCloud(ctx, group.Spec.NetworkCloudFQDN)
-		if err != nil {
+		cloud, cloudErr := r.findNetworkCloud(ctx, group.Spec.NetworkCloudFQDN)
+		if cloudErr != nil {
 			logger.Info(
 				"manage group delete cloud lookup failed",
 				logging.Component("stateoperator"),
 				logging.ReconcileKey(reconcileKey(req.NamespacedName)),
 				zap.String("groupName", group.Name),
 				logging.NetworkCloudFQDN(group.Spec.NetworkCloudFQDN),
-				zap.Error(err),
+				zap.Error(cloudErr),
 			)
-			return reconcile.Result{}, fmt.Errorf("find cloud for deleting nsx group %q: %w", group.Name, err)
+			return reconcile.Result{}, fmt.Errorf("find cloud for deleting nsx group %q: %w", group.Name, cloudErr)
 		}
 		if r.ManagerClientFactory == nil {
 			return reconcile.Result{}, fmt.Errorf("group reconciler manager client factory is required")
 		}
-		managerClient, err := r.ManagerClientFactory(ctx, cloud)
-		if err != nil {
+		managerClient, managerErr := r.ManagerClientFactory(ctx, cloud)
+		if managerErr != nil {
 			logger.Info(
 				"manage group delete nsx client construction failed",
 				logging.Component("stateoperator"),
 				logging.ReconcileKey(reconcileKey(req.NamespacedName)),
 				zap.String("groupName", group.Name),
-				zap.Error(err),
+				zap.Error(managerErr),
 			)
-			return reconcile.Result{}, fmt.Errorf("construct nsx manager client for deleting group %q: %w", group.Name, err)
+			return reconcile.Result{}, fmt.Errorf("construct nsx manager client for deleting group %q: %w", group.Name, managerErr)
 		}
-		if err := managerClient.DeleteGroup(ctx, group.Spec.GroupID); err != nil {
-			if status, classified := r.manageDeleteFailureStatus(group, err); classified {
-				if statusErr := r.updateGroupStatus(ctx, &group, status); statusErr != nil {
+		err = managerClient.DeleteGroup(ctx, group.Spec.GroupID)
+		if err != nil {
+			if status, classified := r.manageDeleteFailureStatus(&group, err); classified {
+				statusErr := r.updateGroupStatus(ctx, &group, status)
+				if statusErr != nil {
 					logger.Info(
 						"manage group delete failure status update failed",
 						logging.Component("stateoperator"),
@@ -267,11 +286,12 @@ func (r GroupReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 			)
 			return reconcile.Result{}, err
 		}
-		status, err := r.manageDeleteSubmittedStatus(group)
-		if err != nil {
-			return reconcile.Result{}, err
+		status, statusErr := r.manageDeleteSubmittedStatus(&group)
+		if statusErr != nil {
+			return reconcile.Result{}, statusErr
 		}
-		if err := r.updateGroupStatus(ctx, &group, status); err != nil {
+		err = r.updateGroupStatus(ctx, &group, status)
+		if err != nil {
 			logger.Info(
 				"manage group delete status update failed",
 				logging.Component("stateoperator"),
@@ -298,7 +318,8 @@ func (r GroupReconciler) ensureGroupFinalizer(ctx context.Context, group *nsxv1a
 		return nil
 	}
 	group.Finalizers = append(group.Finalizers, GroupFinalizer)
-	if err := r.Client.Update(ctx, group); err != nil {
+	err := r.Client.Update(ctx, group)
+	if err != nil {
 		logger.Info(
 			"group finalizer add failed",
 			logging.Component("stateoperator"),
@@ -324,7 +345,8 @@ func (r GroupReconciler) removeGroupFinalizer(ctx context.Context, group *nsxv1a
 	group.Finalizers = slices.DeleteFunc(group.Finalizers, func(finalizer string) bool {
 		return finalizer == GroupFinalizer
 	})
-	if err := r.Client.Update(ctx, group); err != nil {
+	err := r.Client.Update(ctx, group)
+	if err != nil {
 		logger.Info(
 			"observe group finalizer removal failed",
 			logging.Component("stateoperator"),
@@ -352,10 +374,12 @@ func (r GroupReconciler) removeGroupFinalizer(ctx context.Context, group *nsxv1a
 func (r GroupReconciler) findNetworkCloud(ctx context.Context, networkCloudFQDN string) (nsxv1alpha.NSXNetworkCloud, error) {
 	normalizedFQDN := names.NormalizeNetworkCloudFQDN(networkCloudFQDN)
 	var clouds nsxv1alpha.NSXNetworkCloudList
-	if err := r.Client.List(ctx, &clouds); err != nil {
+	err := r.Client.List(ctx, &clouds)
+	if err != nil {
 		return nsxv1alpha.NSXNetworkCloud{}, fmt.Errorf("list nsx network clouds: %w", err)
 	}
-	for _, cloud := range clouds.Items {
+	for cloudIndex := range clouds.Items {
+		cloud := clouds.Items[cloudIndex]
 		if names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN) == normalizedFQDN {
 			return cloud, nil
 		}
@@ -363,7 +387,7 @@ func (r GroupReconciler) findNetworkCloud(ctx context.Context, networkCloudFQDN 
 	return nsxv1alpha.NSXNetworkCloud{}, fmt.Errorf("network cloud %q not found", normalizedFQDN)
 }
 
-func (r GroupReconciler) manageApplySubmittedStatus(group nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
+func (r GroupReconciler) manageApplySubmittedStatus(group *nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
 	status, err := statuscondition.BuildGroupStatus(
 		group.Status,
 		group.Generation,
@@ -377,7 +401,7 @@ func (r GroupReconciler) manageApplySubmittedStatus(group nsxv1alpha.NSXGroup) (
 	return status, nil
 }
 
-func (r GroupReconciler) manageApplyFailureStatus(group nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
+func (r GroupReconciler) manageApplyFailureStatus(group *nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
 	var writeDisabled nsxclient.WriteDisabledError
 	if errors.As(err, &writeDisabled) {
 		return r.buildManageApplyOutcomeStatus(
@@ -448,7 +472,7 @@ func (r GroupReconciler) manageApplyFailureStatus(group nsxv1alpha.NSXGroup, err
 }
 
 func (r GroupReconciler) buildManageApplyOutcomeStatus(
-	group nsxv1alpha.NSXGroup,
+	group *nsxv1alpha.NSXGroup,
 	applyingStatus metav1.ConditionStatus,
 	applyingReason string,
 	applyingMessage string,
@@ -468,7 +492,7 @@ func (r GroupReconciler) buildManageApplyOutcomeStatus(
 	return status, true
 }
 
-func (r GroupReconciler) manageDeleteSubmittedStatus(group nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
+func (r GroupReconciler) manageDeleteSubmittedStatus(group *nsxv1alpha.NSXGroup) (nsxv1alpha.NSXGroupStatus, error) {
 	status, err := statuscondition.BuildGroupStatus(
 		group.Status,
 		group.Generation,
@@ -482,7 +506,7 @@ func (r GroupReconciler) manageDeleteSubmittedStatus(group nsxv1alpha.NSXGroup) 
 	return status, nil
 }
 
-func (r GroupReconciler) manageDeleteFailureStatus(group nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
+func (r GroupReconciler) manageDeleteFailureStatus(group *nsxv1alpha.NSXGroup, err error) (nsxv1alpha.NSXGroupStatus, bool) {
 	var writeDisabled nsxclient.WriteDisabledError
 	if errors.As(err, &writeDisabled) {
 		return r.buildManageDeleteOutcomeStatus(
@@ -553,7 +577,7 @@ func (r GroupReconciler) manageDeleteFailureStatus(group nsxv1alpha.NSXGroup, er
 }
 
 func (r GroupReconciler) buildManageDeleteOutcomeStatus(
-	group nsxv1alpha.NSXGroup,
+	group *nsxv1alpha.NSXGroup,
 	deletingStatus metav1.ConditionStatus,
 	deletingReason string,
 	deletingMessage string,
@@ -597,14 +621,15 @@ func (r GroupReconciler) updateGroupStatus(ctx context.Context, group *nsxv1alph
 		GroupID:          group.Spec.GroupID,
 		Decision:         decision,
 	}
-	fields := appendStatusWriteDecisionFields(nil, statusDecision)
+	fields := appendStatusWriteDecisionFields(nil, &statusDecision)
 	logger.Debug("group status write decision", fields...)
 	if !decision.Needed {
 		return nil
 	}
 	group.Status = status
 	logger.Info("updating group status", fields...)
-	if err := r.Client.Status().Update(ctx, group); err != nil {
+	err := r.Client.Status().Update(ctx, group)
+	if err != nil {
 		return err
 	}
 	return nil

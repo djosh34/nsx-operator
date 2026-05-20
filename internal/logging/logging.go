@@ -1,3 +1,4 @@
+// Package logging builds structured zap loggers and fields.
 package logging
 
 import (
@@ -8,11 +9,13 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// Options configures logger construction.
 type Options struct {
 	Level string
 	Sink  zapcore.WriteSyncer
 }
 
+// New constructs a JSON zap logger.
 func New(options Options) (*zap.Logger, error) {
 	level, err := parseLevel(options.Level)
 	if err != nil {
@@ -33,6 +36,7 @@ func New(options Options) (*zap.Logger, error) {
 	return zap.New(core), nil
 }
 
+// NewStderr constructs a JSON zap logger writing to stderr.
 func NewStderr(level string) (*zap.Logger, error) {
 	return New(Options{
 		Level: level,
@@ -40,22 +44,27 @@ func NewStderr(level string) (*zap.Logger, error) {
 	})
 }
 
+// Component returns a structured component field.
 func Component(value string) zap.Field {
 	return zap.String("component", value)
 }
 
+// NetworkCloudFQDN returns a structured network cloud FQDN field.
 func NetworkCloudFQDN(value string) zap.Field {
 	return zap.String("networkCloudFQDN", value)
 }
 
+// GroupID returns a structured NSX group ID field.
 func GroupID(value string) zap.Field {
 	return zap.String("groupID", value)
 }
 
+// SweepID returns a structured sweep ID field.
 func SweepID(value string) zap.Field {
 	return zap.String("sweepID", value)
 }
 
+// ReconcileKey returns a structured reconcile key field.
 func ReconcileKey(value string) zap.Field {
 	return zap.String("reconcileKey", value)
 }

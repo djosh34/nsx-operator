@@ -26,7 +26,8 @@ func TestNewInfoLoggerWritesJSONLAndSuppressesDebug(t *testing.T) {
 
 	logger.Debug("debug details", zap.String("component", "test"))
 	logger.Info("startup completed", zap.String("component", "test"))
-	if err := logger.Sync(); err != nil {
+	err = logger.Sync()
+	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
 
@@ -36,7 +37,8 @@ func TestNewInfoLoggerWritesJSONLAndSuppressesDebug(t *testing.T) {
 	}
 
 	var entry map[string]any
-	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+	err = json.Unmarshal([]byte(lines[0]), &entry)
+	if err != nil {
 		t.Fatalf("log line is not valid JSON: %v; line: %q", err, lines[0])
 	}
 	if entry["level"] != "info" {
@@ -64,7 +66,8 @@ func TestNewDebugLoggerWritesDebugJSONL(t *testing.T) {
 	}
 
 	logger.Debug("loaded logging config", zap.String("component", "startup"))
-	if err := logger.Sync(); err != nil {
+	err = logger.Sync()
+	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
 
@@ -74,7 +77,8 @@ func TestNewDebugLoggerWritesDebugJSONL(t *testing.T) {
 	}
 
 	var entry map[string]any
-	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+	err = json.Unmarshal([]byte(lines[0]), &entry)
+	if err != nil {
 		t.Fatalf("log line is not valid JSON: %v; line: %q", err, lines[0])
 	}
 	if entry["level"] != "debug" {
@@ -133,7 +137,8 @@ func TestNewWarnAndErrorLevelsFilterLowerPriorityLogs(t *testing.T) {
 			}
 
 			testCase.log(logger)
-			if err := logger.Sync(); err != nil {
+			err = logger.Sync()
+			if err != nil {
 				t.Fatalf("Sync() error = %v", err)
 			}
 
@@ -152,7 +157,8 @@ func TestNewWithNilSinkWritesJSONLToStderr(t *testing.T) {
 			t.Fatalf("New() error = %v", err)
 		}
 		logger.Info("default sink log", logging.Component("test"))
-		if err := logger.Sync(); err != nil {
+		err = logger.Sync()
+		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
 	})
@@ -162,7 +168,8 @@ func TestNewWithNilSinkWritesJSONLToStderr(t *testing.T) {
 		t.Fatalf("log lines = %d, want 1; output: %q", len(lines), stderr)
 	}
 	var entry map[string]any
-	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+	err := json.Unmarshal([]byte(lines[0]), &entry)
+	if err != nil {
 		t.Fatalf("stderr line is not valid JSON: %v; line: %q", err, lines[0])
 	}
 	if entry["msg"] != "default sink log" {
@@ -177,7 +184,8 @@ func TestNewStderrWritesJSONLToStderr(t *testing.T) {
 			t.Fatalf("NewStderr() error = %v", err)
 		}
 		logger.Info("stderr logger log", logging.Component("test"))
-		if err := logger.Sync(); err != nil {
+		err = logger.Sync()
+		if err != nil {
 			t.Fatalf("Sync() error = %v", err)
 		}
 	})
@@ -187,7 +195,8 @@ func TestNewStderrWritesJSONLToStderr(t *testing.T) {
 		t.Fatalf("log lines = %d, want 1; output: %q", len(lines), stderr)
 	}
 	var entry map[string]any
-	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+	err := json.Unmarshal([]byte(lines[0]), &entry)
+	if err != nil {
 		t.Fatalf("stderr line is not valid JSON: %v; line: %q", err, lines[0])
 	}
 	if entry["msg"] != "stderr logger log" {
@@ -240,7 +249,8 @@ func TestFieldHelpersWriteRequiredJSONKeys(t *testing.T) {
 		logging.SweepID("sweep-1"),
 		logging.ReconcileKey("default/resource"),
 	)
-	if err := logger.Sync(); err != nil {
+	err = logger.Sync()
+	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
 
@@ -250,7 +260,8 @@ func TestFieldHelpersWriteRequiredJSONKeys(t *testing.T) {
 	}
 
 	var entry map[string]any
-	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+	err = json.Unmarshal([]byte(lines[0]), &entry)
+	if err != nil {
 		t.Fatalf("log line is not valid JSON: %v; line: %q", err, lines[0])
 	}
 
@@ -306,14 +317,16 @@ func captureLoggingStderr(t *testing.T, run func()) string {
 
 	run()
 
-	if err := writer.Close(); err != nil {
+	err = writer.Close()
+	if err != nil {
 		t.Fatalf("close stderr writer: %v", err)
 	}
 	output, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatalf("read stderr: %v", err)
 	}
-	if err := reader.Close(); err != nil {
+	err = reader.Close()
+	if err != nil {
 		t.Fatalf("close stderr reader: %v", err)
 	}
 	return string(output)

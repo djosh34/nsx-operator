@@ -1,3 +1,4 @@
+// Package operatormetrics records Prometheus metrics for operator activity.
 package operatormetrics
 
 import (
@@ -17,6 +18,7 @@ const (
 	directionResponse = "response"
 )
 
+// Recorder records operator metrics.
 type Recorder interface {
 	ObserveNSXCall(manager string, function string)
 	ObserveNSXHTTP(manager string, function string, requestBytes int64, responseBytes int64, duration time.Duration)
@@ -24,6 +26,7 @@ type Recorder interface {
 	SetManagerGroupSnapshot(manager string, snapshot ManagerGroupSnapshot)
 }
 
+// ManagerGroupSnapshot captures manager group counts from one reconciliation pass.
 type ManagerGroupSnapshot struct {
 	ListedGroups         int
 	ObserveGroups        int
@@ -33,16 +36,22 @@ type ManagerGroupSnapshot struct {
 	CreatesNeeded        int
 }
 
+// NopRecorder discards all metric observations.
 type NopRecorder struct{}
 
+// ObserveNSXCall discards an NSX client call observation.
 func (NopRecorder) ObserveNSXCall(string, string) {}
 
+// ObserveNSXHTTP discards an NSX HTTP observation.
 func (NopRecorder) ObserveNSXHTTP(string, string, int64, int64, time.Duration) {}
 
+// ObserveKubernetesAPI discards a Kubernetes API observation.
 func (NopRecorder) ObserveKubernetesAPI(string, int64, int64, time.Duration) {}
 
+// SetManagerGroupSnapshot discards a manager group snapshot.
 func (NopRecorder) SetManagerGroupSnapshot(string, ManagerGroupSnapshot) {}
 
+// PrometheusRecorder records operator metrics into Prometheus collectors.
 type PrometheusRecorder struct {
 	log *zap.Logger
 
@@ -67,6 +76,7 @@ var processRecorder struct {
 	err      error
 }
 
+// NewProcessRecorder returns a process-wide Prometheus recorder.
 func NewProcessRecorder(registerer prometheus.Registerer, logger *zap.Logger) (Recorder, error) {
 	processRecorder.once.Do(func() {
 		processRecorder.recorder, processRecorder.err = NewRecorder(registerer, logger)
@@ -77,6 +87,7 @@ func NewProcessRecorder(registerer prometheus.Registerer, logger *zap.Logger) (R
 	return processRecorder.recorder, nil
 }
 
+// NewRecorder registers collectors and returns a Prometheus-backed recorder.
 func NewRecorder(registerer prometheus.Registerer, logger *zap.Logger) (*PrometheusRecorder, error) {
 	if registerer == nil {
 		return nil, errors.New("prometheus registerer is required")
@@ -157,7 +168,8 @@ func NewRecorder(registerer prometheus.Registerer, logger *zap.Logger) (*Prometh
 		recorder.kubernetesAPIRoundTrip,
 	}
 	for _, collector := range collectors {
-		if err := registerer.Register(collector); err != nil {
+		err := registerer.Register(collector)
+		if err != nil {
 			return nil, fmt.Errorf("register operator metrics collector: %w", err)
 		}
 	}
@@ -165,11 +177,13 @@ func NewRecorder(registerer prometheus.Registerer, logger *zap.Logger) (*Prometh
 	return recorder, nil
 }
 
+// ObserveNSXCall records one NSX client call.
 func (r *PrometheusRecorder) ObserveNSXCall(manager string, function string) {
 	r.nsxClientCalls.WithLabelValues(manager, function).Inc()
 	r.log.Debug("recorded nsx client call metric", zap.String("manager", manager), zap.String("function", function))
 }
 
+// ObserveNSXHTTP records one NSX HTTP round trip.
 func (r *PrometheusRecorder) ObserveNSXHTTP(manager string, function string, requestBytes int64, responseBytes int64, duration time.Duration) {
 	r.nsxHTTPRequests.WithLabelValues(manager).Inc()
 	addNonNegative(r.nsxHTTPBytes.WithLabelValues(manager, directionRequest), requestBytes)
@@ -186,6 +200,7 @@ func (r *PrometheusRecorder) ObserveNSXHTTP(manager string, function string, req
 	)
 }
 
+// ObserveKubernetesAPI records one Kubernetes API round trip.
 func (r *PrometheusRecorder) ObserveKubernetesAPI(function string, requestBytes int64, responseBytes int64, duration time.Duration) {
 	r.kubernetesAPICalls.WithLabelValues(function).Inc()
 	addNonNegative(r.kubernetesAPIBytes.WithLabelValues(function, directionRequest), requestBytes)
@@ -200,6 +215,7 @@ func (r *PrometheusRecorder) ObserveKubernetesAPI(function string, requestBytes 
 	)
 }
 
+// SetManagerGroupSnapshot records manager group counts.
 func (r *PrometheusRecorder) SetManagerGroupSnapshot(manager string, snapshot ManagerGroupSnapshot) {
 	r.nsxGroupsListed.WithLabelValues(manager).Set(float64(snapshot.ListedGroups))
 	r.nsxGroupsObserve.WithLabelValues(manager).Set(float64(snapshot.ObserveGroups))

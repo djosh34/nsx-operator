@@ -1,3 +1,4 @@
+// Package stateoperator plans and applies Kubernetes writes for manager reconciliation.
 package stateoperator
 
 import (
@@ -11,6 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// ManagerKubeWritePlan groups Kubernetes writes and their ordering dependencies.
 type ManagerKubeWritePlan struct {
 	GroupCreates          map[kubeapi.BatchKey]kubeapi.GroupCreateRequest
 	GroupUpdates          map[kubeapi.BatchKey]kubeapi.GroupUpdateRequest
@@ -24,21 +26,25 @@ type ManagerKubeWritePlan struct {
 	GroupFinalizersAfterStatusWrite map[kubeapi.BatchKey]GroupFinalizerAfterStatusWrite
 }
 
+// GroupStatusAfterGroupWrite is a status update that waits for a group write.
 type GroupStatusAfterGroupWrite struct {
 	Name   string
 	Status nsxv1alpha.NSXGroupStatus
 }
 
+// GroupFinalizerAfterGroupWrite is a finalizer patch that waits for a group write.
 type GroupFinalizerAfterGroupWrite struct {
 	Name       string
 	Finalizers []string
 }
 
+// GroupFinalizerAfterStatusWrite is a finalizer patch that waits for a status write.
 type GroupFinalizerAfterStatusWrite struct {
 	Name       string
 	Finalizers []string
 }
 
+// Empty reports whether the plan contains no Kubernetes writes.
 func (writes ManagerKubeWritePlan) Empty() bool {
 	return len(writes.GroupCreates) == 0 &&
 		len(writes.GroupUpdates) == 0 &&
@@ -135,7 +141,7 @@ func addGroupDeleteRequest(plan *ManagerPlan, name string) {
 	plan.KubeWrites.GroupDeletes[groupBatchKey("delete", "", name)] = kubeapi.GroupDeleteRequest{Name: name}
 }
 
-func addGroupFinalizerPatchRequest(plan *ManagerPlan, group nsxv1alpha.NSXGroup, afterWrite *kubeapi.BatchKey) {
+func addGroupFinalizerPatchRequest(plan *ManagerPlan, group *nsxv1alpha.NSXGroup, afterWrite *kubeapi.BatchKey) {
 	ensureManagerKubeWrites(&plan.KubeWrites)
 	finalizers := slices.DeleteFunc(copyStringSlice(group.Finalizers), func(existing string) bool {
 		return existing == GroupFinalizer
@@ -169,12 +175,12 @@ func groupWriteKeyOrStatusKey(groupWriteKey *kubeapi.BatchKey, statusKey *kubeap
 	return groupWriteKey
 }
 
-func legacyManagerKubeWrites(plan ManagerPlan) ManagerKubeWritePlan {
+func legacyManagerKubeWrites(plan *ManagerPlan) ManagerKubeWritePlan {
 	writes := ManagerKubeWritePlan{}
 	ensureManagerKubeWrites(&writes)
-	for _, group := range plan.ObserveUpserts {
-		groupCopy := group
-		writes.GroupCreates[groupBatchKey("create", "", group.Name)] = kubeapi.GroupCreateRequest{Object: &groupCopy}
+	for groupIndex := range plan.ObserveUpserts {
+		groupCopy := plan.ObserveUpserts[groupIndex]
+		writes.GroupCreates[groupBatchKey("create", "", groupCopy.Name)] = kubeapi.GroupCreateRequest{Object: &groupCopy}
 	}
 	for _, status := range plan.GroupStatuses {
 		writes.GroupStatusUpdates[groupBatchKey("updateStatus", "status", status.Name)] = kubeapi.GroupStatusUpdateRequest{
@@ -312,13 +318,16 @@ func (a kubeAPIAdapter) ApplyManagerKubeWrites(ctx context.Context, writes Manag
 		)
 	}
 
-	if _, _, err := a.client.Groups().PatchFinalizersBatch(ctx, finalizerRequests); err != nil {
+	_, _, err = a.client.Groups().PatchFinalizersBatch(ctx, finalizerRequests)
+	if err != nil {
 		return fmt.Errorf("patch manager group finalizers: %w", err)
 	}
-	if _, _, err := a.client.Groups().DeleteBatch(ctx, writes.GroupDeletes); err != nil {
+	_, _, err = a.client.Groups().DeleteBatch(ctx, writes.GroupDeletes)
+	if err != nil {
 		return fmt.Errorf("delete manager observe groups: %w", err)
 	}
-	if _, _, err := a.client.NetworkClouds().UpdateStatusBatch(ctx, writes.CloudStatusUpdates); err != nil {
+	_, _, err = a.client.NetworkClouds().UpdateStatusBatch(ctx, writes.CloudStatusUpdates)
+	if err != nil {
 		return fmt.Errorf("update manager cloud statuses: %w", err)
 	}
 	return nil
@@ -326,16 +335,16 @@ func (a kubeAPIAdapter) ApplyManagerKubeWrites(ctx context.Context, writes Manag
 
 func copyGroupStatusRequests(requests map[kubeapi.BatchKey]kubeapi.GroupStatusUpdateRequest) map[kubeapi.BatchKey]kubeapi.GroupStatusUpdateRequest {
 	copied := make(map[kubeapi.BatchKey]kubeapi.GroupStatusUpdateRequest, len(requests))
-	for key, request := range requests {
-		copied[key] = request
+	for key := range requests {
+		copied[key] = requests[key]
 	}
 	return copied
 }
 
 func copyGroupFinalizerPatchRequests(requests map[kubeapi.BatchKey]kubeapi.GroupFinalizerPatchRequest) map[kubeapi.BatchKey]kubeapi.GroupFinalizerPatchRequest {
 	copied := make(map[kubeapi.BatchKey]kubeapi.GroupFinalizerPatchRequest, len(requests))
-	for key, request := range requests {
-		copied[key] = request
+	for key := range requests {
+		copied[key] = requests[key]
 	}
 	return copied
 }

@@ -1,0 +1,5 @@
+$ ./.bin/golangci-lint config path
+
+.golangci.yml
+
+exit status: 0

@@ -12,7 +12,8 @@ import (
 
 func TestAddToSchemeRegistersNetworkCloudAndGroupTypes(t *testing.T) {
 	scheme := runtime.NewScheme()
-	if err := AddToScheme(scheme); err != nil {
+	err := AddToScheme(scheme)
+	if err != nil {
 		t.Fatalf("AddToScheme returned error: %v", err)
 	}
 
@@ -38,13 +39,13 @@ func TestAddToSchemeRegistersNetworkCloudAndGroupTypes(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			object, err := scheme.New(tc.gvk)
-			if err != nil {
-				t.Fatalf("scheme.New(%s) returned error: %v", tc.gvk.String(), err)
+			object, newErr := scheme.New(tc.gvk)
+			if newErr != nil {
+				t.Fatalf("scheme.New(%s) returned error: %v", tc.gvk.String(), newErr)
 			}
-			knownKinds, _, err := scheme.ObjectKinds(object)
-			if err != nil {
-				t.Fatalf("scheme.ObjectKinds(%T) returned error: %v", object, err)
+			knownKinds, _, kindErr := scheme.ObjectKinds(object)
+			if kindErr != nil {
+				t.Fatalf("scheme.ObjectKinds(%T) returned error: %v", object, kindErr)
 			}
 			if !slices.Contains(knownKinds, tc.gvk) {
 				t.Fatalf("registered object kinds = %v, want one to be %s", knownKinds, tc.gvk.String())
@@ -275,7 +276,8 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 		t.Fatalf("marshal group: %v", err)
 	}
 	var groupMap map[string]any
-	if err := json.Unmarshal(groupJSON, &groupMap); err != nil {
+	err = json.Unmarshal(groupJSON, &groupMap)
+	if err != nil {
 		t.Fatalf("unmarshal group as map: %v", err)
 	}
 	groupSpec, ok := groupMap["spec"].(map[string]any)
@@ -283,27 +285,32 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 		t.Fatalf("group spec decoded as %T, want object", groupMap["spec"])
 	}
 	for _, field := range []string{"networkCloudFQDN", "groupID", "display_name", "mode", "cidrs", "segment_paths"} {
-		if _, ok := groupSpec[field]; !ok {
+		_, fieldOK := groupSpec[field]
+		if !fieldOK {
 			t.Fatalf("group spec missing JSON field %q in %s", field, string(groupJSON))
 		}
 	}
 	legacySegmentField := "segment" + "_path"
-	if _, ok := groupSpec[legacySegmentField]; ok {
+	_, legacySegmentOK := groupSpec[legacySegmentField]
+	if legacySegmentOK {
 		t.Fatalf("group spec unexpectedly exposes %s in %s", legacySegmentField, string(groupJSON))
 	}
-	if _, ok := groupSpec["domainId"]; ok {
+	_, domainIDOK := groupSpec["domainId"]
+	if domainIDOK {
 		t.Fatalf("group spec unexpectedly exposes domainId in %s", string(groupJSON))
 	}
 	groupStatus, ok := groupMap["status"].(map[string]any)
 	if !ok {
 		t.Fatalf("group status decoded as %T, want object", groupMap["status"])
 	}
-	if got, ok := groupStatus["unsupportedReason"].(string); !ok || got != string(UnsupportedExpressionReasonInvalidIPAddressExpression) {
+	gotReason, reasonOK := groupStatus["unsupportedReason"].(string)
+	if !reasonOK || gotReason != string(UnsupportedExpressionReasonInvalidIPAddressExpression) {
 		t.Fatalf("group status unsupportedReason = %#v, want %q in %s", groupStatus["unsupportedReason"], UnsupportedExpressionReasonInvalidIPAddressExpression, string(groupJSON))
 	}
 
 	var decodedGroup NSXGroup
-	if err := json.Unmarshal(groupJSON, &decodedGroup); err != nil {
+	err = json.Unmarshal(groupJSON, &decodedGroup)
+	if err != nil {
 		t.Fatalf("unmarshal group into API type: %v", err)
 	}
 	if decodedGroup.Spec.DisplayName != group.Spec.DisplayName {
@@ -335,7 +342,8 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 		t.Fatalf("marshal network cloud: %v", err)
 	}
 	var networkCloudMap map[string]any
-	if err := json.Unmarshal(networkCloudJSON, &networkCloudMap); err != nil {
+	err = json.Unmarshal(networkCloudJSON, &networkCloudMap)
+	if err != nil {
 		t.Fatalf("unmarshal network cloud as map: %v", err)
 	}
 	networkCloudSpec, ok := networkCloudMap["spec"].(map[string]any)
@@ -343,11 +351,13 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 		t.Fatalf("network cloud spec decoded as %T, want object", networkCloudMap["spec"])
 	}
 	for _, field := range []string{"networkCloudFQDN", "networkCloudId", "name"} {
-		if _, ok := networkCloudSpec[field]; !ok {
+		_, fieldOK := networkCloudSpec[field]
+		if !fieldOK {
 			t.Fatalf("network cloud spec missing JSON field %q in %s", field, string(networkCloudJSON))
 		}
 	}
-	if _, ok := networkCloudSpec["domainId"]; ok {
+	_, networkCloudDomainIDOK := networkCloudSpec["domainId"]
+	if networkCloudDomainIDOK {
 		t.Fatalf("network cloud spec unexpectedly exposes domainId in %s", string(networkCloudJSON))
 	}
 
@@ -357,14 +367,16 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 		t.Fatalf("marshal group without segment paths: %v", err)
 	}
 	var groupWithoutSegmentMap map[string]any
-	if err := json.Unmarshal(groupWithoutSegmentJSON, &groupWithoutSegmentMap); err != nil {
+	err = json.Unmarshal(groupWithoutSegmentJSON, &groupWithoutSegmentMap)
+	if err != nil {
 		t.Fatalf("unmarshal group without segment path as map: %v", err)
 	}
 	groupWithoutSegmentSpec, ok := groupWithoutSegmentMap["spec"].(map[string]any)
 	if !ok {
 		t.Fatalf("group without segment paths spec decoded as %T, want object", groupWithoutSegmentMap["spec"])
 	}
-	if _, ok := groupWithoutSegmentSpec["segment_paths"]; ok {
+	_, segmentPathOK := groupWithoutSegmentSpec["segment_paths"]
+	if segmentPathOK {
 		t.Fatalf("nil segment_paths should be absent from JSON, got %s", string(groupWithoutSegmentJSON))
 	}
 
@@ -374,14 +386,16 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 		t.Fatalf("marshal group with empty segment paths: %v", err)
 	}
 	var groupWithEmptySegmentsMap map[string]any
-	if err := json.Unmarshal(groupWithEmptySegmentsJSON, &groupWithEmptySegmentsMap); err != nil {
+	err = json.Unmarshal(groupWithEmptySegmentsJSON, &groupWithEmptySegmentsMap)
+	if err != nil {
 		t.Fatalf("unmarshal group with empty segment paths as map: %v", err)
 	}
 	groupWithEmptySegmentsSpec, ok := groupWithEmptySegmentsMap["spec"].(map[string]any)
 	if !ok {
 		t.Fatalf("group with empty segment paths spec decoded as %T, want object", groupWithEmptySegmentsMap["spec"])
 	}
-	if _, ok := groupWithEmptySegmentsSpec["segment_paths"]; ok {
+	_, emptySegmentPathOK := groupWithEmptySegmentsSpec["segment_paths"]
+	if emptySegmentPathOK {
 		t.Fatalf("empty segment_paths should be absent from JSON, got %s", string(groupWithEmptySegmentsJSON))
 	}
 
@@ -391,14 +405,16 @@ func TestJSONShapeUsesPublicAPIFieldNames(t *testing.T) {
 		t.Fatalf("marshal group without unsupported reason: %v", err)
 	}
 	var groupWithoutUnsupportedReasonMap map[string]any
-	if err := json.Unmarshal(groupWithoutUnsupportedReasonJSON, &groupWithoutUnsupportedReasonMap); err != nil {
+	err = json.Unmarshal(groupWithoutUnsupportedReasonJSON, &groupWithoutUnsupportedReasonMap)
+	if err != nil {
 		t.Fatalf("unmarshal group without unsupported reason as map: %v", err)
 	}
 	groupWithoutUnsupportedReasonStatus, ok := groupWithoutUnsupportedReasonMap["status"].(map[string]any)
 	if !ok {
 		t.Fatalf("group without unsupported reason status decoded as %T, want object", groupWithoutUnsupportedReasonMap["status"])
 	}
-	if _, ok := groupWithoutUnsupportedReasonStatus["unsupportedReason"]; ok {
+	_, unsupportedReasonOK := groupWithoutUnsupportedReasonStatus["unsupportedReason"]
+	if unsupportedReasonOK {
 		t.Fatalf("empty unsupportedReason should be absent from JSON, got %s", string(groupWithoutUnsupportedReasonJSON))
 	}
 }
