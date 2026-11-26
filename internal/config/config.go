@@ -4,6 +4,8 @@ package config
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -76,11 +78,48 @@ const (
 	CredentialSourceConfigValues CredentialSource = "config_values"
 	// CredentialSourceConfigFiles means credentials came from files named in config.
 	CredentialSourceConfigFiles CredentialSource = "config_files"
+	// CredentialSourceConfigCommand means credentials came from the nsx.auth.command executable.
+	CredentialSourceConfigCommand CredentialSource = "config_command"
+)
+
+const (
+	authCommandTimeout        = 30 * time.Second
+	authCommandMaxStderrBytes = 4 * 1024
 )
 
 // TLSConfig controls NSX TLS trust configuration.
 type TLSConfig struct {
+	// CABundleFile is a PEM bundle trusted in addition to the system roots.
 	CABundleFile string
+	// InsecureSkipVerify disables NSX server certificate verification.
+	InsecureSkipVerify bool
+}
+
+// RootCAs returns the system root pool extended with the configured CA bundle, if any.
+func (c *TLSConfig) RootCAs() (*x509.CertPool, error) {
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("load system root certificates: %w", err)
+	}
+	if c.CABundleFile == "" {
+		return pool, nil
+	}
+	err = appendCABundle(pool, c.CABundleFile)
+	if err != nil {
+		return nil, err
+	}
+	return pool, nil
+}
+
+func appendCABundle(pool *x509.CertPool, path string) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read nsx.tls.caBundleFile %q: %w", path, err)
+	}
+	if !pool.AppendCertsFromPEM(content) {
+		return fmt.Errorf("nsx.tls.caBundleFile %q contains no valid PEM certificates", path)
+	}
+	return nil
 }
 
 // LoggingConfig controls zap logger configuration.
@@ -133,10 +172,12 @@ type rawAuthConfig struct {
 	Password     string `yaml:"password"`
 	UsernameFile string `yaml:"usernameFile"`
 	PasswordFile string `yaml:"passwordFile"`
+	Command      string `yaml:"command"`
 }
 
 type rawTLSConfig struct {
-	CABundleFile string `yaml:"caBundleFile"`
+	CABundleFile       string `yaml:"caBundleFile"`
+	InsecureSkipVerify bool   `yaml:"insecureSkipVerify"`
 }
 
 type rawLoggingConfig struct {
@@ -181,19 +222,25 @@ func Load(options Options) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if raw.NSX.TLS.CABundleFile != "" {
-		_, err = os.Stat(raw.NSX.TLS.CABundleFile)
-		if err != nil {
-			return nil, fmt.Errorf("validate nsx.tls.caBundleFile %q: %w", raw.NSX.TLS.CABundleFile, err)
-		}
-	}
 
 	logger := options.Logger
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 
-	auth, err := resolveBasicAuth(raw.NSX.Auth, options.EnvScriptPath, options.Environ, options.FS, logger)
+	if raw.NSX.TLS.CABundleFile != "" {
+		err = appendCABundle(x509.NewCertPool(), raw.NSX.TLS.CABundleFile)
+		if err != nil {
+			return nil, fmt.Errorf("validate nsx.tls.caBundleFile: %w", err)
+		}
+		logger.Debug(
+			"validated nsx ca bundle file",
+			logging.Component("config"),
+			zap.String("ca_bundle_file", raw.NSX.TLS.CABundleFile),
+		)
+	}
+
+	auth, err := resolveBasicAuth(&raw.NSX.Auth, options.EnvScriptPath, options.Environ, options.FS, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +266,8 @@ func Load(options Options) (*Config, error) {
 			WritesEnabledConfigured: true,
 			Auth:                    *auth,
 			TLS: TLSConfig{
-				CABundleFile: raw.NSX.TLS.CABundleFile,
+				CABundleFile:       raw.NSX.TLS.CABundleFile,
+				InsecureSkipVerify: raw.NSX.TLS.InsecureSkipVerify,
 			},
 		},
 		Logging: LoggingConfig{
@@ -290,7 +338,11 @@ func parseNSXURLScheme(value string) (string, error) {
 	}
 }
 
-func resolveBasicAuth(raw rawAuthConfig, envScriptPath string, environ map[string]string, filesystem fs.FS, logger *zap.Logger) (*BasicAuth, error) {
+func resolveBasicAuth(raw *rawAuthConfig, envScriptPath string, environ map[string]string, filesystem fs.FS, logger *zap.Logger) (*BasicAuth, error) {
+	sourceErr := validateSingleConfigCredentialSource(raw)
+	if sourceErr != nil {
+		return nil, sourceErr
+	}
 	if envScriptPath != "" {
 		auth, err := resolveEnvScriptBasicAuth(envScriptPath, logger)
 		if err != nil {
@@ -354,7 +406,113 @@ func resolveBasicAuth(raw rawAuthConfig, envScriptPath string, environ map[strin
 			Source:   CredentialSourceConfigFiles,
 		}, nil
 	}
+	if raw.Command != "" {
+		return resolveAuthCommandBasicAuth(raw.Command, logger)
+	}
 	return nil, fmt.Errorf("nsx.auth must resolve one complete basic auth credential source")
+}
+
+// validateSingleConfigCredentialSource rejects configs that set more than one of
+// username/password, usernameFile/passwordFile, and command.
+func validateSingleConfigCredentialSource(raw *rawAuthConfig) error {
+	configured := make([]string, 0, 3)
+	if raw.Username != "" || raw.Password != "" {
+		configured = append(configured, "username/password")
+	}
+	if raw.UsernameFile != "" || raw.PasswordFile != "" {
+		configured = append(configured, "usernameFile/passwordFile")
+	}
+	if raw.Command != "" {
+		configured = append(configured, "command")
+	}
+	if len(configured) > 1 {
+		return fmt.Errorf("nsx.auth must set only one credential source, got %s", strings.Join(configured, ", "))
+	}
+	return nil
+}
+
+type authCommandOutput struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func resolveAuthCommandBasicAuth(path string, logger *zap.Logger) (*BasicAuth, error) {
+	logger.Info(
+		"loading nsx credentials from auth command",
+		logging.Component("config"),
+		zap.String("auth_command", path),
+	)
+	commandCtx, cancel := context.WithTimeout(context.Background(), authCommandTimeout)
+	defer cancel()
+	command := exec.CommandContext(commandCtx, path)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	if err != nil {
+		var exitError *exec.ExitError
+		exitCode := -1
+		if errors.As(err, &exitError) {
+			exitCode = exitError.ExitCode()
+		}
+		logger.Info(
+			"auth command credential command failed",
+			logging.Component("config"),
+			zap.String("auth_command", path),
+			zap.Int("exit_code", exitCode),
+			zap.Int("stderr_bytes", stderr.Len()),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("run nsx.auth.command %q: %w%s", path, err, authCommandStderrSuffix(stderr.Bytes()))
+	}
+	logger.Debug(
+		"auth command completed",
+		logging.Component("config"),
+		zap.String("auth_command", path),
+		zap.Int("stdout_bytes", stdout.Len()),
+		zap.Int("stderr_bytes", stderr.Len()),
+	)
+
+	var output authCommandOutput
+	err = json.Unmarshal(stdout.Bytes(), &output)
+	if err != nil {
+		// The decode error is not wrapped because it can quote stdout bytes, which may hold the password.
+		return nil, fmt.Errorf(
+			"nsx.auth.command %q stdout must be a JSON object {\"username\":\"...\",\"password\":\"...\"}%s",
+			path,
+			authCommandStderrSuffix(stderr.Bytes()),
+		)
+	}
+	logger.Debug(
+		"parsed auth command credential output",
+		logging.Component("config"),
+		zap.String("auth_command", path),
+		zap.Bool("has_nsx_username", output.Username != ""),
+		zap.Bool("has_nsx_password", output.Password != ""),
+	)
+	if output.Username == "" {
+		return nil, fmt.Errorf("nsx.auth.command %q did not provide a non-empty username%s", path, authCommandStderrSuffix(stderr.Bytes()))
+	}
+	if output.Password == "" {
+		return nil, fmt.Errorf("nsx.auth.command %q did not provide a non-empty password%s", path, authCommandStderrSuffix(stderr.Bytes()))
+	}
+	return &BasicAuth{
+		Username: output.Username,
+		Password: output.Password,
+		Source:   CredentialSourceConfigCommand,
+	}, nil
+}
+
+func authCommandStderrSuffix(stderr []byte) string {
+	text := strings.TrimSpace(string(stderr))
+	if text == "" {
+		return ""
+	}
+	if len(text) > authCommandMaxStderrBytes {
+		text = text[:authCommandMaxStderrBytes] + "...(truncated)"
+	}
+	return "; stderr: " + text
 }
 
 func resolveEnvScriptBasicAuth(path string, logger *zap.Logger) (*BasicAuth, error) {

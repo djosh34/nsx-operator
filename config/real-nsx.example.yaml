@@ -1,0 +1,29 @@
+# nsx-operator config for a real NSX-T manager.
+#
+#   cp config/real-nsx.example.yaml config/real-nsx.yaml   # config/real-nsx.yaml is gitignored
+#
+# Starts read-only: writesEnabled false means the operator never sends a non-GET call to NSX.
+# Pair it with NSXGroups in Observe mode for a first look.
+operator:
+  tickInterval: 30s
+  metricsBindAddress: "127.0.0.1:18081"
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 2
+  maxRequestsPerSecondPerHost: 5
+kubeAPI:
+  numParallelWorkers: 20
+  maxRequestsPerSecond: 100
+  maxRequestsInFlight: 100
+nsx:
+  urlScheme: https
+  writesEnabled: false
+  auth:
+    # Prints {"username":"...","password":"..."}; copy it from scripts/nsx-auth.example.sh.
+    command: ./scripts/nsx-auth.sh
+  tls:
+    # PEM bundle for a manager with a private or self-signed CA, trusted on top of system roots.
+    # caBundleFile: ./.local/nsx/ca.pem
+    # Lab only: skip certificate verification entirely.
+    insecureSkipVerify: false
+logging:
+  level: info

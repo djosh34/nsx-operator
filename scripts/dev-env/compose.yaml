@@ -1,0 +1,51 @@
+# Local demo environment: single-node k3s (embedded etcd) and the NSX-T mock API.
+# Driven by scripts/k8s-up.sh and scripts/k8s-down.sh.
+name: nsx-operator-dev
+
+services:
+  k3s:
+    image: rancher/k3s:v1.32.5-k3s1
+    hostname: k3s
+    privileged: true
+    command:
+      - server
+      - --cluster-init
+      - --disable=traefik
+      - --disable=servicelb
+      - --disable=metrics-server
+      - --tls-san=127.0.0.1
+    tmpfs:
+      - /run
+      - /var/run
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    ports:
+      - "127.0.0.1:${K8S_API_PORT:-6443}:6443"
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s
+    healthcheck:
+      test: ["CMD", "kubectl", "get", "--raw=/readyz"]
+      interval: 2s
+      timeout: 5s
+      retries: 90
+
+  nsx-t-mockapi:
+    image: nsx-t-mockapi:local
+    build:
+      context: https://github.com/djosh34/nsx-t-mockapi.git
+    command: ["serve", "-config", "/config/config.yaml"]
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - type: bind
+        source: ./mockapi-config.yaml
+        target: /config/config.yaml
+        read_only: true
+      - mockapi-data:/data
+
+volumes:
+  k3s-data:
+  mockapi-data:
