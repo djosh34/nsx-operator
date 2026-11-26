@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create N Manage-mode NSXGroups (demo-group-1 .. demo-group-N), each with one /24 CIDR.
+# Create N Manage-mode NSXGroups (demo-group-1 .. demo-group-N), each with one /32 CIDR.
 # Usage: scripts/make-nsxgroups.sh N
 # Env:   NSX_FQDN (default 127.0.0.1:18080, the mock API from scripts/k8s-up.sh)
 set -euo pipefail
@@ -9,8 +9,8 @@ if [[ $# -ne 1 || ! "$1" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 count="$1"
-if (( count > 65536 )); then
-  printf 'N must be at most 65536 (one 10.x.y.0/24 per group)\n' >&2
+if (( count > 16777216 )); then
+  printf 'N must be at most 16777216 (one 10.x.y.z/32 per group)\n' >&2
   exit 1
 fi
 fqdn="${NSX_FQDN:-127.0.0.1:18080}"
@@ -30,6 +30,6 @@ spec:
   display_name: Demo Group ${i}
   mode: Manage
   cidrs:
-    - 10.$((n / 256)).$((n % 256)).0/24
+    - 10.$((n / 65536)).$((n / 256 % 256)).$((n % 256))/32
 YAML
 done | kubectl apply --server-side -f -
