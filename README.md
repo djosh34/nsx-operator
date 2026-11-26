@@ -47,6 +47,9 @@ Any other cluster works too: still run step 1 for the mock API, then point
 
 Run these in a second terminal from the repo root, with the same `KUBECONFIG`.
 
+Open <http://127.0.0.1:18090> to watch the mock API's groups live (refreshes
+every 2s, highlights groups that just changed, click a group for its JSON).
+
 The mock API cloud is there and reachable:
 
 ```bash

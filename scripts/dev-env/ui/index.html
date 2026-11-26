@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NSX Groups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #eef2f5;
+    --sheet: #ffffff;
+    --ink: #17212b;
+    --muted: #5d6c7a;
+    --rule: #d6dde4;
+    --accent: #1d5ca8;
+    --fresh: 255, 205, 92;
+    --bad: #b3361f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.45 "IBM Plex Sans", system-ui, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--bg);
+    padding: 20px 24px 14px;
+    display: flex; flex-wrap: wrap; align-items: end; gap: 12px 28px;
+    border-bottom: 1px solid var(--rule);
+  }
+  h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+  h1 small { display: block; font-size: 14px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+  .count { font-size: 40px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  .count span { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+  input[type=search] {
+    flex: 1 1 260px; max-width: 420px;
+    font: inherit; padding: 9px 12px;
+    border: 1px solid var(--rule); border-radius: 6px; background: var(--sheet); color: var(--ink);
+  }
+  input[type=search]:focus-visible, tr:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #status { flex-basis: 100%; font-size: 13px; color: var(--muted); }
+  #status.error { color: var(--bad); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #2f9e5b; margin-right: 6px; vertical-align: 1px; }
+  .error .dot { background: var(--bad); }
+  main { padding: 16px 24px 40px; }
+  .sheet { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: baseline; }
+  th { font-size: 13px; font-weight: 500; color: var(--muted); background: var(--sheet); }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { box-shadow: inset 3px 0 0 var(--accent); }
+  tbody tr:last-child td { border-bottom: 0; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .more { color: var(--muted); }
+  .muted { color: var(--muted); }
+  .deleting { color: var(--bad); }
+  #note { padding: 12px; color: var(--muted); font-size: 13px; }
+  dialog {
+    width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 64px);
+    border: 1px solid var(--rule); border-radius: 8px; padding: 0; color: var(--ink);
+  }
+  dialog::backdrop { background: rgba(23, 33, 43, 0.35); }
+  .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--rule); }
+  .dlg-head h2 { margin: 0; font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+  button { font: inherit; padding: 6px 14px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); color: var(--ink); cursor: pointer; }
+  pre { margin: 0; padding: 16px 18px; overflow: auto; max-height: calc(100vh - 160px); white-space: pre; }
+  @media (max-width: 640px) {
+    header { padding: 16px; }
+    main { padding: 12px 16px 32px; }
+    .hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>NSX groups<small>Mock NSX-T manager 127.0.0.1:18080, domain default</small></h1>
+  <div class="count" id="count">–<span>groups</span></div>
+  <input type="search" id="q" placeholder="Search ID, name, IP or path" autocomplete="off">
+  <div id="status"><span class="dot"></span>Loading…</div>
+</header>
+<main>
+  <div class="sheet">
+    <table>
+      <thead><tr>
+        <th>ID</th><th>Display name</th><th>IP addresses</th><th class="hide-sm">Paths</th>
+        <th class="num">Rev</th><th class="hide-sm">Modified by</th><th>Modified</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="note"></div>
+  </div>
+</main>
+<dialog id="dlg">
+  <div class="dlg-head"><h2 id="dlg-title"></h2><button id="dlg-close">Close</button></div>
+  <pre class="mono" id="dlg-json"></pre>
+</dialog>
+<script>
+const BASE = "/policy/api/v1/infra/domains/default/groups";
+const REFRESH_MS = 2000;
+const FADE_MS = 8000;     // how long a changed row stays highlighted
+const MAX_ROWS = 500;     // rows rendered at once; search narrows the rest
+
+let groups = [];          // last fetched list, sorted by id
+let revs = null;          // id -> _revision from the previous refresh
+const changedAt = new Map();
+const $ = (id) => document.getElementById(id);
+
+async function fetchAll() {
+  const all = [];
+  let cursor = "";
+  do {
+    const url = BASE + "?page_size=1000" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status + " from " + url);
+    const body = await res.json();
+    all.push(...(body.results || []));
+    cursor = body.cursor || "";
+  } while (cursor);
+  return all;
+}
+
+function ipsOf(g) {
+  return (g.expression || []).flatMap((e) => e.ip_addresses || []);
+}
+function pathsOf(g) {
+  return (g.expression || []).flatMap((e) => e.paths || []);
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function ago(ms) {
+  if (!ms) return "";
+  const s = Math.round((Date.now() - ms) / 1000);
+  if (s < 60) return Math.max(s, 0) + "s ago";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  return new Date(ms).toLocaleString();
+}
+function list(items, n) {
+  if (!items.length) return '<span class="muted">none</span>';
+  const shown = items.slice(0, n).map(esc).join("<br>");
+  return items.length > n ? shown + '<br><span class="more">+' + (items.length - n) + " more</span>" : shown;
+}
+
+async function refresh() {
+  try {
+    const fetched = await fetchAll();
+    fetched.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+    const now = Date.now();
+    let changed = 0, removed = 0;
+    const next = new Map();
+    for (const g of fetched) {
+      next.set(g.id, g._revision);
+      if (revs && revs.get(g.id) !== g._revision) { changedAt.set(g.id, now); changed++; }
+    }
+    if (revs) for (const id of revs.keys()) if (!next.has(id)) { changedAt.delete(id); removed++; }
+    revs = next;
+    groups = fetched;
+    $("status").className = "";
+    $("status").innerHTML = '<span class="dot"></span>Updated ' + new Date().toLocaleTimeString() +
+      (changed || removed ? ". " + changed + " changed, " + removed + " removed since the last refresh" : "");
+  } catch (err) {
+    $("status").className = "error";
+    $("status").innerHTML = '<span class="dot"></span>Cannot read groups from the mock API: ' + esc(err.message) +
+      ". Check that scripts/k8s-up.sh is running. Retrying every 2s.";
+  }
+  render();
+  setTimeout(refresh, REFRESH_MS);
+}
+
+function render() {
+  const q = $("q").value.trim().toLowerCase();
+  const hits = q
+    ? groups.filter((g) => [g.id, g.display_name, ...ipsOf(g), ...pathsOf(g)].some((v) => String(v ?? "").toLowerCase().includes(q)))
+    : groups;
+  $("count").innerHTML = (q ? hits.length + " / " : "") + groups.length + "<span>groups</span>";
+  const now = Date.now();
+  const html = [];
+  for (const g of hits.slice(0, MAX_ROWS)) {
+    const age = now - (changedAt.get(g.id) || 0);
+    const glow = age < FADE_MS ? ' style="background:rgba(var(--fresh),' + (0.85 * (1 - age / FADE_MS)).toFixed(2) + ')"' : "";
+    html.push(
+      '<tr tabindex="0" data-id="' + esc(g.id) + '"' + glow + ">" +
+      '<td class="mono">' + esc(g.id) + "</td>" +
+      "<td>" + esc(g.display_name) + (g.marked_for_delete ? ' <span class="deleting">(deleting)</span>' : "") + "</td>" +
+      '<td class="mono">' + list(ipsOf(g), 3) + "</td>" +
+      '<td class="mono hide-sm">' + list(pathsOf(g), 2) + "</td>" +
+      '<td class="num mono">' + esc(g._revision) + "</td>" +
+      '<td class="hide-sm">' + esc(g._last_modified_user) + "</td>" +
+      '<td class="muted" title="' + esc(g._last_modified_time ? new Date(g._last_modified_time).toLocaleString() : "") + '">' + esc(ago(g._last_modified_time)) + "</td></tr>"
+    );
+  }
+  $("rows").innerHTML = html.join("");
+  $("note").textContent =
+    !groups.length ? "No groups on the manager yet. Create an NSXGroup in Kubernetes or run scripts/make-nsxgroups.sh 100." :
+    !hits.length ? "No group matches this search." :
+    hits.length > MAX_ROWS ? "Showing the first " + MAX_ROWS + " of " + hits.length + ". Search to narrow the list." : "";
+  $("note").hidden = !$("note").textContent;
+}
+
+async function openGroup(id) {
+  $("dlg-title").textContent = id;
+  $("dlg-json").textContent = "Loading…";
+  $("dlg").showModal();
+  try {
+    const res = await fetch(BASE + "/" + encodeURIComponent(id), { cache: "no-store" });
+    const text = await res.text();
+    let shown = text;
+    try { shown = JSON.stringify(JSON.parse(text), null, 2); } catch (_) { /* not JSON: show the raw body */ }
+    $("dlg-json").textContent = res.ok ? shown : "HTTP " + res.status + "\n\n" + shown;
+  } catch (err) {
+    $("dlg-json").textContent = "Cannot read group " + id + ": " + err.message;
+  }
+}
+
+$("q").addEventListener("input", render);
+$("rows").addEventListener("click", (e) => { const tr = e.target.closest("tr"); if (tr) openGroup(tr.dataset.id); });
+$("rows").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.dataset.id) openGroup(e.target.dataset.id); });
+$("dlg-close").addEventListener("click", () => $("dlg").close());
+$("dlg").addEventListener("click", (e) => { if (e.target === $("dlg")) $("dlg").close(); });
+refresh();
+</script>
+</body>
+</html>

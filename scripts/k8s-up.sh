@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Start the local demo environment: single-node k3s and the NSX-T mock API.
+# Start the local demo environment: single-node k3s, the NSX-T mock API and the
+# group viewer page on http://127.0.0.1:18090.
 # Writes a host kubeconfig to .local/kubeconfig.yaml.
 set -euo pipefail
 
@@ -31,7 +32,7 @@ log "waiting for the mock API"
 for _ in $(seq 1 60); do
   if curl -fsS -o /dev/null -u nsx_admin:nsx_password \
     http://127.0.0.1:18080/policy/api/v1/infra/domains/default/groups; then
-    log "ready"
+    log "ready; NSX group viewer: http://127.0.0.1:18090"
     printf 'export KUBECONFIG=%s\n' "${kubeconfig}"
     exit 0
   fi
