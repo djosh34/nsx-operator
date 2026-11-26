@@ -25,6 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	controllerconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -144,6 +145,10 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 			Logger:               logger,
 			Clock:                options.Clock,
 			Recorder:             operatorRecorder,
+			// One worker per in-flight slot keeps the per-host limit busy; the shared
+			// rate-limited HTTP client still enforces both NSX limits.
+			NSXWriteWorkers:       options.Config.HTTPRateLimiter.MaxRequestsInFlightPerHost,
+			MaxGroupWritesPerPass: options.Config.Operator.MaxGroupWritesPerPass,
 		})
 	}
 
@@ -182,7 +187,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	}
 	err = builder.ControllerManagedBy(runtimeManager).
 		Named("nsxgroup").
-		For(&nsxv1alpha.NSXGroup{}).
+		Watches(&nsxv1alpha.NSXGroup{}, handler.EnqueueRequestsFromMapFunc(stateoperator.GroupEventRequests)).
 		Complete(&stateoperator.GroupReconciler{
 			Logger: logger,
 			Runner: reconcileRunner,
@@ -207,7 +212,7 @@ func newNSXHTTPClient(cfg config.HTTPRateLimiterConfig, tlsCfg config.TLSConfig,
 		zap.Int("http_max_requests_in_flight_per_host", limiterConfig.MaxRequestsInFlightPerHost),
 		zap.Int("http_max_requests_per_second_per_host", limiterConfig.MaxRequestsPerSecondPerHost),
 	)
-	baseTransport, err := newNSXBaseTransport(tlsCfg, logger)
+	baseTransport, err := newNSXBaseTransport(tlsCfg, limiterConfig.MaxRequestsInFlightPerHost, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -216,21 +221,36 @@ func newNSXHTTPClient(cfg config.HTTPRateLimiterConfig, tlsCfg config.TLSConfig,
 	}, nil
 }
 
-// newNSXBaseTransport returns http.DefaultTransport unless NSX TLS settings require a dedicated transport.
-func newNSXBaseTransport(tlsCfg config.TLSConfig, logger *zap.Logger) (http.RoundTripper, error) {
-	if tlsCfg.CABundleFile == "" && !tlsCfg.InsecureSkipVerify {
-		logger.Debug("nsx manager tls uses system root certificates", logging.Component("startup"))
-		return http.DefaultTransport, nil
-	}
+// newNSXBaseTransport clones http.DefaultTransport for NSX calls, keeping one idle
+// connection per in-flight slot: the default keeps only 2 idle connections per
+// host, so with more requests in flight nearly every request opened (and then
+// dropped) a new connection. A non-standard http.DefaultTransport is used as is
+// unless NSX TLS settings need a dedicated transport.
+func newNSXBaseTransport(tlsCfg config.TLSConfig, maxIdleConnsPerHost int, logger *zap.Logger) (http.RoundTripper, error) {
 	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
+		if tlsCfg.CABundleFile == "" && !tlsCfg.InsecureSkipVerify {
+			logger.Debug("nsx manager http client uses non-standard default transport as is", logging.Component("startup"))
+			return http.DefaultTransport, nil
+		}
 		return nil, errors.New("nsx tls settings require http.DefaultTransport to be *http.Transport")
+	}
+	transport := defaultTransport.Clone()
+	transport.MaxIdleConnsPerHost = max(maxIdleConnsPerHost, transport.MaxIdleConnsPerHost)
+	transport.MaxIdleConns = max(transport.MaxIdleConns, transport.MaxIdleConnsPerHost)
+	logger.Debug(
+		"nsx manager http transport keeps idle connections per host",
+		logging.Component("startup"),
+		zap.Int("max_idle_conns_per_host", transport.MaxIdleConnsPerHost),
+	)
+	if tlsCfg.CABundleFile == "" && !tlsCfg.InsecureSkipVerify {
+		logger.Debug("nsx manager tls uses system root certificates", logging.Component("startup"))
+		return transport, nil
 	}
 	rootCAs, err := tlsCfg.RootCAs()
 	if err != nil {
 		return nil, fmt.Errorf("load nsx tls root certificates: %w", err)
 	}
-	transport := defaultTransport.Clone()
 	//nolint:gosec // InsecureSkipVerify is an explicit, warned-about operator opt-in for lab NSX managers.
 	transport.TLSClientConfig = &tls.Config{
 		MinVersion:         tls.VersionTLS12,

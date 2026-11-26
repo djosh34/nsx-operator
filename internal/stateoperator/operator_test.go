@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -391,7 +392,7 @@ func TestGroupReconcileObservesEventWithoutClientOrNSXMutation(t *testing.T) {
 	reconciler := stateoperator.GroupReconciler{Logger: zap.New(core)}
 
 	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: "group-a"},
+		NamespacedName: types.NamespacedName{Name: "nsx-a.example.test"},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
@@ -399,7 +400,7 @@ func TestGroupReconcileObservesEventWithoutClientOrNSXMutation(t *testing.T) {
 	if result != (reconcile.Result{}) {
 		t.Fatalf("Reconcile() result = %#v, want empty result", result)
 	}
-	requireLogField(t, logs, "observed group reconcile event", "groupName", "group-a")
+	requireLogField(t, logs, "observed group reconcile event", "networkCloudFQDN", "nsx-a.example.test")
 }
 
 func TestGroupReconcileRunsSharedPassRunner(t *testing.T) {
@@ -407,7 +408,7 @@ func TestGroupReconcileRunsSharedPassRunner(t *testing.T) {
 	reconciler := stateoperator.GroupReconciler{Runner: runner}
 
 	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: "group-a"},
+		NamespacedName: types.NamespacedName{Name: "nsx-a.example.test"},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
@@ -416,9 +417,33 @@ func TestGroupReconcileRunsSharedPassRunner(t *testing.T) {
 		t.Fatalf("Reconcile() result = %#v, want empty result", result)
 	}
 	runner.requireSingleTrigger(t, stateoperator.ReconcileTrigger{
-		Kind: stateoperator.ReconcileTriggerGroup,
-		Name: "group-a",
+		Kind: stateoperator.ReconcileTriggerManager,
+		Name: "nsx-a.example.test",
 	})
+}
+
+func TestGroupEventRequestsKeysEveryGroupByItsManager(t *testing.T) {
+	group := func(name string, fqdn string) *nsxv1alpha.NSXGroup {
+		return &nsxv1alpha.NSXGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec:       nsxv1alpha.NSXGroupSpec{NetworkCloudFQDN: fqdn, GroupID: name},
+		}
+	}
+	first := stateoperator.GroupEventRequests(context.Background(), group("group-a", "NSX-A.example.test"))
+	second := stateoperator.GroupEventRequests(context.Background(), group("group-b", "nsx-a.example.test"))
+	other := stateoperator.GroupEventRequests(context.Background(), group("group-c", "nsx-b.example.test:8443"))
+
+	want := []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "nsx-a.example.test"}}}
+	if !reflect.DeepEqual(first, want) || !reflect.DeepEqual(second, want) {
+		t.Fatalf("GroupEventRequests() = %v and %v, want both %v so the workqueue collapses them", first, second, want)
+	}
+	wantOther := []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "nsx-b.example.test:8443"}}}
+	if !reflect.DeepEqual(other, wantOther) {
+		t.Fatalf("GroupEventRequests() = %v, want %v", other, wantOther)
+	}
+	if got := stateoperator.GroupEventRequests(context.Background(), &nsxv1alpha.NSXNetworkCloud{}); got != nil {
+		t.Fatalf("GroupEventRequests(non-group) = %v, want nil", got)
+	}
 }
 
 func TestGroupReconcileCanceledContextReturnsError(t *testing.T) {

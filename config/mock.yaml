@@ -1,13 +1,18 @@
 # nsx-operator config for the local NSX-T mock API started by scripts/k8s-up.sh.
+# The limits are sized for a local mock (it serves ~500 requests/s) and a local k3s;
+# keep them far lower for a real NSX manager (see config/real-nsx.example.yaml).
 operator:
   tickInterval: 5s
   metricsBindAddress: "127.0.0.1:18081"
+  # Groups with writes per manager pass; the rest go in the next pass. Keeps a pass
+  # short so a delete (finalizer removal) never waits behind thousands of creates.
+  maxGroupWritesPerPass: 300
 httpRateLimiter:
-  maxRequestsInFlightPerHost: 4
-  maxRequestsPerSecondPerHost: 20
+  maxRequestsInFlightPerHost: 32
+  maxRequestsPerSecondPerHost: 500
 kubeAPI:
-  numParallelWorkers: 20
-  maxRequestsPerSecond: 100
+  numParallelWorkers: 50
+  maxRequestsPerSecond: 500
   maxRequestsInFlight: 100
 nsx:
   urlScheme: http

@@ -271,6 +271,12 @@ func (c *Client) handleResponse(resp *http.Response, target any) (retErr error) 
 	if err != nil {
 		return fmt.Errorf("decode nsx response body: %w", err)
 	}
+	// The decoder can stop before EOF (a trailing newline); read the rest so the
+	// keep-alive connection goes back to the pool instead of being closed.
+	_, err = io.Copy(io.Discard, resp.Body)
+	if err != nil {
+		return fmt.Errorf("drain nsx response body: %w", err)
+	}
 	return nil
 }
 
@@ -374,6 +380,13 @@ func (body *countingReadCloser) bytesRead() int64 {
 
 func decodeAndCloseList[T any](body io.ReadCloser) ([]*T, string, int, error) {
 	results, cursor, count, decodeErr := DecodeListResults[T](body)
+	if decodeErr == nil {
+		// Read past the decoder's stopping point so the connection can be reused.
+		_, decodeErr = io.Copy(io.Discard, body)
+		if decodeErr != nil {
+			decodeErr = fmt.Errorf("drain nsx list response body: %w", decodeErr)
+		}
+	}
 	closeErr := body.Close()
 	if decodeErr != nil && closeErr != nil {
 		return nil, "", 0, errors.Join(decodeErr, fmt.Errorf("close nsx list response body: %w", closeErr))

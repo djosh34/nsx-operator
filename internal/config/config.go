@@ -33,6 +33,8 @@ type Config struct {
 type OperatorConfig struct {
 	TickInterval       time.Duration
 	MetricsBindAddress string
+	// MaxGroupWritesPerPass bounds how many groups get writes in one manager pass.
+	MaxGroupWritesPerPass int
 }
 
 // HTTPRateLimiterConfig controls NSX HTTP client rate limiting.
@@ -145,9 +147,13 @@ type rawConfig struct {
 }
 
 type rawOperatorConfig struct {
-	TickInterval       string `yaml:"tickInterval"`
-	MetricsBindAddress string `yaml:"metricsBindAddress"`
+	TickInterval          string `yaml:"tickInterval"`
+	MetricsBindAddress    string `yaml:"metricsBindAddress"`
+	MaxGroupWritesPerPass int    `yaml:"maxGroupWritesPerPass"`
 }
+
+// DefaultMaxGroupWritesPerPass is operator.maxGroupWritesPerPass when the config leaves it out.
+const DefaultMaxGroupWritesPerPass = 500
 
 type rawHTTPRateLimiterConfig struct {
 	MaxRequestsInFlightPerHost  int `yaml:"maxRequestsInFlightPerHost"`
@@ -205,6 +211,13 @@ func Load(options Options) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	maxGroupWritesPerPass := raw.Operator.MaxGroupWritesPerPass
+	if maxGroupWritesPerPass < 0 {
+		return nil, fmt.Errorf("operator.maxGroupWritesPerPass must not be negative")
+	}
+	if maxGroupWritesPerPass == 0 {
+		maxGroupWritesPerPass = DefaultMaxGroupWritesPerPass
+	}
 	if raw.HTTPRateLimiter.MaxRequestsInFlightPerHost <= 0 {
 		return nil, fmt.Errorf("httpRateLimiter.maxRequestsInFlightPerHost must be positive")
 	}
@@ -252,8 +265,9 @@ func Load(options Options) (*Config, error) {
 
 	return &Config{
 		Operator: OperatorConfig{
-			TickInterval:       tickInterval,
-			MetricsBindAddress: parseMetricsBindAddress(raw.Operator.MetricsBindAddress),
+			TickInterval:          tickInterval,
+			MetricsBindAddress:    parseMetricsBindAddress(raw.Operator.MetricsBindAddress),
+			MaxGroupWritesPerPass: maxGroupWritesPerPass,
 		},
 		HTTPRateLimiter: HTTPRateLimiterConfig{
 			MaxRequestsInFlightPerHost:  raw.HTTPRateLimiter.MaxRequestsInFlightPerHost,

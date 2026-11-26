@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
 	"github.com/djosh34/nsx-operator/internal/kubeapi"
@@ -23,8 +24,12 @@ const (
 	ReconcileTriggerSweep ReconcileTriggerKind = "sweep"
 	// ReconcileTriggerNetworkCloud runs a pass scoped to one NSXNetworkCloud event.
 	ReconcileTriggerNetworkCloud ReconcileTriggerKind = "networkCloud"
-	// ReconcileTriggerGroup runs a pass scoped to one NSXGroup event.
+	// ReconcileTriggerGroup runs a pass scoped to the manager of one named NSXGroup.
 	ReconcileTriggerGroup ReconcileTriggerKind = "group"
+	// ReconcileTriggerManager runs a pass scoped to one NSX manager, named by its
+	// normalized network cloud FQDN. NSXGroup events use it so that thousands of
+	// group events for one manager collapse into one queued pass.
+	ReconcileTriggerManager ReconcileTriggerKind = "manager"
 )
 
 // ReconcileTrigger describes the event or sweep that requested a reconcile pass.
@@ -53,6 +58,13 @@ type ReconcilePassRunnerOptions struct {
 	Logger               *zap.Logger
 	Clock                Clock
 	Recorder             operatormetrics.Recorder
+	// NSXWriteWorkers is how many NSX writes of one manager pass run at once. The
+	// shared NSX HTTP client still enforces the per-host limits; set it to the
+	// per-host in-flight limit. Zero or less means one at a time.
+	NSXWriteWorkers int
+	// MaxGroupWritesPerPass bounds how many groups get writes in one manager pass;
+	// the rest wait for the next pass. Zero or less means no bound.
+	MaxGroupWritesPerPass int
 }
 
 // DefaultReconcilePassRunner executes one gather/process/apply pass for sweeps and events.
@@ -62,11 +74,20 @@ type DefaultReconcilePassRunner struct {
 	logger               *zap.Logger
 	clock                Clock
 	recorder             operatormetrics.Recorder
+	nsxWriteWorkers      int
+	maxGroupWrites       int
+	budgetMu             sync.Mutex
+	budgets              map[string]*groupWriteBudget
+	// passMu serializes passes: the periodic sweep and the event-driven passes would
+	// otherwise plan from the same snapshot and race each other's writes.
+	passMu sync.Mutex
 }
 
 var _ ReconcilePassRunner = (*DefaultReconcilePassRunner)(nil)
 
 // NewDefaultReconcilePassRunner constructs the production reconcile pass runner.
+//
+//nolint:gocritic // public runner API keeps value options so callers can pass literals.
 func NewDefaultReconcilePassRunner(options ReconcilePassRunnerOptions) *DefaultReconcilePassRunner {
 	logger := options.Logger
 	if logger == nil {
@@ -86,7 +107,22 @@ func NewDefaultReconcilePassRunner(options ReconcilePassRunnerOptions) *DefaultR
 		logger:               logger,
 		clock:                clock,
 		recorder:             recorder,
+		nsxWriteWorkers:      max(1, options.NSXWriteWorkers),
+		maxGroupWrites:       options.MaxGroupWritesPerPass,
+		budgets:              map[string]*groupWriteBudget{},
 	}
+}
+
+// limitGroupWrites applies the per-pass group budget of one manager to plan.
+func (r *DefaultReconcilePassRunner) limitGroupWrites(normalizedFQDN string, plan *ManagerPlan, snapshot *ManagerSnapshot) int {
+	r.budgetMu.Lock()
+	budget, ok := r.budgets[normalizedFQDN]
+	if !ok {
+		budget = &groupWriteBudget{maxGroups: r.maxGroupWrites}
+		r.budgets[normalizedFQDN] = budget
+	}
+	r.budgetMu.Unlock()
+	return budget.limit(plan, snapshot)
 }
 
 // RunReconcilePass executes one gather/process/apply reconciliation pass.
@@ -98,7 +134,11 @@ func (r *DefaultReconcilePassRunner) RunReconcilePass(ctx context.Context, trigg
 		return errors.New("reconcile pass manager client factory is required")
 	}
 	fields := reconcileTriggerLogFields(trigger)
-	r.logger.Info("starting reconcile pass gather", fields...)
+	waitStart := time.Now()
+	r.passMu.Lock()
+	defer r.passMu.Unlock()
+	passStart := time.Now()
+	r.logger.Info("starting reconcile pass gather", append(fields, zap.Duration("passLockWait", passStart.Sub(waitStart)))...)
 	clouds, err := r.kubeClient.ListNetworkClouds(ctx)
 	if err != nil {
 		r.logger.Info("reconcile pass cloud gather failed", append(fields, zap.Error(err))...)
@@ -109,9 +149,14 @@ func (r *DefaultReconcilePassRunner) RunReconcilePass(ctx context.Context, trigg
 		r.logger.Info("reconcile pass group gather failed", append(fields, zap.Error(err))...)
 		return fmt.Errorf("list reconcile pass groups: %w", err)
 	}
-	r.logger.Debug(
+	r.logger.Info(
 		"completed reconcile pass kubernetes gather",
-		append(fields, zap.Int("cloudCount", len(clouds.Items)), zap.Int("groupCount", len(groups.Items)))...,
+		append(
+			fields,
+			zap.Int("cloudCount", len(clouds.Items)),
+			zap.Int("groupCount", len(groups.Items)),
+			zap.Duration("duration", time.Since(passStart)),
+		)...,
 	)
 
 	selectedClouds := selectReconcilePassClouds(trigger, clouds.Items, groups.Items, r.logger)
@@ -137,7 +182,7 @@ func (r *DefaultReconcilePassRunner) RunReconcilePass(ctx context.Context, trigg
 			}(&selectedClouds[cloudIndex])
 		}
 		waitGroup.Wait()
-		r.logger.Info("completed reconcile pass", append(fields, zap.Int("selectedCloudCount", len(selectedClouds)))...)
+		r.logger.Info("completed reconcile pass", append(fields, zap.Int("selectedCloudCount", len(selectedClouds)), zap.Duration("duration", time.Since(passStart)))...)
 		return nil
 	}
 	for cloudIndex := range selectedClouds {
@@ -146,7 +191,7 @@ func (r *DefaultReconcilePassRunner) RunReconcilePass(ctx context.Context, trigg
 			return runErr
 		}
 	}
-	r.logger.Info("completed reconcile pass", append(fields, zap.Int("selectedCloudCount", len(selectedClouds)))...)
+	r.logger.Info("completed reconcile pass", append(fields, zap.Int("selectedCloudCount", len(selectedClouds)), zap.Duration("duration", time.Since(passStart)))...)
 	return nil
 }
 
@@ -162,6 +207,7 @@ func (r *DefaultReconcilePassRunner) runCloudPass(
 		logging.NetworkCloudFQDN(normalizedFQDN),
 		zap.String("networkCloudName", cloud.Name),
 	)
+	cloudStart := time.Now()
 	r.logger.Info("starting reconcile pass cloud processing", fields...)
 	localGroups := localGroupsForCloud(allGroups, normalizedFQDN)
 	snapshot := ManagerSnapshot{
@@ -180,13 +226,14 @@ func (r *DefaultReconcilePassRunner) runCloudPass(
 			snapshot.RemoteGroups = remoteGroupsFromManagerList(normalizedFQDN, remoteGroups)
 		}
 	}
-	r.logger.Debug(
+	r.logger.Info(
 		"completed reconcile pass cloud gather",
 		append(
 			fields,
 			zap.Int("localGroupCount", len(snapshot.LocalGroups)),
 			zap.Int("remoteGroupCount", len(snapshot.RemoteGroups)),
 			zap.Bool("gatherFailed", snapshot.GatherError != nil),
+			zap.Duration("duration", time.Since(cloudStart)),
 		)...,
 	)
 	for remoteIndex := range snapshot.RemoteGroups {
@@ -200,15 +247,17 @@ func (r *DefaultReconcilePassRunner) runCloudPass(
 			zap.String("unsupportedReason", string(remote.UnsupportedReason)),
 		)...)
 	}
+	processStart := time.Now()
 	plan, err := ProcessManagerSnapshot(snapshot, r.clock.Now())
 	if err != nil {
 		r.logger.Info("reconcile pass cloud processing failed", append(fields, zap.Error(err))...)
 		return err
 	}
-	r.logger.Debug(
+	r.logger.Info(
 		"completed reconcile pass cloud processing",
 		append(
 			fields,
+			zap.Duration("duration", time.Since(processStart)),
 			zap.Int("observeUpsertCount", len(plan.ObserveUpserts)),
 			zap.Int("managedWriteCount", len(plan.ManagedWrites)),
 			zap.Int("managedDeleteCount", len(plan.ManagedDeletes)),
@@ -230,12 +279,23 @@ func (r *DefaultReconcilePassRunner) runCloudPass(
 		}
 		r.recorder.SetManagerGroupSnapshot(normalizedFQDN, *metricsSnapshot)
 	}
-	err = applyManagerPlan(ctx, r.kubeClient, managerClient, plan, r.logger, fields)
+	deferred := r.limitGroupWrites(normalizedFQDN, plan, &snapshot)
+	if deferred > 0 {
+		r.logger.Info(
+			"deferred group writes to the next reconcile pass",
+			append(fields, zap.Int("maxGroupWritesPerPass", r.maxGroupWrites), zap.Int("deferredGroupCount", deferred))...,
+		)
+	}
+	applyStart := time.Now()
+	err = applyManagerPlan(ctx, r.kubeClient, managerClient, plan, r.nsxWriteWorkers, r.logger, fields)
 	if err != nil {
-		r.logger.Info("reconcile pass cloud apply failed", append(fields, zap.Error(err))...)
+		r.logger.Info("reconcile pass cloud apply failed", append(fields, zap.Error(err), zap.Duration("applyDuration", time.Since(applyStart)))...)
 		return err
 	}
-	r.logger.Info("completed reconcile pass cloud", fields...)
+	r.logger.Info(
+		"completed reconcile pass cloud",
+		append(fields, zap.Duration("applyDuration", time.Since(applyStart)), zap.Duration("duration", time.Since(cloudStart)))...,
+	)
 	return nil
 }
 
@@ -274,6 +334,16 @@ func selectReconcilePassClouds(
 			return nil
 		}
 		logger.Debug("reconcile pass group trigger object missing", reconcileTriggerLogFields(trigger)...)
+		return nil
+	case ReconcileTriggerManager:
+		managerFQDN := names.NormalizeNetworkCloudFQDN(trigger.Name)
+		for cloudIndex := range clouds {
+			cloud := clouds[cloudIndex]
+			if names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN) == managerFQDN {
+				return []nsxv1alpha.NSXNetworkCloud{cloud}
+			}
+		}
+		logger.Debug("reconcile pass manager trigger cloud missing", append(reconcileTriggerLogFields(trigger), logging.NetworkCloudFQDN(managerFQDN))...)
 		return nil
 	default:
 		logger.Debug("reconcile pass trigger kind ignored", reconcileTriggerLogFields(trigger)...)

@@ -558,16 +558,21 @@ func TestProcessManagerSnapshotManageGroupPlansFinalizerAdditionThroughBatchPatc
 		t.Fatalf("ProcessManagerSnapshot() error = %v", err)
 	}
 
-	patchKey := kubeapi.BatchKey{Operation: "patchFinalizers", Resource: "nsxgroups", Subresource: "finalizers", Name: "manage-needs-finalizer"}
-	patchRequest, found := plan.KubeWrites.GroupFinalizerPatches[patchKey]
+	// The group also gets a status write this pass, which changes its resourceVersion,
+	// so the finalizer patch waits for that write and uses the resourceVersion it returns.
+	statusKey := kubeapi.BatchKey{Operation: "updateStatus", Resource: "nsxgroups", Subresource: "status", Name: "manage-needs-finalizer"}
+	if _, direct := plan.KubeWrites.GroupFinalizerPatches[kubeapi.BatchKey{Operation: "patchFinalizers", Resource: "nsxgroups", Subresource: "finalizers", Name: "manage-needs-finalizer"}]; direct {
+		t.Fatalf("GroupFinalizerPatches = %#v, want the finalizer patch to wait for the status write", plan.KubeWrites.GroupFinalizerPatches)
+	}
+	if _, found := plan.KubeWrites.GroupStatusUpdates[statusKey]; !found {
+		t.Fatalf("GroupStatusUpdates = %#v, want status write for managed group", plan.KubeWrites.GroupStatusUpdates)
+	}
+	pending, found := plan.KubeWrites.GroupFinalizersAfterStatusWrite[statusKey]
 	if !found {
-		t.Fatalf("GroupFinalizerPatches = %#v, want typed finalizer patch for managed group", plan.KubeWrites.GroupFinalizerPatches)
+		t.Fatalf("GroupFinalizersAfterStatusWrite = %#v, want finalizer patch after the status write", plan.KubeWrites.GroupFinalizersAfterStatusWrite)
 	}
-	if patchRequest.ResourceVersion != "rv-manage-finalizer" {
-		t.Fatalf("patch resourceVersion = %q, want gathered rv-manage-finalizer", patchRequest.ResourceVersion)
-	}
-	if !reflect.DeepEqual(patchRequest.Finalizers, []string{"example.test/keep", stateoperator.GroupFinalizer}) {
-		t.Fatalf("patch finalizers = %#v, want unrelated finalizer plus operator finalizer", patchRequest.Finalizers)
+	if !reflect.DeepEqual(pending.Finalizers, []string{"example.test/keep", stateoperator.GroupFinalizer}) {
+		t.Fatalf("patch finalizers = %#v, want unrelated finalizer plus operator finalizer", pending.Finalizers)
 	}
 	if len(plan.ManagedDeletes) != 0 {
 		t.Fatalf("ManagedDeletes = %#v, want no delete for non-deleting managed group", plan.ManagedDeletes)
@@ -1222,13 +1227,14 @@ func TestApplyManagerPlanRunsOperationsInExactOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyManagerPlan() error = %v", err)
 	}
+	// NSX deletes go first so a finalizer removal never waits behind creates and patches.
 	want := []string{
+		"delete-group:app-delete",
 		"patch-group:app-drifted",
 		"patch-ip:app-drifted:ip-expression",
 		"patch-path:app-drifted:path-expression",
 		"patch-group:app-missing",
 		"add-ip:app-missing:cidrs",
-		"delete-group:app-delete",
 		"apply-group:observe-import",
 		"group-status:manage-drifted",
 		"remove-finalizer:observe-missing:nsx.ing.com/finalizer",
@@ -1315,7 +1321,10 @@ func TestApplyManagerPlanWriteDisabledSkipsRemainingNSXWritesButAppliesStatuses(
 	if err != nil {
 		t.Fatalf("ApplyManagerPlan() error = %v", err)
 	}
+	// The delete runs first and succeeds (only patches are disabled in this
+	// recorder); the disabled patch then stops the remaining NSX writes.
 	want := []string{
+		"delete-group:managed-delete",
 		"patch-group:managed-write",
 		"group-status:managed-write",
 		"cloud-status:cloud-a",
@@ -1475,9 +1484,10 @@ func TestApplyManagerPlanWriteDisabledSkipsClassifiedNSXPutAndDelete(t *testing.
 	if err != nil {
 		t.Fatalf("ApplyManagerPlan() error = %v", err)
 	}
-	wantOperations := []string{"patch-group:managed-patch"}
+	// Deletes run first; the disabled patch then skips the put.
+	wantOperations := []string{"delete-group:managed-delete", "patch-group:managed-patch"}
 	if !reflect.DeepEqual(recorder.operations, wantOperations) {
-		t.Fatalf("operations = %v, want only disabled patch attempt %v", recorder.operations, wantOperations)
+		t.Fatalf("operations = %v, want delete then the disabled patch attempt %v", recorder.operations, wantOperations)
 	}
 }
 
@@ -1498,11 +1508,11 @@ func TestApplyManagerPlanReturnsClassifiedNSXPatchError(t *testing.T) {
 	}
 }
 
-func TestApplyManagerPlanWriteDisabledPutSkipsClassifiedDelete(t *testing.T) {
+func TestApplyManagerPlanWriteDisabledDeleteSkipsClassifiedPut(t *testing.T) {
 	recorder := &operationRecorder{
-		putGroupErr: &nsxclient.WriteDisabledError{
-			Method:           "PUT",
-			URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/managed-put",
+		deleteGroupErr: &nsxclient.WriteDisabledError{
+			Method:           "DELETE",
+			URL:              "https://nsx-a.example.test/policy/api/v1/infra/domains/default/groups/managed-delete",
 			Reason:           nsxclient.WriteDisabledReasonGlobalConfig,
 			NetworkCloudName: "cloud-a",
 			NetworkCloudFQDN: "nsx-a.example.test",
@@ -1524,9 +1534,10 @@ func TestApplyManagerPlanWriteDisabledPutSkipsClassifiedDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyManagerPlan() error = %v", err)
 	}
-	wantOperations := []string{"put-group:managed-put"}
+	// Deletes run first; once the delete reports disabled writes, the put is skipped.
+	wantOperations := []string{"delete-group:managed-delete"}
 	if !reflect.DeepEqual(recorder.operations, wantOperations) {
-		t.Fatalf("operations = %v, want only disabled put attempt %v", recorder.operations, wantOperations)
+		t.Fatalf("operations = %v, want only disabled delete attempt %v", recorder.operations, wantOperations)
 	}
 }
 

@@ -190,7 +190,8 @@ func TestNewManagerRegistersControllersAndPeriodicSweeper(t *testing.T) {
 
 	requireSweptCloud(t, sweptClouds, "nsx-a.example.test")
 	requireObservedLogField(ctx, t, logs, "observed network cloud reconcile event", "reconcileKey", "cloud-a")
-	requireObservedLogField(ctx, t, logs, "observed group reconcile event", "reconcileKey", "group-a")
+	// NSXGroup events are queued per NSX manager, keyed by the group's network cloud FQDN.
+	requireObservedLogField(ctx, t, logs, "observed group reconcile event", "reconcileKey", "nsx-a.example.test")
 
 	stopManager()
 	err = <-managerErr
@@ -267,7 +268,7 @@ func TestNewManagerDefaultSweepUpdatesCloudStatusWithoutCustomSweep(t *testing.T
 
 	requireCloudCondition(ctx, t, apiClient, "cloud-default", nsxv1alpha.ConditionReachable, metav1.ConditionFalse)
 	requireObservedLogField(ctx, t, logs, "starting network cloud reconcile pass", "triggerKind", "networkCloud")
-	requireObservedLogField(ctx, t, logs, "starting group reconcile pass", "triggerKind", "group")
+	requireObservedLogField(ctx, t, logs, "starting group reconcile pass", "triggerKind", "manager")
 
 	stopManager()
 	err = <-managerErr

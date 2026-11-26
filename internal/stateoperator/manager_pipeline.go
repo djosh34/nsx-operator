@@ -10,6 +10,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	nsxv1alpha "github.com/djosh34/nsx-operator/api/v1alpha"
@@ -581,10 +583,9 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (*ManagerPl
 				}
 				continue
 			}
-			if !slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
-				addManagedFinalizerPatchRequest(&plan, &localBinding.Group)
-			}
-			if !exists {
+			var statusKey *kubeapi.BatchKey
+			switch {
+			case !exists:
 				write := managedWriteFromLocal(&localBinding.Group, &RemoteGroup{})
 				plan.ManagedWrites = append(plan.ManagedWrites, write)
 				ensureManagerNSXWrites(&plan.NSXWrites)
@@ -594,10 +595,8 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (*ManagerPl
 				if statusErr != nil {
 					return nil, fmt.Errorf("build missing managed status %q: %w", localBinding.Group.Name, statusErr)
 				}
-				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
-				continue
-			}
-			if !managedSpecMatchesRemote(&localBinding.Group.Spec, &remote) {
+				statusKey = appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
+			case !managedSpecMatchesRemote(&localBinding.Group.Spec, &remote):
 				write := managedWriteFromLocal(&localBinding.Group, &remote)
 				plan.ManagedWrites = append(plan.ManagedWrites, write)
 				ensureManagerNSXWrites(&plan.NSXWrites)
@@ -607,14 +606,19 @@ func ProcessManagerSnapshot(snapshot ManagerSnapshot, now time.Time) (*ManagerPl
 				if statusErr != nil {
 					return nil, fmt.Errorf("build applying managed status %q: %w", localBinding.Group.Name, statusErr)
 				}
-				appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
-				continue
+				statusKey = appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
+			default:
+				status, statusErr := matchingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, &remote, now)
+				if statusErr != nil {
+					return nil, fmt.Errorf("build matching managed status %q: %w", localBinding.Group.Name, statusErr)
+				}
+				statusKey = appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
 			}
-			status, statusErr := matchingManageStatus(localBinding.Group.Status, localBinding.Group.Generation, &remote, now)
-			if statusErr != nil {
-				return nil, fmt.Errorf("build matching managed status %q: %w", localBinding.Group.Name, statusErr)
+			if !slices.Contains(localBinding.Group.Finalizers, GroupFinalizer) {
+				// A status write in the same pass changes the resourceVersion the finalizer
+				// patch tests against, so the patch waits for the status write's result.
+				addManagedFinalizerPatchRequest(&plan, &localBinding.Group, statusKey)
 			}
-			appendGroupStatusPlanIfNeeded(&plan, localBinding.Group.Name, localBinding.Group.ResourceVersion, localBinding.Key, localBinding.Group.Status, *status, nil)
 		}
 	}
 	return &plan, nil
@@ -712,7 +716,7 @@ func ensureManagerNSXWrites(writes *ManagerNSXWritePlan) {
 //
 //nolint:gocritic // public planning API keeps value plans so tests and callers can pass literals.
 func ApplyManagerPlan(ctx context.Context, kubeApplier ManagerKubeApplier, managerClient ManagerClient, plan ManagerPlan) error {
-	return applyManagerPlan(ctx, kubeApplier, managerClient, &plan, zap.NewNop(), nil)
+	return applyManagerPlan(ctx, kubeApplier, managerClient, &plan, 1, zap.NewNop(), nil)
 }
 
 func applyManagerPlan(
@@ -720,6 +724,7 @@ func applyManagerPlan(
 	kubeApplier ManagerKubeApplier,
 	managerClient ManagerClient,
 	plan *ManagerPlan,
+	nsxWriteWorkers int,
 	logger *zap.Logger,
 	baseFields []zap.Field,
 ) error {
@@ -737,7 +742,7 @@ func applyManagerPlan(
 	}
 	var unrecordedFailures []error
 	if !plan.NSXWrites.Empty() {
-		failures, err := ApplyManagerNSXWrites(ctx, managerClient, plan.NSXWrites)
+		failures, created, err := applyManagerNSXWrites(ctx, managerClient, plan.NSXWrites, nsxWriteWorkers, logger, baseFields)
 		if err != nil {
 			return err
 		}
@@ -745,9 +750,18 @@ func applyManagerPlan(
 		if err != nil {
 			return err
 		}
+		err = recordManagedCreates(plan, created, logger, baseFields)
+		if err != nil {
+			return err
+		}
 	}
 	if !plan.KubeWrites.Empty() {
+		kubeStart := time.Now()
 		_, err := kubeApplier.ApplyManagerKubeWrites(ctx, plan.KubeWrites)
+		logger.Info(
+			"applied manager kubernetes writes",
+			append(append([]zap.Field{}, baseFields...), zap.Duration("duration", time.Since(kubeStart)), zap.Bool("failed", err != nil))...,
+		)
 		if err != nil {
 			return fmt.Errorf("apply manager kubernetes writes: %w", err)
 		}
@@ -814,6 +828,51 @@ func recordManagedWriteFailures(
 		replanGroupStatus(plan, &target, *status, logger, fields)
 	}
 	return unrecorded, nil
+}
+
+// recordManagedCreates replans the status of each group whose NSX create succeeded
+// from the group NSX returned. The create response is the remote state, so the
+// group reports Synced in this pass instead of waiting for the next one to list it.
+// A response that does not match the written spec keeps the planned status.
+func recordManagedCreates(
+	plan *ManagerPlan,
+	created map[BindingKey]*nsxclient.Group,
+	logger *zap.Logger,
+	baseFields []zap.Field,
+) error {
+	for _, key := range sortedBindingKeys(created) {
+		fields := append(append([]zap.Field{}, baseFields...), logging.NetworkCloudFQDN(key.NetworkCloudFQDN), logging.GroupID(key.GroupID))
+		target, ok := plan.writeFailureTargets[key]
+		write, planned := plan.NSXWrites.Puts[key]
+		if !ok || !planned || created[key] == nil {
+			logger.Debug("managed nsx group create has no status target; keeping planned status", fields...)
+			continue
+		}
+		fields = append(fields, zap.String("groupName", target.Name))
+		remote := RemoteGroupFromNSXGroup(key.NetworkCloudFQDN, *created[key])
+		written := nsxv1alpha.NSXGroupSpec{
+			NetworkCloudFQDN: write.Key.NetworkCloudFQDN,
+			GroupID:          write.Key.GroupID,
+			DisplayName:      write.DisplayName,
+			CIDRs:            write.CIDRs,
+			SegmentPaths:     write.SegmentPaths,
+		}
+		if len(written.CIDRs) == 0 {
+			// The put payload has no IP expression then, so the response has no CIDRs either.
+			written.CIDRs = nil
+		}
+		if !managedSpecMatchesRemote(&written, &remote) {
+			logger.Debug("managed nsx group create response differs from the written spec; keeping planned status", fields...)
+			continue
+		}
+		status, err := matchingManageStatus(target.Previous, target.Generation, &remote, plan.now)
+		if err != nil {
+			return fmt.Errorf("build created managed status %q: %w", target.Name, err)
+		}
+		target.Remote = &remote
+		replanGroupStatus(plan, &target, *status, logger, fields)
+	}
+	return nil
 }
 
 func replanGroupStatus(plan *ManagerPlan, target *managedWriteFailureTarget, status nsxv1alpha.NSXGroupStatus, logger *zap.Logger, fields []zap.Field) {
@@ -913,56 +972,149 @@ func legacyManagerNSXWrites(plan *ManagerPlan) ManagerNSXWritePlan {
 	return writes
 }
 
-// ApplyManagerNSXWrites applies classified NSX manager writes for one manager pass.
+// ApplyManagerNSXWrites applies classified NSX manager writes for one manager pass, one at a time.
 //
 // Each group write is independent: a failed write is returned in the per-group failure
 // map and the remaining writes still run. The error result is reserved for plan-level
 // problems. Once NSX writes are disabled, the remaining writes are skipped.
 func ApplyManagerNSXWrites(ctx context.Context, managerClient managerManagedWriteClient, writes ManagerNSXWritePlan) (map[BindingKey]error, error) {
-	for key := range writes.Patches {
-		if _, exists := writes.Puts[key]; exists {
-			return nil, fmt.Errorf("managed nsx group %q/%q cannot be both patched and put", key.NetworkCloudFQDN, key.GroupID)
-		}
-	}
-	failures := map[BindingKey]error{}
-	nsxWritesSkipped := false
-	for _, key := range sortedBindingKeys(writes.Patches) {
-		write := writes.Patches[key]
-		err := applyManagedWrite(ctx, managerClient, &write)
-		if err != nil {
-			if isWriteDisabled(err) {
-				nsxWritesSkipped = true
-				break
-			}
-			failures[key] = err
-		}
-	}
-	if !nsxWritesSkipped {
-		for _, key := range sortedBindingKeys(writes.Puts) {
-			write := writes.Puts[key]
-			err := applyManagedPut(ctx, managerClient, &write)
-			if err != nil {
-				if isWriteDisabled(err) {
-					nsxWritesSkipped = true
-					break
-				}
-				failures[key] = err
-			}
-		}
-	}
-	if !nsxWritesSkipped {
-		for _, key := range sortedBindingKeys(writes.Deletes) {
-			deletion := writes.Deletes[key]
-			err := managerClient.DeleteGroup(ctx, deletion.GroupID)
-			if err != nil {
-				if isWriteDisabled(err) {
-					break
-				}
-				failures[key] = fmt.Errorf("delete managed nsx group %q: %w", deletion.GroupID, err)
-			}
-		}
+	failures, _, err := applyManagerNSXWrites(ctx, managerClient, writes, 1, zap.NewNop(), nil)
+	if err != nil {
+		return nil, err
 	}
 	return failures, nil
+}
+
+type nsxGroupWrite struct {
+	key       BindingKey
+	operation managedWriteOperation
+	apply     func(context.Context) error
+}
+
+// applyManagerNSXWrites runs the writes of one plan on up to workers goroutines and
+// returns the per-group failures and the groups NSX returned for successful creates.
+// The shared NSX HTTP client enforces the per-host in-flight and rate limits, so
+// workers only needs to be large enough to keep those limits busy. Deletes go first
+// so a pending finalizer removal never waits behind a large batch of creates.
+func applyManagerNSXWrites(
+	ctx context.Context,
+	managerClient managerManagedWriteClient,
+	writes ManagerNSXWritePlan,
+	workers int,
+	logger *zap.Logger,
+	baseFields []zap.Field,
+) (map[BindingKey]error, map[BindingKey]*nsxclient.Group, error) {
+	for key := range writes.Patches {
+		if _, exists := writes.Puts[key]; exists {
+			return nil, nil, fmt.Errorf("managed nsx group %q/%q cannot be both patched and put", key.NetworkCloudFQDN, key.GroupID)
+		}
+	}
+	var mu sync.Mutex
+	created := map[BindingKey]*nsxclient.Group{}
+	queue := make([]nsxGroupWrite, 0, len(writes.Deletes)+len(writes.Patches)+len(writes.Puts))
+	for _, key := range sortedBindingKeys(writes.Deletes) {
+		deletion := writes.Deletes[key]
+		queue = append(queue, nsxGroupWrite{key: key, operation: managedWriteOperationDelete, apply: func(ctx context.Context) error {
+			err := managerClient.DeleteGroup(ctx, deletion.GroupID)
+			if err != nil {
+				return fmt.Errorf("delete managed nsx group %q: %w", deletion.GroupID, err)
+			}
+			return nil
+		}})
+	}
+	for _, key := range sortedBindingKeys(writes.Patches) {
+		write := writes.Patches[key]
+		queue = append(queue, nsxGroupWrite{key: key, operation: managedWriteOperationUpdate, apply: func(ctx context.Context) error {
+			return applyManagedWrite(ctx, managerClient, &write)
+		}})
+	}
+	for _, key := range sortedBindingKeys(writes.Puts) {
+		write := writes.Puts[key]
+		queue = append(queue, nsxGroupWrite{key: key, operation: managedWriteOperationCreate, apply: func(ctx context.Context) error {
+			group, err := applyManagedPut(ctx, managerClient, &write)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			created[key] = group
+			mu.Unlock()
+			return nil
+		}})
+	}
+	failures := map[BindingKey]error{}
+	if len(queue) == 0 {
+		return failures, created, nil
+	}
+	workers = max(1, min(workers, len(queue)))
+	logger.Info(
+		"applying managed nsx group writes",
+		append(
+			append([]zap.Field{}, baseFields...),
+			zap.Int("nsxDeleteCount", len(writes.Deletes)),
+			zap.Int("nsxPatchCount", len(writes.Patches)),
+			zap.Int("nsxPutCount", len(writes.Puts)),
+			zap.Int("nsxWriteWorkers", workers),
+		)...,
+	)
+	start := time.Now()
+	var (
+		writesDisabled atomic.Bool
+		skipped        atomic.Int64
+		waitGroup      sync.WaitGroup
+	)
+	work := make(chan nsxGroupWrite)
+	waitGroup.Add(workers)
+	for range workers {
+		go func() {
+			defer waitGroup.Done()
+			for item := range work {
+				if writesDisabled.Load() {
+					skipped.Add(1)
+					continue
+				}
+				writeStart := time.Now()
+				err := item.apply(ctx)
+				fields := append(
+					append([]zap.Field{}, baseFields...),
+					logging.NetworkCloudFQDN(item.key.NetworkCloudFQDN),
+					logging.GroupID(item.key.GroupID),
+					zap.String("writeOperation", string(item.operation)),
+					zap.Duration("duration", time.Since(writeStart)),
+				)
+				if err == nil {
+					logger.Debug("applied managed nsx group write", fields...)
+					continue
+				}
+				if isWriteDisabled(err) {
+					writesDisabled.Store(true)
+					skipped.Add(1)
+					logger.Debug("managed nsx group write skipped because nsx writes are disabled", append(fields, zap.Error(err))...)
+					continue
+				}
+				logger.Debug("managed nsx group write failed", append(fields, zap.Error(err))...)
+				mu.Lock()
+				failures[item.key] = err
+				mu.Unlock()
+			}
+		}()
+	}
+	for _, item := range queue {
+		work <- item
+	}
+	close(work)
+	waitGroup.Wait()
+	logger.Info(
+		"applied managed nsx group writes",
+		append(
+			append([]zap.Field{}, baseFields...),
+			zap.Int("nsxWriteCount", len(queue)),
+			zap.Int("nsxWriteFailureCount", len(failures)),
+			zap.Int64("nsxWriteSkippedCount", skipped.Load()),
+			zap.Int("nsxWriteWorkers", workers),
+			zap.Duration("duration", time.Since(start)),
+		)...,
+	)
+	return failures, created, nil
 }
 
 func sortedBindingKeys[T any](items map[BindingKey]T) []BindingKey {
@@ -1088,16 +1240,16 @@ func applyManagedWrite(ctx context.Context, managerClient managerManagedWriteCli
 	return nil
 }
 
-func applyManagedPut(ctx context.Context, managerClient managerManagedWriteClient, write *ManagedGroupPut) error {
+func applyManagedPut(ctx context.Context, managerClient managerManagedWriteClient, write *ManagedGroupPut) (*nsxclient.Group, error) {
 	group, err := managedGroupPutPayload(write)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = managerClient.PutGroup(ctx, write.Key.GroupID, group)
+	stored, err := managerClient.PutGroup(ctx, write.Key.GroupID, group)
 	if err != nil {
-		return fmt.Errorf("put managed nsx group %q: %w", write.Key.GroupID, err)
+		return nil, fmt.Errorf("put managed nsx group %q: %w", write.Key.GroupID, err)
 	}
-	return nil
+	return stored, nil
 }
 
 func managedGroupPutPayload(write *ManagedGroupPut) (*nsxclient.Group, error) {
