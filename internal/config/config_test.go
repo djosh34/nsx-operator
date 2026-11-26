@@ -52,6 +52,9 @@ logging:
 	if loaded.Operator.MetricsBindAddress != ":8080" {
 		t.Fatalf("MetricsBindAddress = %q, want :8080", loaded.Operator.MetricsBindAddress)
 	}
+	if loaded.Operator.MaxGroupWritesPerPass != config.DefaultMaxGroupWritesPerPass {
+		t.Fatalf("MaxGroupWritesPerPass = %d, want default %d", loaded.Operator.MaxGroupWritesPerPass, config.DefaultMaxGroupWritesPerPass)
+	}
 	if loaded.HTTPRateLimiter.MaxRequestsInFlightPerHost != 8 {
 		t.Fatalf("MaxRequestsInFlightPerHost = %d, want 8", loaded.HTTPRateLimiter.MaxRequestsInFlightPerHost)
 	}
@@ -231,14 +234,38 @@ func TestLoadMockConfigSetsKubeAPIBatchDefaultsForNormalRuntime(t *testing.T) {
 		t.Fatalf("Load() mock config error = %v", err)
 	}
 
-	if loaded.KubeAPI.NumParallelWorkers != 20 {
-		t.Fatalf("KubeAPI.NumParallelWorkers = %d, want 20", loaded.KubeAPI.NumParallelWorkers)
+	if loaded.KubeAPI.NumParallelWorkers != 50 {
+		t.Fatalf("KubeAPI.NumParallelWorkers = %d, want 50", loaded.KubeAPI.NumParallelWorkers)
 	}
-	if loaded.KubeAPI.MaxRequestsPerSecond != 100 {
-		t.Fatalf("KubeAPI.MaxRequestsPerSecond = %d, want 100", loaded.KubeAPI.MaxRequestsPerSecond)
+	if loaded.KubeAPI.MaxRequestsPerSecond != 500 {
+		t.Fatalf("KubeAPI.MaxRequestsPerSecond = %d, want 500", loaded.KubeAPI.MaxRequestsPerSecond)
 	}
 	if loaded.KubeAPI.MaxRequestsInFlight != 100 {
 		t.Fatalf("KubeAPI.MaxRequestsInFlight = %d, want 100", loaded.KubeAPI.MaxRequestsInFlight)
+	}
+}
+
+func TestLoadMaxGroupWritesPerPassFromConfig(t *testing.T) {
+	configPath := writeConfig(t, t.TempDir(), `
+operator:
+  tickInterval: 30s
+  maxGroupWritesPerPass: 42
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 8
+  maxRequestsPerSecondPerHost: 20
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: info
+`)
+	loaded, err := config.Load(config.Options{Path: configPath, Environ: map[string]string{}})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Operator.MaxGroupWritesPerPass != 42 {
+		t.Fatalf("MaxGroupWritesPerPass = %d, want 42", loaded.Operator.MaxGroupWritesPerPass)
 	}
 }
 
@@ -763,6 +790,20 @@ logging:
 		"zero tick interval": `
 operator:
   tickInterval: 0s
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 8
+  maxRequestsPerSecondPerHost: 20
+nsx:
+  auth:
+    username: config-user
+    password: config-pass
+logging:
+  level: info
+`,
+		"negative max group writes per pass": `
+operator:
+  tickInterval: 30s
+  maxGroupWritesPerPass: -1
 httpRateLimiter:
   maxRequestsInFlightPerHost: 8
   maxRequestsPerSecondPerHost: 20

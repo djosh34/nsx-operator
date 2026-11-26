@@ -66,12 +66,25 @@ func NewClient(options Options) (*Client, error) {
 	if config.UserAgent == "" {
 		config.UserAgent = rest.DefaultKubernetesUserAgent()
 	}
+	// client-go throttles every REST client on its own (controller-runtime sets 20 QPS,
+	// burst 30), which silently caps batches far below kubeAPI.maxRequestsPerSecond.
+	// The batch limiter is the configured limit, so the REST client gets the same one.
+	batchLimits := normalizeBatchConfig(options.BatchConfig)
+	config.QPS = float32(batchLimits.MaxRequestsPerSecond)
+	config.Burst = batchLimits.MaxRequestsPerSecond
+	config.RateLimiter = nil
 	restClient, err := rest.RESTClientFor(config)
 	if err != nil {
 		return nil, fmt.Errorf("construct nsx kubernetes rest client: %w", err)
 	}
 	parameterCodec := runtime.NewParameterCodec(scheme)
-	log.Info("constructed typed kubernetes crd client", zap.String("apiGroup", nsxv1alpha.GroupName), zap.String("apiVersion", nsxv1alpha.Version))
+	log.Info(
+		"constructed typed kubernetes crd client",
+		zap.String("apiGroup", nsxv1alpha.GroupName),
+		zap.String("apiVersion", nsxv1alpha.Version),
+		zap.Float32("restClientQPS", config.QPS),
+		zap.Int("restClientBurst", config.Burst),
+	)
 
 	return &Client{
 		networkClouds: &NetworkCloudClient{

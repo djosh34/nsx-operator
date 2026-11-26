@@ -7,6 +7,9 @@
 operator:
   tickInterval: 30s
   metricsBindAddress: "127.0.0.1:18081"
+  # Groups with writes per manager pass. At 5 requests/s, 100 groups is a pass of
+  # about 20s, so deletes and status updates are never stuck behind a huge pass.
+  maxGroupWritesPerPass: 100
 httpRateLimiter:
   maxRequestsInFlightPerHost: 2
   maxRequestsPerSecondPerHost: 5

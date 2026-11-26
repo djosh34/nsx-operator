@@ -3,6 +3,7 @@ package stateoperator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -137,11 +138,18 @@ func addGroupFinalizerPatchRequest(plan *ManagerPlan, group *nsxv1alpha.NSXGroup
 	}
 }
 
-func addManagedFinalizerPatchRequest(plan *ManagerPlan, group *nsxv1alpha.NSXGroup) {
+func addManagedFinalizerPatchRequest(plan *ManagerPlan, group *nsxv1alpha.NSXGroup, afterStatusWrite *kubeapi.BatchKey) {
 	ensureManagerKubeWrites(&plan.KubeWrites)
 	finalizers := copyStringSlice(group.Finalizers)
 	if !slices.Contains(finalizers, GroupFinalizer) {
 		finalizers = append(finalizers, GroupFinalizer)
+	}
+	if afterStatusWrite != nil {
+		plan.KubeWrites.GroupFinalizersAfterStatusWrite[*afterStatusWrite] = GroupFinalizerAfterStatusWrite{
+			Name:       group.Name,
+			Finalizers: finalizers,
+		}
+		return
 	}
 	key := groupBatchKey("patchFinalizers", "finalizers", group.Name)
 	plan.KubeWrites.GroupFinalizerPatches[key] = kubeapi.GroupFinalizerPatchRequest{
@@ -232,28 +240,71 @@ func (a *kubeAPIAdapter) ApplyManagerKubeWrites(ctx context.Context, writes Mana
 		zap.Int("cloudStatusCount", len(writes.CloudStatusUpdates)),
 	)
 
+	// A failed item only affects its own object and the writes that wait for it. Every
+	// other write in the plan still runs, so one conflict cannot hold back, say, all
+	// finalizer removals of the pass; the failures are returned together at the end.
+	var failures []error
+	collect := func(phase string, err error) error {
+		if err == nil {
+			return nil
+		}
+		var batchErr *kubeapi.BatchError
+		if !errors.As(err, &batchErr) {
+			return fmt.Errorf("%s: %w", phase, err)
+		}
+		logger.Info(
+			"manager kubernetes write phase had item failures; continuing with remaining writes",
+			logging.Component("stateoperator"),
+			zap.String("phase", phase),
+			zap.Int("failedItemCount", len(batchErr.Items)),
+		)
+		failures = append(failures, fmt.Errorf("%s: %w", phase, err))
+		return nil
+	}
+	skipDependent := func(kind string, name string, sourceKey kubeapi.BatchKey) {
+		logger.Debug(
+			"skipping manager kubernetes write because the write it waits for failed",
+			logging.Component("stateoperator"),
+			zap.String("writeKind", kind),
+			zap.String("groupName", name),
+			zap.String("sourceOperation", sourceKey.Operation),
+			zap.String("sourceName", sourceKey.Name),
+		)
+	}
+
 	groupResults := map[kubeapi.BatchKey]*nsxv1alpha.NSXGroup{}
-	createResults, _, err := a.client.Groups().CreateBatch(ctx, writes.GroupCreates)
+	createResults, createErrors, err := a.client.Groups().CreateBatch(ctx, writes.GroupCreates)
+	err = collect("create manager groups", err)
 	if err != nil {
-		return nil, fmt.Errorf("create manager groups: %w", err)
+		return nil, err
 	}
 	for key, created := range createResults {
 		groupResults[key] = created
 		result.GroupCreates[key] = created
 	}
-	updateResults, _, err := a.client.Groups().UpdateBatch(ctx, writes.GroupUpdates)
+	updateResults, updateErrors, err := a.client.Groups().UpdateBatch(ctx, writes.GroupUpdates)
+	err = collect("update manager groups", err)
 	if err != nil {
-		return nil, fmt.Errorf("update manager groups: %w", err)
+		return nil, err
 	}
 	for key, updated := range updateResults {
 		groupResults[key] = updated
 		result.GroupUpdates[key] = updated
 	}
+	groupWriteFailed := func(key kubeapi.BatchKey) bool {
+		_, createFailed := createErrors[key]
+		_, updateFailed := updateErrors[key]
+		return createFailed || updateFailed
+	}
 
 	statusRequests := copyGroupStatusRequests(writes.GroupStatusUpdates)
 	for sourceKey, pendingStatus := range writes.GroupStatusesAfterGroupWrite {
-		result, ok := groupResults[sourceKey]
-		if !ok || result == nil {
+		groupResult, ok := groupResults[sourceKey]
+		if !ok || groupResult == nil {
+			if groupWriteFailed(sourceKey) {
+				skipDependent("status", pendingStatus.Name, sourceKey)
+				continue
+			}
 			return nil, fmt.Errorf("manager group status %q waits for missing group write result %#v", pendingStatus.Name, sourceKey)
 		}
 		statusKey := groupBatchKey("updateStatus", "status", pendingStatus.Name)
@@ -261,20 +312,21 @@ func (a *kubeAPIAdapter) ApplyManagerKubeWrites(ctx context.Context, writes Mana
 			Name:   pendingStatus.Name,
 			Status: pendingStatus.Status,
 			Options: kubeapi.StatusUpdateOptions{
-				ResourceVersion: result.ResourceVersion,
+				ResourceVersion: groupResult.ResourceVersion,
 			},
 		}
 		logger.Debug(
 			"manager group status uses prior group write resource version",
 			logging.Component("stateoperator"),
 			zap.String("groupName", pendingStatus.Name),
-			zap.String("resourceVersion", result.ResourceVersion),
+			zap.String("resourceVersion", groupResult.ResourceVersion),
 		)
 	}
 
-	statusResults, _, err := a.client.Groups().UpdateStatusBatch(ctx, statusRequests)
+	statusResults, statusErrors, err := a.client.Groups().UpdateStatusBatch(ctx, statusRequests)
+	err = collect("update manager group statuses", err)
 	if err != nil {
-		return nil, fmt.Errorf("update manager group statuses: %w", err)
+		return nil, err
 	}
 	for key, status := range statusResults {
 		result.GroupStatusUpdates[key] = status
@@ -284,6 +336,10 @@ func (a *kubeAPIAdapter) ApplyManagerKubeWrites(ctx context.Context, writes Mana
 	for sourceKey, pendingFinalizer := range writes.GroupFinalizersAfterGroupWrite {
 		groupResult, ok := groupResults[sourceKey]
 		if !ok || groupResult == nil {
+			if groupWriteFailed(sourceKey) {
+				skipDependent("finalizer", pendingFinalizer.Name, sourceKey)
+				continue
+			}
 			return nil, fmt.Errorf("manager finalizer patch %q waits for missing group write result %#v", pendingFinalizer.Name, sourceKey)
 		}
 		finalizerRequests[groupBatchKey("patchFinalizers", "finalizers", pendingFinalizer.Name)] = kubeapi.GroupFinalizerPatchRequest{
@@ -301,6 +357,11 @@ func (a *kubeAPIAdapter) ApplyManagerKubeWrites(ctx context.Context, writes Mana
 	for sourceKey, pendingFinalizer := range writes.GroupFinalizersAfterStatusWrite {
 		statusResult, ok := statusResults[sourceKey]
 		if !ok || statusResult == nil {
+			_, statusFailed := statusErrors[sourceKey]
+			if statusFailed || groupWriteFailed(groupBatchKey("create", "", pendingFinalizer.Name)) || groupWriteFailed(groupBatchKey("update", "", pendingFinalizer.Name)) {
+				skipDependent("finalizer", pendingFinalizer.Name, sourceKey)
+				continue
+			}
 			return nil, fmt.Errorf("manager finalizer patch %q waits for missing status write result %#v", pendingFinalizer.Name, sourceKey)
 		}
 		finalizerRequests[groupBatchKey("patchFinalizers", "finalizers", pendingFinalizer.Name)] = kubeapi.GroupFinalizerPatchRequest{
@@ -317,25 +378,34 @@ func (a *kubeAPIAdapter) ApplyManagerKubeWrites(ctx context.Context, writes Mana
 	}
 
 	finalizerResults, _, err := a.client.Groups().PatchFinalizersBatch(ctx, finalizerRequests)
+	err = collect("patch manager group finalizers", err)
 	if err != nil {
-		return nil, fmt.Errorf("patch manager group finalizers: %w", err)
+		return nil, err
 	}
 	for key, finalizer := range finalizerResults {
 		result.GroupFinalizerPatches[key] = finalizer
 	}
-	_, _, err = a.client.Groups().DeleteBatch(ctx, writes.GroupDeletes)
+	_, deleteErrors, err := a.client.Groups().DeleteBatch(ctx, writes.GroupDeletes)
+	err = collect("delete manager observe groups", err)
 	if err != nil {
-		return nil, fmt.Errorf("delete manager observe groups: %w", err)
+		return nil, err
 	}
 	for key := range writes.GroupDeletes {
+		if _, failed := deleteErrors[key]; failed {
+			continue
+		}
 		result.GroupDeletes[key] = struct{}{}
 	}
 	cloudResults, _, err := a.client.NetworkClouds().UpdateStatusBatch(ctx, writes.CloudStatusUpdates)
+	err = collect("update manager cloud statuses", err)
 	if err != nil {
-		return nil, fmt.Errorf("update manager cloud statuses: %w", err)
+		return nil, err
 	}
 	for key, cloud := range cloudResults {
 		result.CloudStatusUpdates[key] = cloud
+	}
+	if len(failures) > 0 {
+		return nil, errors.Join(failures...)
 	}
 	return result, nil
 }
