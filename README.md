@@ -105,6 +105,16 @@ sleep 10
 kubectl get nsxgroups
 ```
 
+Delete it again. An Observe group follows NSX, so delete it in NSX and the
+operator removes the NSXGroup from Kubernetes on its next sweep:
+
+```bash
+curl -s -X DELETE -u nsx_admin:nsx_password \
+  http://127.0.0.1:18080/policy/api/v1/infra/domains/default/groups/made-in-nsx
+sleep 10
+kubectl get nsxgroups
+```
+
 Scale: create N managed groups at once (here 100), then count how many are synced:
 
 ```bash
