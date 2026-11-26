@@ -58,9 +58,10 @@ services:
         source: ./ui/nginx.conf
         target: /etc/nginx/conf.d/default.conf
         read_only: true
+      # Directory mount, so edits to index.html show up without a restart.
       - type: bind
-        source: ./ui/index.html
-        target: /usr/share/nginx/html/index.html
+        source: ./ui
+        target: /usr/share/nginx/html
         read_only: true
 
 volumes:
