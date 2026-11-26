@@ -2676,13 +2676,13 @@ func startStateoperatorClientsWithRecorder(t *testing.T, recorder operatormetric
 		t.Fatalf("construct controller client: %v", err)
 	}
 	return stateoperatorClients{
-			typed:      typedClient,
-			controller: controllerClient,
-		}, func() {
-			if err := testEnvironment.Stop(); err != nil {
-				t.Errorf("stop envtest API server: %v", err)
-			}
+		typed:      typedClient,
+		controller: controllerClient,
+	}, func() {
+		if err := testEnvironment.Stop(); err != nil {
+			t.Errorf("stop envtest API server: %v", err)
 		}
+	}
 }
 
 const (

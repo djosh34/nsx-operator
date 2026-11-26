@@ -1,0 +1,11 @@
+# NSXNetworkCloud for a real NSX-T manager. Replace the FQDN with your manager's.
+# writesEnabled false keeps this manager read-only even if the global config allows writes.
+apiVersion: nsx.ing.com/v1alpha
+kind: NSXNetworkCloud
+metadata:
+  name: nsx-lab
+spec:
+  networkCloudFQDN: nsx-manager.example.com
+  networkCloudId: nsx-lab
+  name: NSX lab manager
+  writesEnabled: false

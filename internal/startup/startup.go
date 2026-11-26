@@ -76,6 +76,8 @@ func Run(options Options) error {
 		zap.String("logging_level", loadedConfig.Logging.Level),
 		zap.String("credential_source", string(loadedConfig.NSX.Auth.Source)),
 		zap.Bool("nsx_writes_enabled", loadedConfig.NSX.WritesEnabled),
+		zap.String("nsx_tls_ca_bundle_file", loadedConfig.NSX.TLS.CABundleFile),
+		zap.Bool("nsx_tls_insecure_skip_verify", loadedConfig.NSX.TLS.InsecureSkipVerify),
 		zap.Duration("operator_tick_interval", loadedConfig.Operator.TickInterval),
 		zap.String("operator_metrics_bind_address", loadedConfig.Operator.MetricsBindAddress),
 		zap.Int("http_max_requests_in_flight_per_host", loadedConfig.HTTPRateLimiter.MaxRequestsInFlightPerHost),

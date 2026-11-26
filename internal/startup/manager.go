@@ -3,6 +3,8 @@ package startup
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -110,7 +112,11 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 		logger.Info("typed kubernetes crd client construction failed", logging.Component("startup"), zap.Error(err))
 		return nil, fmt.Errorf("construct typed kubernetes crd client: %w", err)
 	}
-	nsxHTTPClient := newNSXHTTPClient(options.Config.HTTPRateLimiter, logger)
+	nsxHTTPClient, err := newNSXHTTPClient(options.Config.HTTPRateLimiter, options.Config.NSX.TLS, logger)
+	if err != nil {
+		logger.Info("nsx manager http client construction failed", logging.Component("startup"), zap.Error(err))
+		return nil, fmt.Errorf("construct nsx manager http client: %w", err)
+	}
 	managerClientFactory := func(_ context.Context, cloud nsxv1alpha.NSXNetworkCloud) (stateoperator.ManagerClient, error) {
 		normalizedFQDN := names.NormalizeNetworkCloudFQDN(cloud.Spec.NetworkCloudFQDN)
 		managerClient, clientErr := nsxclient.NewClient(nsxclient.Options{
@@ -190,7 +196,7 @@ func NewManager(options ManagerOptions) (manager.Manager, error) {
 	return runtimeManager, nil
 }
 
-func newNSXHTTPClient(cfg config.HTTPRateLimiterConfig, logger *zap.Logger) *http.Client {
+func newNSXHTTPClient(cfg config.HTTPRateLimiterConfig, tlsCfg config.TLSConfig, logger *zap.Logger) (*http.Client, error) {
 	limiterConfig := httpratelimit.Config{
 		MaxRequestsInFlightPerHost:  cfg.MaxRequestsInFlightPerHost,
 		MaxRequestsPerSecondPerHost: cfg.MaxRequestsPerSecondPerHost,
@@ -201,9 +207,51 @@ func newNSXHTTPClient(cfg config.HTTPRateLimiterConfig, logger *zap.Logger) *htt
 		zap.Int("http_max_requests_in_flight_per_host", limiterConfig.MaxRequestsInFlightPerHost),
 		zap.Int("http_max_requests_per_second_per_host", limiterConfig.MaxRequestsPerSecondPerHost),
 	)
-	return &http.Client{
-		Transport: httpratelimit.NewRoundTripper(http.DefaultTransport, limiterConfig, logger),
+	baseTransport, err := newNSXBaseTransport(tlsCfg, logger)
+	if err != nil {
+		return nil, err
 	}
+	return &http.Client{
+		Transport: httpratelimit.NewRoundTripper(baseTransport, limiterConfig, logger),
+	}, nil
+}
+
+// newNSXBaseTransport returns http.DefaultTransport unless NSX TLS settings require a dedicated transport.
+func newNSXBaseTransport(tlsCfg config.TLSConfig, logger *zap.Logger) (http.RoundTripper, error) {
+	if tlsCfg.CABundleFile == "" && !tlsCfg.InsecureSkipVerify {
+		logger.Debug("nsx manager tls uses system root certificates", logging.Component("startup"))
+		return http.DefaultTransport, nil
+	}
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errors.New("nsx tls settings require http.DefaultTransport to be *http.Transport")
+	}
+	rootCAs, err := tlsCfg.RootCAs()
+	if err != nil {
+		return nil, fmt.Errorf("load nsx tls root certificates: %w", err)
+	}
+	transport := defaultTransport.Clone()
+	//nolint:gosec // InsecureSkipVerify is an explicit, warned-about operator opt-in for lab NSX managers.
+	transport.TLSClientConfig = &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		RootCAs:            rootCAs,
+		InsecureSkipVerify: tlsCfg.InsecureSkipVerify,
+	}
+	if tlsCfg.CABundleFile != "" {
+		logger.Info(
+			"nsx manager tls trusts system roots plus ca bundle",
+			logging.Component("startup"),
+			zap.String("ca_bundle_file", tlsCfg.CABundleFile),
+		)
+	}
+	if tlsCfg.InsecureSkipVerify {
+		logger.Warn(
+			"nsx manager tls certificate verification is disabled by nsx.tls.insecureSkipVerify; do not use in production",
+			logging.Component("startup"),
+			zap.Bool("insecure_skip_verify", true),
+		)
+	}
+	return transport, nil
 }
 
 func nsxManagerBaseURL(cfg *config.NSXConfig, normalizedFQDN string) string {

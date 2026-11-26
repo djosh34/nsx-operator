@@ -230,7 +230,7 @@ func (r *DefaultReconcilePassRunner) runCloudPass(
 		}
 		r.recorder.SetManagerGroupSnapshot(normalizedFQDN, *metricsSnapshot)
 	}
-	err = ApplyManagerPlan(ctx, r.kubeClient, managerClient, *plan)
+	err = applyManagerPlan(ctx, r.kubeClient, managerClient, plan, r.logger, fields)
 	if err != nil {
 		r.logger.Info("reconcile pass cloud apply failed", append(fields, zap.Error(err))...)
 		return err

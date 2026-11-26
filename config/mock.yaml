@@ -1,0 +1,18 @@
+# nsx-operator config for the local NSX-T mock API started by scripts/k8s-up.sh.
+operator:
+  tickInterval: 5s
+  metricsBindAddress: "127.0.0.1:18081"
+httpRateLimiter:
+  maxRequestsInFlightPerHost: 4
+  maxRequestsPerSecondPerHost: 20
+kubeAPI:
+  numParallelWorkers: 20
+  maxRequestsPerSecond: 100
+  maxRequestsInFlight: 100
+nsx:
+  urlScheme: http
+  writesEnabled: true
+  auth:
+    command: ./scripts/nsx-auth-mock.sh
+logging:
+  level: info

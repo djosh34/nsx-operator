@@ -1,0 +1,9 @@
+# NSXNetworkCloud for the local NSX-T mock API (scripts/k8s-up.sh publishes it on 127.0.0.1:18080).
+apiVersion: nsx.ing.com/v1alpha
+kind: NSXNetworkCloud
+metadata:
+  name: mockapi
+spec:
+  networkCloudFQDN: 127.0.0.1:18080
+  networkCloudId: mockapi
+  name: Mock API

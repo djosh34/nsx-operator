@@ -1,3 +1,5 @@
 .bin/
 coverage.out
-config/compose/generated/
+.local/
+config/real-nsx.yaml
+scripts/nsx-auth.sh

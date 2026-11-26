@@ -13,7 +13,7 @@ import (
 func TestLoadValidConfigCredentials(t *testing.T) {
 	dir := t.TempDir()
 	caBundlePath := filepath.Join(dir, "ca.pem")
-	err := os.WriteFile(caBundlePath, []byte("certificate"), 0o600)
+	err := os.WriteFile(caBundlePath, selfSignedCertificatePEM(t), 0o600)
 	if err != nil {
 		t.Fatalf("write CA bundle: %v", err)
 	}
@@ -60,6 +60,9 @@ logging:
 	}
 	if loaded.NSX.TLS.CABundleFile != caBundlePath {
 		t.Fatalf("CABundleFile = %q, want %q", loaded.NSX.TLS.CABundleFile, caBundlePath)
+	}
+	if loaded.NSX.TLS.InsecureSkipVerify {
+		t.Fatal("InsecureSkipVerify = true, want default false")
 	}
 	if loaded.Logging.Level != "info" {
 		t.Fatalf("Level = %q, want info", loaded.Logging.Level)
@@ -219,13 +222,13 @@ nsx:
 	}
 }
 
-func TestLoadComposeConfigSetsKubeAPIBatchDefaultsForNormalRuntime(t *testing.T) {
+func TestLoadMockConfigSetsKubeAPIBatchDefaultsForNormalRuntime(t *testing.T) {
 	loaded, err := config.Load(config.Options{
-		Path:    filepath.Join("..", "..", "config", "compose", "nsx-operator-config.yaml"),
-		Environ: map[string]string{},
+		Path:    filepath.Join("..", "..", "config", "mock.yaml"),
+		Environ: map[string]string{"NSX_USERNAME": "env-user", "NSX_PASSWORD": "env-pass"},
 	})
 	if err != nil {
-		t.Fatalf("Load() compose config error = %v", err)
+		t.Fatalf("Load() mock config error = %v", err)
 	}
 
 	if loaded.KubeAPI.NumParallelWorkers != 20 {
