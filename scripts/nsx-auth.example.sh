@@ -13,16 +13,22 @@ secrets_dir="${NSX_SECRETS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 username="$(cat "${secrets_dir}/username")"
 password="$(cat "${secrets_dir}/password")"
 
+# shellcheck disable=SC1003 # single-quoted backslash is a literal backslash
 json_escape() {
-  # Characters held in variables so bash 3.2 (macOS) and bash 5 escape the same way.
-  # shellcheck disable=SC1003 # bs is a literal backslash
-  local value="$1" bs='\' dq='"' tab=$'\t' cr=$'\r' nl=$'\n'
-  value="${value//"${bs}"/${bs}${bs}}"
-  value="${value//"${dq}"/${bs}${dq}}"
-  value="${value//"${tab}"/${bs}t}"
-  value="${value//"${cr}"/${bs}r}"
-  value="${value//"${nl}"/${bs}n}"
-  printf '%s' "${value}"
+  # One character at a time: the same result on bash 3.2 (macOS) through 5.2+.
+  local value="$1" out='' ch i
+  for ((i = 0; i < ${#value}; i++)); do
+    ch="${value:i:1}"
+    case "${ch}" in
+      '\') out+='\\' ;;
+      '"') out+='\"' ;;
+      $'\t') out+='\t' ;;
+      $'\r') out+='\r' ;;
+      $'\n') out+='\n' ;;
+      *) out+="${ch}" ;;
+    esac
+  done
+  printf '%s' "${out}"
 }
 
 printf '{"username":"%s","password":"%s"}\n' "$(json_escape "${username}")" "$(json_escape "${password}")"
