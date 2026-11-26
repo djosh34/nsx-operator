@@ -102,6 +102,13 @@ sleep 10
 kubectl get nsxgroups
 ```
 
+Scale: create N managed groups at once (here 100), then count how many are synced:
+
+```bash
+scripts/make-nsxgroups.sh 100
+kubectl get nsxgroups --no-headers | awk '{print $5}' | sort | uniq -c
+```
+
 Clean up: stop the operator with Ctrl-C, then remove k3s, the mock API, their
 volumes and the kubeconfig:
 
