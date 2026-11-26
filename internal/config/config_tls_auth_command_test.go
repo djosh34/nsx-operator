@@ -318,8 +318,8 @@ func requireLogsExclude(t *testing.T, logs *observer.ObservedLogs, secret string
 	if len(entries) == 0 {
 		t.Fatal("no log entries observed, want auth command logging")
 	}
-	for _, entry := range entries {
-		rendered := entry.Message + fmt.Sprint(entry.ContextMap())
+	for index := range entries {
+		rendered := entries[index].Message + fmt.Sprint(entries[index].ContextMap())
 		if strings.Contains(rendered, secret) {
 			t.Fatalf("log entry leaked password: %s", rendered)
 		}

@@ -222,13 +222,13 @@ nsx:
 	}
 }
 
-func TestLoadComposeConfigSetsKubeAPIBatchDefaultsForNormalRuntime(t *testing.T) {
+func TestLoadMockConfigSetsKubeAPIBatchDefaultsForNormalRuntime(t *testing.T) {
 	loaded, err := config.Load(config.Options{
-		Path:    filepath.Join("..", "..", "config", "compose", "nsx-operator-config.yaml"),
-		Environ: map[string]string{},
+		Path:    filepath.Join("..", "..", "config", "mock.yaml"),
+		Environ: map[string]string{"NSX_USERNAME": "env-user", "NSX_PASSWORD": "env-pass"},
 	})
 	if err != nil {
-		t.Fatalf("Load() compose config error = %v", err)
+		t.Fatalf("Load() mock config error = %v", err)
 	}
 
 	if loaded.KubeAPI.NumParallelWorkers != 20 {
